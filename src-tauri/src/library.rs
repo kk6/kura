@@ -29,6 +29,24 @@ const MIGRATIONS: &[&str] = &[
         parent_id INTEGER REFERENCES categories(id),
         sort_order INTEGER NOT NULL DEFAULT 0
     )",
+    // 時刻は UNIX 時間のミリ秒。hash の一意制約は、重複を取り込まない決まり（FR-204）の最後の守り
+    "CREATE TABLE images(
+        id INTEGER PRIMARY KEY,
+        file_name TEXT NOT NULL,
+        hash TEXT NOT NULL UNIQUE,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        file_size INTEGER NOT NULL,
+        file_mtime INTEGER NOT NULL,
+        color TEXT NOT NULL,
+        category_id INTEGER REFERENCES categories(id),
+        rating INTEGER NOT NULL DEFAULT 0,
+        memo TEXT NOT NULL DEFAULT '',
+        imported_at INTEGER NOT NULL,
+        registered_at INTEGER NOT NULL,
+        deleted_at INTEGER,
+        missing_at INTEGER
+    )",
 ];
 
 pub struct Library {
@@ -100,7 +118,12 @@ fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
 
 // 操作の種類ごとの DB の更新。ファイルを動かす操作を作るタスクで種類を足す
 fn apply_op(_tx: &Transaction, op: &PendingOp) -> Result<(), String> {
-    Err(format!("未知の操作の種類です（{}）", op.kind))
+    match op.kind.as_str() {
+        // 登録に要る情報（ハッシュ、幅と高さなど）は予定に残していない。ファイルは置いたままにし、
+        // 差分検出（FR-104）が新しいファイルとして取り込みと同じ扱いで登録する
+        "import" => Ok(()),
+        _ => Err(format!("未知の操作の種類です（{}）", op.kind)),
+    }
 }
 
 fn migrate(conn: &mut Connection, migrations: &[&str]) -> Result<(), String> {

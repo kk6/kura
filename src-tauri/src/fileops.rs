@@ -587,6 +587,32 @@ mod tests {
     }
 
     #[test]
+    fn コピーしたファイルは元ファイルの更新日時を引き継ぐ() {
+        let (_d, mut lib) = setup();
+        let outside = tempfile::tempdir().unwrap();
+        let src = outside.path().join("a.jpg");
+        fs::write(&src, "A").unwrap();
+        // exFAT の更新日時の精度（10ミリ秒）でも同じ値になるよう、秒単位の時刻にする
+        let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        fs::File::options()
+            .write(true)
+            .open(&src)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+        let req = Request {
+            copy: true,
+            target_id: None,
+            ..mv(0, "", "立ち", "a.jpg", OnConflict::Number)
+        };
+
+        transfer(&mut lib, Request { src: &src, ..req }, &|_, _| Ok(())).unwrap();
+
+        let copied = fs::metadata(lib.root.join("立ち/a.jpg")).unwrap();
+        assert_eq!(copied.modified().unwrap(), mtime);
+    }
+
+    #[test]
     fn 移動元がなければエラーにして予定を残さない() {
         let (_d, mut lib) = setup();
 
