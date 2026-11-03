@@ -498,6 +498,56 @@ mod tests {
         assert_eq!(files(&env.lib.root.join("_未分類")), ["A (2).png", "a.png"]);
     }
 
+    /// 幅 w・高さ h の JPEG を作り、orientation があれば Exif（APP1）に向きを書き込む
+    fn make_jpeg(env: &Env, name: &str, w: u32, h: u32, orientation: Option<u8>) -> PathBuf {
+        let path = make(env, name, w, h, [0, 0, 0, 255], ImageFormat::Jpeg);
+        if let Some(o) = orientation {
+            // image クレートは Exif を書けないので、APP1 を組み立てて SOI（先頭2バイト）の直後に入れる
+            let mut app1 = vec![0xFF, 0xE1, 0, 34];
+            app1.extend_from_slice(b"Exif\0\0");
+            // TIFF ヘッダー（ビッグエンディアン、IFD は8バイト目から）
+            app1.extend_from_slice(b"MM\0\x2A\0\0\0\x08");
+            // IFD：項目1つ（0x0112 Orientation、SHORT、1個、値 o）、次の IFD はなし
+            app1.extend_from_slice(&[0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, o, 0, 0]);
+            app1.extend_from_slice(&[0, 0, 0, 0]);
+            assert_eq!(app1.len(), 2 + 34);
+            let mut body = fs::read(&path).unwrap();
+            body.splice(2..2, app1);
+            fs::write(&path, body).unwrap();
+            set_mtime(&path);
+        }
+        path
+    }
+
+    #[test]
+    fn exifの向きが6の画像は幅と高さを入れ替えて記録しサムネイルも回す() {
+        let mut env = setup();
+        let src = make_jpeg(&env, "a.jpg", 400, 200, Some(6));
+        let body = fs::read(&src).unwrap();
+
+        let id = added(import(&mut env.lib, &src, None).unwrap());
+
+        let r = row(&env.lib, id);
+        assert_eq!((r.width, r.height), (200, 400));
+        let thumb = image::open(env.lib.root.join(format!(".kura/thumbs/{}.jpg", r.hash))).unwrap();
+        assert_eq!((thumb.width(), thumb.height()), (200, 400));
+        // 元ファイルの中身は変えない（回すのは表示上だけ）
+        assert_eq!(fs::read(env.lib.root.join("_未分類/a.jpg")).unwrap(), body);
+    }
+
+    #[test]
+    fn exifの向きがないか1の画像は幅と高さをそのまま記録する() {
+        let mut env = setup();
+        let none = make_jpeg(&env, "none.jpg", 400, 200, None);
+        let one = make_jpeg(&env, "one.jpg", 400, 200, Some(1));
+
+        for src in [none, one] {
+            let id = added(import(&mut env.lib, &src, None).unwrap());
+            let r = row(&env.lib, id);
+            assert_eq!((r.width, r.height), (400, 200), "{}", src.display());
+        }
+    }
+
     #[test]
     fn サムネイルは幅320pxに縮め小さい画像は拡大しない() {
         let mut env = setup();
