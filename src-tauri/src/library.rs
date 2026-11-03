@@ -22,6 +22,13 @@ const MIGRATIONS: &[&str] = &[
         src TEXT NOT NULL,
         dst TEXT NOT NULL
     )",
+    // 同名の判定は DB ではなく実際のフォルダの中身で行うので、name に一意制約は付けない
+    "CREATE TABLE categories(
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_id INTEGER REFERENCES categories(id),
+        sort_order INTEGER NOT NULL DEFAULT 0
+    )",
 ];
 
 pub struct Library {

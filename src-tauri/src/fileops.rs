@@ -108,7 +108,7 @@ fn split_ext(name: &str) -> (&str, &str) {
     }
 }
 
-fn free_name(
+pub fn free_name(
     dir: &Path,
     name: &str,
     except: Option<&OsStr>,
