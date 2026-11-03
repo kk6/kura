@@ -1,3 +1,4 @@
+mod fileops;
 mod library;
 mod recent;
 

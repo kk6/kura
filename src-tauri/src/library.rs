@@ -4,20 +4,28 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
+
+use crate::fileops::{self, PendingOp};
 
 pub const KURA_DIR: &str = ".kura";
 pub const UNCATEGORIZED_DIR: &str = "_未分類";
 
 // 1つが1つの版。後のタスクでテーブルを足すときは末尾に足し、既存の要素は書き換えない
-const MIGRATIONS: &[&str] = &[];
+const MIGRATIONS: &[&str] = &[
+    // src と dst はライブラリのルートからの相対パス。外付けドライブのマウント先が変わっても後始末できるようにするため
+    "CREATE TABLE pending_ops(
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        target_id INTEGER,
+        copy INTEGER NOT NULL,
+        src TEXT NOT NULL,
+        dst TEXT NOT NULL
+    )",
+];
 
 pub struct Library {
     pub root: PathBuf,
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "タスク2以降のコマンドが DB を使う")
-    )]
     pub conn: Connection,
 }
 
@@ -72,10 +80,20 @@ fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
     conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")
         .map_err(err)?;
     migrate(&mut conn, migrations)?;
-    Ok(Library {
+    let mut lib = Library {
         root: root.to_path_buf(),
         conn,
-    })
+    };
+    for op in fileops::recover(&mut lib, &apply_op)? {
+        // shortcut: ログに残すだけで画面には出さない。不整合を画面に出す差分検出（FR-104）で利用者に知らせる
+        log::warn!("途中で止まった操作を後始末できません：{op:?}");
+    }
+    Ok(lib)
+}
+
+// 操作の種類ごとの DB の更新。ファイルを動かす操作を作るタスクで種類を足す
+fn apply_op(_tx: &Transaction, op: &PendingOp) -> Result<(), String> {
+    Err(format!("未知の操作の種類です（{}）", op.kind))
 }
 
 fn migrate(conn: &mut Connection, migrations: &[&str]) -> Result<(), String> {
