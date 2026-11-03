@@ -21,3 +21,10 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Playwright の出力
+/test-results/
+/playwright-report/
+
+# Claude Code の作業用ファイル
+/.claude/tmp/

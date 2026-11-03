@@ -30,13 +30,18 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 
 ## コマンド
 
-<!-- 雛形を作ったら、実際のコマンドに書き換える -->
+初回は `npm install` と `npx playwright install webkit` を実行する。
 
-- 開発サーバー：`TODO`
+- 開発サーバー（アプリ）：`npm run tauri dev`
+- 開発サーバー（Tauri のコマンドをモックに差し替えた画面だけ）：`npm run dev:mock`（http://localhost:5173）。モックの応答は `src/mocks/ipc.ts` に書く
+- ダミーライブラリの生成：`npm run dev-library -- <枚数>`（`dev-library/` に出力。空でないと止まる）
 - テスト（Rust）：`cargo test`（`src-tauri/` で実行）
-- テスト（TypeScript）：`TODO`
+- テスト（画面）：`npm run test:e2e`（モックの開発サーバーを Playwright の WebKit で開き、`test-results/gallery.png` にスクリーンショットを保存する）
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
-- Lint：`TODO`
+- テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`
+- Lint（TypeScript）：`npm run lint`（型検査、ESLint、トークン以外の値の検出）
+- Lint（Rust）：`cargo clippy -- -D warnings`（`src-tauri/` で実行）
+- Lint（Python）：`uvx ruff check` と `uvx ruff format --check`
 
 ## 設計上の決まり
 
@@ -45,6 +50,8 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 画像の元ファイルの中身は変更しない。反転・回転・グレースケールは表示上の状態として DB に保存する。
 - ファイルの移動や名前変更は、途中で失敗しても画像が失われない手順で行う。DB とファイルの不整合は検出できるようにする（NFR-06）。手順は「予定を `pending_ops` に記録 → 上書きしない rename → DB 更新」の3段階（`docs/requirements.md` の4章）。
 - 外部への通信は、URL からの取り込みと、初回のモデルのダウンロードだけにする（NFR-08）。
+- Rust 本体では println! を使わず、ログはログ用のクレートで出す。
+- spikes/ は参考用で、本体から import しない。
 
 ## 画面の決まり
 
