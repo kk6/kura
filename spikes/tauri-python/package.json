@@ -1,0 +1,13 @@
+{
+  "name": "kura-spike-tauri-python",
+  "private": true,
+  "scripts": {
+    "sidecar": "cd ml && uv run pyinstaller --onefile --noconfirm --name kura-worker-$(rustc --print host-tuple) --distpath ../src-tauri/binaries --workpath ../build/pyinstaller --specpath ../build entry.py",
+    "tauri": "tauri",
+    "icon": "mkdir -p build && cd ml && uv run python -c \"from PIL import Image; Image.new('RGBA',(1024,1024),(28,28,26,255)).save('../build/icon.png')\" && cd .. && tauri icon build/icon.png",
+    "sidecar-onedir": "cd ml && uv run pyinstaller --onedir --noconfirm --name kura-worker --distpath ../src-tauri/resources --workpath ../build/pyinstaller --specpath ../build entry.py"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.4"
+  }
+}

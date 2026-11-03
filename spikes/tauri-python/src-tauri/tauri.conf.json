@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "kura-spike-python",
+  "version": "0.1.0",
+  "identifier": "dev.kk6.kura.spike.python",
+  "build": {
+    "frontendDist": "../www"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "tauri-python spike",
+        "width": 400,
+        "height": 200
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "externalBin": [
+      "binaries/kura-worker"
+    ],
+    "resources": {
+      "resources/kura-worker/": "worker/"
+    }
+  }
+}
