@@ -76,6 +76,7 @@ CSS変数として `src/styles/tokens.css` に定義し、コンポーネント�
 | `--size-control` | ボタン・入力欄 | 高さ 30px |
 | `--size-control-sm` | 小さいボタン・入力欄 | 高さ 24px |
 | `--size-board-toolbar` | お絵描きモードのツールバー | 高さ 40px |
+| `--size-select-panel` | ライブラリ選択画面の中身 | 幅 480px |
 
 ## 3. 部品ごとの決まり
 

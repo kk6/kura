@@ -1,33 +1,33 @@
-import './App.css'
+import { invoke } from '@tauri-apps/api/core'
+import { useEffect, useState } from 'react'
+import Gallery from './Gallery'
+import LibrarySelect, { type OpenCommand } from './LibrarySelect'
+
+type Screen = { kind: 'loading' } | { kind: 'select'; error?: string } | { kind: 'gallery'; path: string }
 
 export default function App() {
-  return (
-    <div className="gallery">
-      <header className="gallery__header">
-        <span className="gallery__logo">Kura</span>
-        <input className="gallery__search" type="search" placeholder="検索" aria-label="検索" />
-      </header>
+  const [screen, setScreen] = useState<Screen>({ kind: 'loading' })
+  const [recent, setRecent] = useState<string[]>([])
 
-      <nav className="gallery__sidebar" aria-label="サイドバー">
-        <ul className="sidebar__list">
-          <li className="sidebar__item sidebar__item--selected" aria-current="true">
-            すべての画像<span className="sidebar__count">0</span>
-          </li>
-          <li className="sidebar__item">
-            未分類<span className="sidebar__count">0</span>
-          </li>
-        </ul>
-        <h2 className="sidebar__heading">カテゴリ</h2>
-        <h2 className="sidebar__heading">タグ</h2>
-      </nav>
+  async function openLibrary(command: OpenCommand, path: string) {
+    try {
+      setScreen({ kind: 'gallery', path: await invoke<string>(command, { path }) })
+    } catch (e) {
+      setScreen({ kind: 'select', error: String(e) })
+    }
+    setRecent(await invoke<string[]>('list_recent_libraries'))
+  }
 
-      <main className="gallery__list" aria-label="画像の一覧" />
+  // 起動時は前回のライブラリを開く。見つからなければ選択画面にその旨を出す（NFR-13）
+  useEffect(() => {
+    invoke<string[]>('list_recent_libraries').then((list) => {
+      setRecent(list)
+      if (list[0]) openLibrary('open_library', list[0])
+      else setScreen({ kind: 'select' })
+    })
+  }, [])
 
-      <aside className="gallery__detail" aria-label="詳細">
-        <p className="detail__empty">画像を選ぶと、ここに詳細が出ます</p>
-      </aside>
-
-      <footer className="gallery__statusbar">0枚</footer>
-    </div>
-  )
+  if (screen.kind === 'loading') return null
+  if (screen.kind === 'gallery') return <Gallery />
+  return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} />
 }
