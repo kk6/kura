@@ -1,0 +1,23 @@
+# 開発・テスト用に生成するダミーライブラリ
+/dev-library/
+
+# ライブラリの管理フォルダ（誤って作られた場合に備えて）
+.kura/
+
+# 画像はコミットしない
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+!src-tauri/icons/**
+
+# ビルド成果物・依存関係
+node_modules/
+dist/
+src-tauri/target/
+ml/.venv/
+__pycache__/
+
+# macOS
+.DS_Store
