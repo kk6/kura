@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use library::Library;
-use tauri::{AppHandle, Manager, State};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 // 開いているライブラリ。後のタスクのコマンドはここから DB を使う
 #[derive(Default)]
@@ -62,6 +63,37 @@ fn open_library(app: AppHandle, current: State<Current>, path: PathBuf) -> Resul
     activate(&app, &current, library::open(&path))
 }
 
+#[derive(Clone, Serialize)]
+struct ImportProgress {
+    done: usize,
+    total: usize,
+}
+
+/// 別のスレッドで取り込み、進み具合を import-progress イベントで知らせる（FR-201）
+#[tauri::command]
+async fn import_paths(
+    app: AppHandle,
+    paths: Vec<PathBuf>,
+    category: Option<i64>,
+) -> Result<import::Report, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let report = import::import_paths(&current.0, &paths, category, |done, total| {
+            if let Err(e) = app.emit("import-progress", ImportProgress { done, total }) {
+                log::warn!("取り込みの進み具合を送れません：{e}");
+            }
+        })?;
+        log::info!(
+            "取り込みました：{}枚、スキップ {}件",
+            report.added,
+            report.skipped.len()
+        );
+        Ok(report)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(
@@ -75,7 +107,8 @@ fn main() {
             list_recent_libraries,
             location_warning,
             create_library,
-            open_library
+            open_library,
+            import_paths
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

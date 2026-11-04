@@ -1,18 +1,15 @@
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "取り込みのコマンドはタスク#5 で作る")
-)]
-
 use std::cell::Cell;
 use std::fmt::Display;
 use std::fs;
 use std::io::{BufWriter, Cursor};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Rgb, RgbImage};
 use rusqlite::{params, OptionalExtension};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::category;
@@ -166,10 +163,147 @@ pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Ou
     Ok(Outcome::Added(id.get()))
 }
 
+/// 取り込まなかった理由
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Reason {
+    /// 同じ中身の画像（ゴミ箱を含む）がある。existing はその id
+    Duplicate {
+        existing: i64,
+    },
+    Unsupported,
+    /// 壊れた画像、読めないフォルダ、カテゴリにできない名前のフォルダなど
+    Error {
+        message: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub struct Skipped {
+    pub path: PathBuf,
+    #[serde(flatten)]
+    pub reason: Reason,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct Report {
+    pub added: usize,
+    pub skipped: Vec<Skipped>,
+}
+
+const CLOSED: &str = "ライブラリが開かれていません";
+
+/// parent の下にある、name と同名（正規化と大文字・小文字の違いは無視）のカテゴリ。なければ作る
+fn category_for(lib: &mut Library, parent: Option<i64>, name: &str) -> Result<i64, String> {
+    let siblings = lib
+        .conn
+        .prepare("SELECT id, name FROM categories WHERE parent_id IS ?1")
+        .map_err(err)?
+        .query_map([parent], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(err)?;
+    let key = fileops::key(name.as_ref());
+    match siblings
+        .into_iter()
+        .find(|(_, n)| fileops::key(n.as_ref()) == key)
+    {
+        Some((id, _)) => Ok(id),
+        None => category::create(lib, parent, name),
+    }
+}
+
+/// paths から取り込む画像と取り込み先を集める。フォルダは parent の下のカテゴリにして、中身も同じように集める。
+/// 隠しファイル（. で始まるもの）とシンボリックリンクは飛ばす
+fn collect(
+    lib: &mut Library,
+    paths: &[PathBuf],
+    parent: Option<i64>,
+    files: &mut Vec<(PathBuf, Option<i64>)>,
+    skipped: &mut Vec<Skipped>,
+) {
+    for path in paths {
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        if name.as_encoded_bytes().starts_with(b".") {
+            continue;
+        }
+        let mut fail = |message: String| {
+            skipped.push(Skipped {
+                path: path.clone(),
+                reason: Reason::Error { message },
+            })
+        };
+        // symlink_metadata はリンクをたどらない
+        match fs::symlink_metadata(path) {
+            Ok(m) if m.is_file() => files.push((path.clone(), parent)),
+            Ok(m) if m.is_dir() => {
+                // 読めないフォルダのカテゴリを作らないよう、先に中身を読む
+                let children = fs::read_dir(path)
+                    .and_then(|entries| entries.map(|e| e.map(|e| e.path())).collect())
+                    .map_err(|e| format!("フォルダを読めません（{e}）"));
+                match children.and_then(|mut c: Vec<PathBuf>| {
+                    c.sort();
+                    Ok((category_for(lib, parent, &name.to_string_lossy())?, c))
+                }) {
+                    Ok((id, children)) => collect(lib, &children, Some(id), files, skipped),
+                    Err(message) => fail(message),
+                }
+            }
+            Ok(_) => {}
+            Err(e) => fail(e.to_string()),
+        }
+    }
+}
+
+/// ファイルとフォルダをまとめて取り込む（FR-201）。parent（None はルート直下と未分類）の下に取り込む。
+/// progress には (取り込み終えた数, 全体の数) を渡す。1枚ごとにロックを外すので、取り込み中も他のコマンドは DB を使える
+pub fn import_paths(
+    current: &Mutex<Option<Library>>,
+    paths: &[PathBuf],
+    parent: Option<i64>,
+    mut progress: impl FnMut(usize, usize),
+) -> Result<Report, String> {
+    let mut report = Report::default();
+    let mut files = vec![];
+    {
+        let mut guard = current.lock().unwrap();
+        let lib = guard.as_mut().ok_or(CLOSED)?;
+        collect(lib, paths, parent, &mut files, &mut report.skipped);
+    }
+    progress(0, files.len());
+    for (i, (src, category)) in files.iter().enumerate() {
+        let outcome = {
+            let mut guard = current.lock().unwrap();
+            import(guard.as_mut().ok_or(CLOSED)?, src, *category)
+        };
+        let reason = match outcome {
+            Ok(Outcome::Added(_)) => None,
+            Ok(Outcome::Duplicate(existing)) => Some(Reason::Duplicate { existing }),
+            Ok(Outcome::Unsupported) => Some(Reason::Unsupported),
+            Err(message) => Some(Reason::Error { message }),
+        };
+        match reason {
+            None => report.added += 1,
+            Some(reason) => report.skipped.push(Skipped {
+                path: src.clone(),
+                reason,
+            }),
+        }
+        progress(i + 1, files.len());
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+    use std::sync::Mutex;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use image::{ImageFormat, Rgba, RgbaImage};
@@ -575,6 +709,329 @@ mod tests {
         assert_eq!(count(&env.lib), 0);
         assert_eq!(pending(&env.lib), 0);
         assert!(src.is_file());
+    }
+
+    /// 取り込み元のフォルダの中身を作る。末尾が / ならフォルダ、それ以外は PNG
+    fn tree(env: &Env, paths: &[&str]) {
+        for (i, p) in paths.iter().enumerate() {
+            let path = env.outside.path().join(p);
+            if p.ends_with('/') {
+                fs::create_dir_all(path).unwrap();
+            } else {
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                // 中身が重ならないよう、画像ごとに色を変える
+                let c = i as u8;
+                make(env, p, 4, 4, [c, c, c, 255], ImageFormat::Png);
+            }
+        }
+    }
+
+    fn categories(lib: &Library) -> Vec<String> {
+        let ids: Vec<i64> = lib
+            .conn
+            .prepare("SELECT id FROM categories")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let mut dirs: Vec<_> = ids
+            .into_iter()
+            .map(|id| category::dir(lib, Some(id)).unwrap().display().to_string())
+            .collect();
+        dirs.sort();
+        dirs
+    }
+
+    fn in_category(lib: &Library, dir: &str) -> Vec<String> {
+        let mut names: Vec<String> = lib
+            .conn
+            .prepare("SELECT file_name, category_id FROM images")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .filter(|(_, c): &(String, Option<i64>)| {
+                category::dir(lib, *c).unwrap().display().to_string() == dir
+            })
+            .map(|(n, _)| n)
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn run(lib: Library, paths: &[PathBuf], parent: Option<i64>) -> (Library, Report) {
+        let m = Mutex::new(Some(lib));
+        let report = import_paths(&m, paths, parent, |_, _| {}).unwrap();
+        (m.into_inner().unwrap().unwrap(), report)
+    }
+
+    fn reasons(report: &Report) -> Vec<(String, Reason)> {
+        report
+            .skipped
+            .iter()
+            .map(|s| {
+                let name = s.path.file_name().unwrap().to_string_lossy().into_owned();
+                let reason = match &s.reason {
+                    // 文言は確かめない
+                    Reason::Error { .. } => Reason::Error {
+                        message: String::new(),
+                    },
+                    r => r.clone(),
+                };
+                (name, reason)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn フォルダを取り込むとフォルダ自体とサブフォルダをカテゴリとして再現する() {
+        let env = setup();
+        tree(
+            &env,
+            &[
+                "資料/直下.png",
+                "資料/ポーズ/座り/a.png",
+                "資料/ポーズ/b.png",
+                "資料/手/c.png",
+            ],
+        );
+        let src = env.outside.path().join("資料");
+
+        let (lib, report) = run(env.lib, &[src], None);
+
+        assert_eq!(report.added, 4);
+        assert!(report.skipped.is_empty());
+        assert_eq!(
+            categories(&lib),
+            ["資料", "資料/ポーズ", "資料/ポーズ/座り", "資料/手"]
+        );
+        assert_eq!(in_category(&lib, "資料"), ["直下.png"]);
+        assert_eq!(in_category(&lib, "資料/ポーズ/座り"), ["a.png"]);
+        assert!(lib.root.join("資料/ポーズ/座り/a.png").is_file());
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 空のサブフォルダもカテゴリとして作る() {
+        let env = setup();
+        tree(&env, &["資料/背景/空/", "資料/a.png"]);
+
+        let (lib, _) = run(env.lib, &[env.outside.path().join("資料")], None);
+
+        assert_eq!(categories(&lib), ["資料", "資料/背景", "資料/背景/空"]);
+        assert!(lib.root.join("資料/背景/空").is_dir());
+    }
+
+    #[test]
+    fn 同名のカテゴリがあれば新しく作らずに合流する() {
+        let mut env = setup();
+        let pose = category::create(&mut env.lib, None, "Pose").unwrap();
+        category::create(&mut env.lib, Some(pose), "ホ\u{309a}ーズ").unwrap();
+        // 大文字・小文字と正規化の違いは同名とみなす
+        tree(&env, &["POSE/ポーズ/a.png", "POSE/b.png"]);
+
+        let (lib, report) = run(env.lib, &[env.outside.path().join("POSE")], None);
+
+        assert_eq!(report.added, 2);
+        assert_eq!(categories(&lib), ["Pose", "Pose/ポーズ"]);
+        assert_eq!(in_category(&lib, "Pose/ポーズ"), ["a.png"]);
+        assert_eq!(in_category(&lib, "Pose"), ["b.png"]);
+    }
+
+    #[test]
+    fn 同じフォルダを2回取り込むとカテゴリは増えず画像は重複としてスキップする() {
+        let env = setup();
+        tree(&env, &["資料/手/a.png"]);
+        let src = env.outside.path().join("資料");
+        let (lib, _) = run(env.lib, std::slice::from_ref(&src), None);
+
+        let (lib, report) = run(lib, &[src], None);
+
+        assert_eq!(report.added, 0);
+        assert!(matches!(report.skipped[0].reason, Reason::Duplicate { .. }));
+        assert_eq!(categories(&lib), ["資料", "資料/手"]);
+    }
+
+    #[test]
+    fn 隠しファイルと隠しフォルダは無視しシンボリックリンクはたどらない() {
+        let env = setup();
+        tree(
+            &env,
+            &[
+                "資料/a.png",
+                "資料/.隠し.png",
+                "資料/.隠しフォルダ/b.png",
+                "外/c.png",
+                "外/d/e.png",
+            ],
+        );
+        let src = env.outside.path().join("資料");
+        let out = env.outside.path().join("外");
+        std::os::unix::fs::symlink(out.join("c.png"), src.join("リンク.png")).unwrap();
+        std::os::unix::fs::symlink(out.join("d"), src.join("リンク")).unwrap();
+
+        let (lib, report) = run(env.lib, &[src], None);
+
+        assert_eq!(report.added, 1);
+        assert!(report.skipped.is_empty());
+        assert_eq!(categories(&lib), ["資料"]);
+        assert_eq!(in_category(&lib, "資料"), ["a.png"]);
+    }
+
+    #[test]
+    fn 取り込めなかった画像は理由と一緒に返し残りは取り込む() {
+        let env = setup();
+        tree(&env, &["資料/a.png", "資料/c.png"]);
+        let src = env.outside.path().join("資料");
+        // 同じ取り込みの中の2枚目、非対応の形式、壊れた画像
+        fs::copy(src.join("a.png"), src.join("b.png")).unwrap();
+        fs::write(src.join("d.heic"), b"\0\0\0\x18ftypheic\0\0\0\0mif1heic").unwrap();
+        let body = fs::read(src.join("c.png")).unwrap();
+        fs::write(src.join("e.png"), &body[..20]).unwrap();
+
+        let (lib, report) = run(env.lib, &[src], None);
+
+        let a: i64 = lib
+            .conn
+            .query_row("SELECT id FROM images WHERE file_name = 'a.png'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(report.added, 2);
+        assert_eq!(
+            reasons(&report),
+            [
+                ("b.png".into(), Reason::Duplicate { existing: a }),
+                ("d.heic".into(), Reason::Unsupported),
+                (
+                    "e.png".into(),
+                    Reason::Error {
+                        message: String::new()
+                    }
+                ),
+            ]
+        );
+        assert_eq!(in_category(&lib, "資料"), ["a.png", "c.png"]);
+    }
+
+    #[test]
+    fn 選んだファイルは未分類か指定したカテゴリに入れる() {
+        let mut env = setup();
+        let hand = category::create(&mut env.lib, None, "手").unwrap();
+        tree(&env, &["a.png", "b.png"]);
+        let (a, b) = (
+            env.outside.path().join("a.png"),
+            env.outside.path().join("b.png"),
+        );
+
+        let (lib, _) = run(env.lib, &[a], None);
+        let (lib, _) = run(lib, &[b], Some(hand));
+
+        assert_eq!(in_category(&lib, "_未分類"), ["a.png"]);
+        assert_eq!(in_category(&lib, "手"), ["b.png"]);
+    }
+
+    #[test]
+    fn 指定したカテゴリの下にフォルダをカテゴリとして作る() {
+        let mut env = setup();
+        let pose = category::create(&mut env.lib, None, "ポーズ").unwrap();
+        tree(&env, &["座り/a.png"]);
+
+        let (lib, _) = run(env.lib, &[env.outside.path().join("座り")], Some(pose));
+
+        assert_eq!(categories(&lib), ["ポーズ", "ポーズ/座り"]);
+        assert_eq!(in_category(&lib, "ポーズ/座り"), ["a.png"]);
+    }
+
+    #[test]
+    fn カテゴリにできないフォルダはエラーにして中身を取り込まず残りは続ける() {
+        let env = setup();
+        tree(&env, &["資料/_未分類/a.png", "資料/手/b.png"]);
+
+        let (lib, report) = run(env.lib, &[env.outside.path().join("資料")], None);
+
+        assert_eq!(report.added, 1);
+        assert_eq!(
+            reasons(&report),
+            [(
+                "_未分類".into(),
+                Reason::Error {
+                    message: String::new()
+                }
+            )]
+        );
+        assert_eq!(categories(&lib), ["資料", "資料/手"]);
+    }
+
+    #[test]
+    fn 読めないサブフォルダはエラーにして残りは続ける() {
+        let env = setup();
+        tree(&env, &["資料/鍵/a.png", "資料/手/b.png"]);
+        let locked = env.outside.path().join("資料/鍵");
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let (lib, report) = run(env.lib, &[env.outside.path().join("資料")], None);
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(report.added, 1);
+        assert_eq!(
+            reasons(&report),
+            [(
+                "鍵".into(),
+                Reason::Error {
+                    message: String::new()
+                }
+            )]
+        );
+        assert_eq!(in_category(&lib, "資料/手"), ["b.png"]);
+    }
+
+    #[test]
+    fn 途中の1枚のコピーに失敗してもその画像だけをエラーにして予定も残さない() {
+        let env = setup();
+        tree(&env, &["資料/x/a.png", "資料/y/b.png"]);
+        let root = env.lib.root.clone();
+        let m = Mutex::new(Some(env.lib));
+        let mut seen = vec![];
+
+        let report = import_paths(
+            &m,
+            &[env.outside.path().join("資料")],
+            None,
+            |done, total| {
+                seen.push((done, total));
+                // 1枚目の後に、2枚目の取り込み先のフォルダが Finder で消された
+                if done == 1 {
+                    fs::remove_dir(root.join("資料/y")).unwrap();
+                }
+            },
+        )
+        .unwrap();
+
+        let lib = m.into_inner().unwrap().unwrap();
+        assert_eq!(seen, [(0, 2), (1, 2), (2, 2)]);
+        assert_eq!(report.added, 1);
+        assert_eq!(
+            reasons(&report),
+            [(
+                "b.png".into(),
+                Reason::Error {
+                    message: String::new()
+                }
+            )]
+        );
+        assert_eq!(pending(&lib), 0);
+        assert!(env.outside.path().join("資料/y/b.png").is_file());
+    }
+
+    #[test]
+    fn ライブラリが閉じられていたら取り込まない() {
+        let env = setup();
+        tree(&env, &["a.png"]);
+        let m = Mutex::new(None);
+
+        assert!(import_paths(&m, &[env.outside.path().join("a.png")], None, |_, _| {}).is_err());
     }
 
     #[test]

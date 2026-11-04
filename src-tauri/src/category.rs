@@ -1,8 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "カテゴリを作るコマンドはサイドバーのタスクで作る")
-)]
-
 use std::fmt::Display;
 use std::fs;
 use std::path::PathBuf;

@@ -53,7 +53,7 @@ fn err(e: impl Display) -> String {
 }
 
 /// APFS と exFAT の初期設定に合わせ、正規化（NFC）と大文字・小文字の違いを無視して名前を比べるための鍵
-fn key(name: &OsStr) -> String {
+pub fn key(name: &OsStr) -> String {
     name.to_string_lossy()
         .nfc()
         .collect::<String>()
