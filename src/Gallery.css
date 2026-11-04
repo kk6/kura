@@ -61,6 +61,8 @@
 
 /* カテゴリツリーの入れ子の深さ（--depth）の分だけ字下げする */
 .sidebar__item--category {
+  justify-content: flex-start;
+  gap: var(--space-1);
   user-select: none;
   padding-left: calc(var(--space-3) + var(--space-4) * var(--depth));
   cursor: grab;
@@ -117,7 +119,47 @@ body.is-dragging * {
 }
 
 .sidebar__edit {
-  padding: 0 0 var(--space-1) calc(var(--space-3) + var(--space-4) * var(--depth));
+  /* 入力欄を名前の位置（開閉ボタンの右）にそろえる */
+  padding: 0 0 var(--space-1) calc(var(--space-3) + var(--space-4) * var(--depth) + var(--space-5) + var(--space-1));
+}
+
+.sidebar__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 開閉ボタン。子のないカテゴリにも同じ幅の空きを置いて、名前の位置をそろえる */
+.sidebar__toggle {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: var(--space-5);
+  padding: 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+/* 階層の線。親の開閉ボタンの中央から、子の並びの終わりまで引く */
+.sidebar__list--nested {
+  position: relative;
+}
+
+.sidebar__list--nested::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--space-3) + var(--space-4) * var(--depth) + var(--space-5) / 2);
+  border-left: var(--border);
+  content: '';
+}
+
+.sidebar__actions {
+  display: inline-flex;
+  gap: var(--space-1);
 }
 
 .sidebar__input {

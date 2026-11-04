@@ -4,6 +4,8 @@ import Status from './Status'
 import type { Category, Gallery } from './galleryTypes'
 
 type Props = {
+  // 開いているライブラリ。カテゴリの開閉の状態をライブラリごとに覚えるのに使う
+  root: string
   gallery: Gallery
   // 失敗したら理由の文字列で reject する
   onRename: (id: number, name: string) => Promise<void>
@@ -23,11 +25,26 @@ export const SKIP_CONFIRM = 'kura.skipCategoryMoveConfirm'
 type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
 // shortcut: 表示だけで、選んで絞り込む操作と、カテゴリ・タグの件数は持たない。絞り込み（FR-504、タスク#14）で足す
-export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) {
+export default function Sidebar({ root, gallery, onRename, onCreate, onMove }: Props) {
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
   const uncategorized = gallery.images.filter((i) => i.category_id === null).length
+
+  // 閉じているカテゴリ。shortcut: このウェブビューに保存する。設定ダイアログ（タスク#18）でアプリの設定にまとめるなら移す
+  const collapsedKey = `kura.collapsedCategories:${root}`
+  const [collapsed, setCollapsed] = useState(
+    () => new Set<number>(JSON.parse(localStorage.getItem(collapsedKey) ?? '[]') as number[]),
+  )
+  const saveCollapsed = (next: Set<number>) => {
+    setCollapsed(next)
+    localStorage.setItem(collapsedKey, JSON.stringify([...next]))
+  }
+  const toggle = (id: number) => {
+    const next = new Set(collapsed)
+    if (!next.delete(id)) next.add(id)
+    saveCollapsed(next)
+  }
 
   // 名前を入力中のカテゴリ。rename は既存の名前の変更、create は parent の下（null はルート直下）への作成
   const [editing, setEditing] = useState<
@@ -159,7 +176,22 @@ export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) 
             // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない
             onMouseDown={(e) => e.preventDefault()}
           >
-            {c.name}
+            {children.has(c.id) ? (
+              <button
+                type="button"
+                className="sidebar__toggle"
+                aria-label={`${c.name} を${collapsed.has(c.id) ? '開く' : '閉じる'}`}
+                aria-expanded={!collapsed.has(c.id)}
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={() => toggle(c.id)}
+              >
+                <Icon d={collapsed.has(c.id) ? 'M9 6l6 6-6 6' : 'M6 9l6 6 6-6'} />
+              </button>
+            ) : (
+              <span className="sidebar__toggle" />
+            )}
+            <span className="sidebar__name">{c.name}</span>
             <button
               type="button"
               className="sidebar__add sidebar__add--hover"
@@ -167,13 +199,22 @@ export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) 
               // 押してもドラッグや名前の変更を始めない
               onPointerDown={(e) => e.stopPropagation()}
               onDoubleClick={(e) => e.stopPropagation()}
-              onClick={() => setEditing({ kind: 'create', parent: c.id, name: '' })}
+              onClick={() => {
+                // 作る場所が見えるよう、閉じていれば開く
+                if (collapsed.has(c.id)) toggle(c.id)
+                setEditing({ kind: 'create', parent: c.id, name: '' })
+              }}
             >
-              <Plus />
+              <Icon d="M12 5v14M5 12h14" />
             </button>
           </span>
         )}
-        {(children.has(c.id) || creatingIn(c.id)) && <ul className="sidebar__list">{tree(c.id, depth + 1)}</ul>}
+        {((children.has(c.id) && !collapsed.has(c.id)) || creatingIn(c.id)) && (
+          // 子の並びの左に、親の開閉ボタンから下ろす線を引く（階層の深さを見分けるため）
+          <ul className="sidebar__list sidebar__list--nested" style={{ '--depth': depth } as CSSProperties}>
+            {tree(c.id, depth + 1)}
+          </ul>
+        )}
       </li>
       ))}
       {creatingIn(parent) && <li>{field(depth)}</li>}
@@ -196,14 +237,24 @@ export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) 
         data-drop={ROOT}
       >
         カテゴリ
-        <button
-          type="button"
-          className="sidebar__add"
-          aria-label="カテゴリを作る"
-          onClick={() => setEditing({ kind: 'create', parent: null, name: '' })}
-        >
-          <Plus />
-        </button>
+        <span className="sidebar__actions">
+          <button
+            type="button"
+            className="sidebar__add"
+            aria-label="カテゴリを作る"
+            onClick={() => setEditing({ kind: 'create', parent: null, name: '' })}
+          >
+            <Icon d="M12 5v14M5 12h14" />
+          </button>
+          <button
+            type="button"
+            className="sidebar__add"
+            aria-label="すべて閉じる"
+            onClick={() => saveCollapsed(new Set([...children.keys()].filter((id) => id !== null)))}
+          >
+            <Icon d="M7 11l5-5 5 5M7 18l5-5 5 5" />
+          </button>
+        </span>
       </h2>
       <ul className="sidebar__list" aria-labelledby="sidebar-categories">
         {tree(null, 0)}
@@ -239,7 +290,7 @@ export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) 
   )
 }
 
-const Plus = () => (
+const Icon = ({ d }: { d: string }) => (
   <svg
     width="14"
     height="14"
@@ -248,8 +299,9 @@ const Plus = () => (
     stroke="currentColor"
     strokeWidth="2"
     strokeLinecap="round"
+    strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M12 5v14M5 12h14" />
+    <path d={d} />
   </svg>
 )

@@ -214,7 +214,7 @@ export default function Gallery({ root }: { root: string }) {
         </button>
       </header>
 
-      <Sidebar gallery={data} onRename={renameCategory} onCreate={createCategory} onMove={moveCategory} />
+      <Sidebar root={root} gallery={data} onRename={renameCategory} onCreate={createCategory} onMove={moveCategory} />
 
       <Masonry
         root={root}

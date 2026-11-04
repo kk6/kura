@@ -463,7 +463,7 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   await page.mouse.down()
   await page.mouse.move(to.x + 10, to.y + 10, { steps: 5 })
   await expect(label).toHaveText('「振り返り」を「服飾」の下へ移す')
-  await expect(item('服飾')).toHaveClass(/sidebar__item--drop/)
+  await expect(categories.locator('.sidebar__item--drop')).toHaveText('服飾')
   await page.screenshot({ path: 'test-results/category-drag.png' })
   await page.mouse.up()
   await expect(label).toHaveCount(0)
@@ -573,5 +573,52 @@ test('サイドバーでルート直下とカテゴリの下に新しいカテ�
     { id: 7, name: '手', parent_id: null },
     { id: 8, name: '椅子', parent_id: 2 },
   ])
+  expect(errors).toEqual([])
+})
+
+test('カテゴリを開閉でき、閉じた状態は開き直しても残る。階層には線を引く', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const item = (name: string) => categories.locator('.sidebar__item--category').getByText(name, { exact: true })
+  const input = sidebar.getByRole('textbox', { name: '新しいカテゴリ名' })
+
+  // 深い階層を作って線を見る
+  for (const [parent, name] of [
+    ['座り', '椅子'],
+    ['椅子', '木の椅子'],
+  ]) {
+    await item(parent).hover()
+    await sidebar.getByRole('button', { name: `${parent} の下にカテゴリを作る` }).click()
+    await input.fill(name)
+    await input.press('Enter')
+  }
+  await expect(item('木の椅子')).toBeVisible()
+  await expect(categories.locator('.sidebar__list--nested')).toHaveCount(4)
+  await page.screenshot({ path: 'test-results/category-tree.png' })
+
+  await sidebar.getByRole('button', { name: 'ポーズ を閉じる' }).click()
+  await expect(item('座り')).toHaveCount(0)
+  await expect(sidebar.getByRole('button', { name: 'ポーズ を開く' })).toHaveAttribute('aria-expanded', 'false')
+  await expect(item('制服')).toBeVisible()
+
+  // 閉じたカテゴリの下に作るときは開く
+  await item('ポーズ').hover()
+  await sidebar.getByRole('button', { name: 'ポーズ の下にカテゴリを作る' }).click()
+  await expect(item('座り')).toBeVisible()
+  await input.press('Escape')
+
+  await sidebar.getByRole('button', { name: 'すべて閉じる' }).click()
+  await expect(item('座り')).toHaveCount(0)
+  await expect(item('制服')).toHaveCount(0)
+  await expect(item('背景')).toBeVisible()
+
+  await openGallery(page)
+  await expect(item('ポーズ')).toBeVisible()
+  await expect(item('制服')).toHaveCount(0)
+  await sidebar.getByRole('button', { name: '服飾 を開く' }).click()
+  await expect(item('制服')).toBeVisible()
   expect(errors).toEqual([])
 })
