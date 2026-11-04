@@ -97,9 +97,41 @@
   grid-area: status;
   display: flex;
   align-items: center;
+  gap: var(--space-5);
   padding: 0 var(--space-5);
   border-top: var(--border);
   font-size: var(--font-size-sm);
   color: var(--color-text-faint);
   background: var(--color-surface);
+}
+
+.statusbar__import {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.statusbar__link {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+/* 色で区別できないので、押せることを下線で示す。inline-flex の中には下線が伝わらないので文言に直接付ける */
+.statusbar__link .status > span {
+  text-decoration: underline;
+}
+
+.progress {
+  width: var(--size-progress-bar);
+  height: var(--size-progress);
+  background: var(--color-line);
+}
+
+.progress__done {
+  display: block;
+  height: 100%;
+  background: var(--color-text);
 }

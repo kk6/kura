@@ -1,0 +1,58 @@
+.dialog {
+  width: var(--size-dialog);
+  max-width: calc(100% - var(--space-5) * 2);
+  max-height: calc(100% - var(--size-header) * 2);
+  padding: var(--space-5);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 背後の参考画像の色の見え方を変えないよう、幕は付けない */
+.dialog::backdrop {
+  background: none;
+}
+
+.dialog__title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+.skip__list {
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: var(--border);
+}
+
+.skip__item {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) 0;
+  border-bottom: var(--border);
+}
+
+.skip__name {
+  font-weight: var(--font-weight-bold);
+  overflow-wrap: anywhere;
+}
+
+.skip__dir {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+  overflow-wrap: anywhere;
+}

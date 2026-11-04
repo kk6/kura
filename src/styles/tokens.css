@@ -33,6 +33,7 @@
   --radius-sm: 2px;
   --radius-md: 3px;
   --border: 1px solid var(--color-line);
+  --focus-ring: 2px solid var(--color-text);
 
   --size-header: 48px;
   --size-sidebar: 208px;
@@ -43,4 +44,7 @@
   --size-control-sm: 24px;
   --size-board-toolbar: 40px;
   --size-select-panel: 480px;
+  --size-progress: 3px;
+  --size-progress-bar: 160px;
+  --size-dialog: 560px;
 }

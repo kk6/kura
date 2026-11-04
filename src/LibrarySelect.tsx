@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { ask, open } from '@tauri-apps/plugin-dialog'
+import Status from './Status'
 import './LibrarySelect.css'
 
 export type OpenCommand = 'create_library' | 'open_library'
@@ -38,11 +39,7 @@ export default function LibrarySelect({ recent, error, onOpen }: Props) {
 
         {error && (
           <p className="select__error" role="alert">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M15 9l-6 6M9 9l6 6" />
-            </svg>
-            エラー：{error}
+            <Status kind="error">{error}</Status>
           </p>
         )}
 

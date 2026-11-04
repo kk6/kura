@@ -20,8 +20,33 @@ body {
   background: var(--color-surface);
 }
 
+:focus-visible {
+  outline: var(--focus-ring);
+}
+
 input,
 button {
   font: inherit;
   color: inherit;
+}
+
+.button {
+  height: var(--size-control);
+  padding: 0 var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:disabled {
+  color: var(--color-text-faint);
+  cursor: default;
+}
+
+.button--primary {
+  border-color: var(--color-text);
+  color: var(--color-on-text);
+  background: var(--color-text);
 }
