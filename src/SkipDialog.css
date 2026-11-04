@@ -28,7 +28,15 @@
 .dialog__actions {
   display: flex;
   justify-content: flex-end;
+  gap: var(--space-3);
   margin-top: var(--space-4);
+}
+
+.dialog__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-sub);
 }
 
 .skip__list {

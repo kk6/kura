@@ -61,9 +61,33 @@
 
 /* カテゴリツリーの入れ子の深さ（--depth）の分だけ字下げする */
 .sidebar__item--category {
-  /* ドラッグ中に文字が選ばれないようにする */
   user-select: none;
   padding-left: calc(var(--space-3) + var(--space-4) * var(--depth));
+  cursor: grab;
+}
+
+body.is-dragging * {
+  cursor: grabbing;
+}
+
+/* 掴んでいるカテゴリ */
+.sidebar__item--dragging {
+  background: var(--color-raise);
+  cursor: grabbing;
+}
+
+/* ドラッグ中にカーソルの横に出す、何をどこへ移すかの説明。影は使わず枠線で地と分ける */
+.sidebar__drag {
+  position: fixed;
+  z-index: 2;
+  padding: var(--space-1) var(--space-3);
+  transform: translate(var(--space-4), var(--space-4));
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* ドラッグしたカテゴリを落とせる先。選択中のカテゴリ（背景）と見分けるため枠で示す */

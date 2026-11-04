@@ -453,17 +453,58 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   await input.press('Escape')
   await expect(item('風景')).toBeVisible()
 
+  // 掴んでいる間は、カーソルの横に何をどこへ移すかを出す
+  const dialog = page.getByRole('dialog', { name: 'カテゴリを移す' })
+  const label = sidebar.locator('.sidebar__drag')
+  const box = async (name: string) => (await item(name).boundingBox())!
+  const from = await box('振り返り')
+  const to = await box('服飾')
+  await page.mouse.move(from.x + 10, from.y + 10)
+  await page.mouse.down()
+  await page.mouse.move(to.x + 10, to.y + 10, { steps: 5 })
+  await expect(label).toHaveText('「振り返り」を「服飾」の下へ移す')
+  await expect(item('服飾')).toHaveClass(/sidebar__item--drop/)
+  await page.screenshot({ path: 'test-results/category-drag.png' })
+  await page.mouse.up()
+  await expect(label).toHaveCount(0)
+
+  // 離すと確認する。キャンセルすれば移さない
+  await expect(dialog).toContainText('「振り返り」を「服飾」の下へ移します')
+  await expect(dialog.getByRole('button', { name: '移す' })).toBeFocused()
+  await page.screenshot({ path: 'test-results/category-move-confirm.png' })
+  await dialog.getByRole('button', { name: 'キャンセル' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(branch('ポーズ')).toContainText('振り返り')
+
   await item('振り返り').dragTo(item('服飾'))
+  await dialog.getByRole('button', { name: '移す' }).click()
   await expect(branch('服飾')).toContainText('振り返り')
   await expect(branch('ポーズ')).not.toContainText('振り返り')
 
-  // 自分の子孫の上には落とせない
-  await item('ポーズ').dragTo(item('座り'))
+  // 自分の子孫の上では、移せないと出し、離しても何もしない
+  const sit = await box('座り')
+  await page.mouse.move((await box('ポーズ')).x + 10, (await box('ポーズ')).y + 10)
+  await page.mouse.down()
+  await page.mouse.move(sit.x + 10, sit.y + 10, { steps: 5 })
+  await expect(label).toHaveText('「ポーズ」を自分の中へは移せません')
+  await page.mouse.up()
+  await expect(dialog).toHaveCount(0)
   await expect(branch('ポーズ')).toContainText('座り')
-  // 画面で落とすのを止めるので、コマンドを呼ばずエラーも出ない
-  await expect(status).not.toContainText('移せません')
 
+  // Escape でドラッグをやめる
+  await page.mouse.move(sit.x + 10, sit.y + 10)
+  await page.mouse.down()
+  await page.mouse.move(to.x + 10, to.y + 10, { steps: 5 })
+  await page.keyboard.press('Escape')
+  await expect(label).toHaveCount(0)
+  await page.mouse.up()
+  await expect(dialog).toHaveCount(0)
+
+  // 「今後は確認しない」を選ぶと、次からは確認せずに移す
   await item('座り').dragTo(sidebar.getByRole('heading', { name: 'カテゴリ' }))
+  await expect(dialog).toContainText('「座り」を一番上の階層へ移します')
+  await dialog.getByRole('checkbox', { name: '今後は確認しない' }).check()
+  await dialog.getByRole('button', { name: '移す' }).click()
   await expect(branch('ポーズ')).not.toContainText('座り')
 
   // 移動先に同名があればエラーをステータスバーに出し、移さない
@@ -471,6 +512,7 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   await input.fill('制服')
   await input.press('Enter')
   await item('制服').first().dragTo(item('服飾'))
+  await expect(dialog).toHaveCount(0)
   await expect(status).toContainText('エラー：カテゴリを移せません（同じ名前のファイルかフォルダがあります（制服））')
   await page.screenshot({ path: 'test-results/category-move.png' })
 

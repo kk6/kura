@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import type { Category, Gallery } from './galleryTypes'
 
@@ -14,6 +15,12 @@ type Props = {
 const ROOT = 'root'
 // ドラッグとみなす動きの距離（px）
 const DRAG_START = 4
+// 移動の確認ダイアログで「今後は確認しない」を選んだ印。
+// shortcut: このウェブビューに保存するだけで、戻す画面がない。設定ダイアログ（タスク#18）でアプリの設定に移し、戻せるようにする
+export const SKIP_CONFIRM = 'kura.skipCategoryMoveConfirm'
+
+// ドラッグ中のポインターの下。none は落とせる先の外、self は自分か子孫、same は今の親、target は移せる先
+type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
 // shortcut: 表示だけで、選んで絞り込む操作と、カテゴリ・タグの件数は持たない。絞り込み（FR-504、タスク#14）で足す
 export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) {
@@ -28,45 +35,72 @@ export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) 
   >()
   // 押した位置。少し動かしたらドラッグとみなす（ダブルクリックと区別するため）
   const [press, setPress] = useState<{ id: number; x: number; y: number } | null>(null)
-  const [over, setOver] = useState<number | typeof ROOT | null>(null)
-
-  // 自分自身と子孫の下へは移せない（FR-412）。祖先をたどって押したカテゴリに当たるかを見る
-  const accepts = (target: number | null) => {
-    if (!press) return false
-    for (let id: number | null = target; id !== null; id = parentOf.get(id) ?? null) if (id === press.id) return false
-    return true
-  }
+  // ドラッグ中のポインターの位置と、その下にあるもの
+  const [drag, setDrag] = useState<{ x: number; y: number; hit: Hit } | null>(null)
+  // 落とした後、確認ダイアログで答えを待っている移動
+  const [pending, setPending] = useState<{ id: number; parent: number | null } | null>(null)
+  const over = drag && typeof drag.hit === 'object' ? (drag.hit.target ?? ROOT) : null
 
   // HTML5 のドラッグ＆ドロップは使わない。Tauri がファイルのドロップ（取り込み）を受けるために
   // ウェブビューのドラッグを横取りし、drop がページに届かないため。ポインターの動きで自前に行う
   useEffect(() => {
     if (!press) return
-    const targetAt = (e: PointerEvent): number | null | undefined => {
+    const hitAt = (e: PointerEvent): Hit => {
       const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-drop]')
-      if (!el) return undefined
+      if (!el) return 'none'
       const target = el.dataset.drop === ROOT ? null : Number(el.dataset.drop)
-      return accepts(target) ? target : undefined
+      // 自分自身と子孫の下へは移せない（FR-412）。祖先をたどって押したカテゴリに当たるかを見る
+      for (let id: number | null = target; id !== null; id = parentOf.get(id) ?? null) if (id === press.id) return 'self'
+      return target === parentOf.get(press.id) ? 'same' : { target }
     }
     // state の更新を待たずに判定できるよう、押した位置からの距離で決める
     const moved = (e: PointerEvent) => Math.hypot(e.clientX - press.x, e.clientY - press.y) >= DRAG_START
+    const end = () => {
+      setPress(null)
+      setDrag(null)
+    }
     const onMoveEvent = (e: PointerEvent) => {
-      if (!moved(e)) return
-      const target = targetAt(e)
-      setOver(target === undefined ? null : (target ?? ROOT))
+      if (moved(e)) setDrag({ x: e.clientX, y: e.clientY, hit: hitAt(e) })
     }
     const onUp = (e: PointerEvent) => {
-      const target = moved(e) ? targetAt(e) : undefined
-      if (target !== undefined && parentOf.get(press.id) !== target) onMove(press.id, target)
-      setPress(null)
-      setOver(null)
+      const hit = moved(e) ? hitAt(e) : 'none'
+      if (typeof hit === 'object') {
+        if (localStorage.getItem(SKIP_CONFIRM) === '1') onMove(press.id, hit.target)
+        else setPending({ id: press.id, parent: hit.target })
+      }
+      end()
+    }
+    // Escape でドラッグをやめる。一覧の選択を外す Escape（Gallery）まで届かないよう、先に受けて止める
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      end()
     }
     window.addEventListener('pointermove', onMoveEvent)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       window.removeEventListener('pointermove', onMoveEvent)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('keydown', onKey, true)
     }
   })
+
+  // ドラッグ中は、カーソルがサイドバーの外にあっても掴んでいる形にする
+  const dragging = drag !== null
+  useEffect(() => {
+    document.body.classList.toggle('is-dragging', dragging)
+  }, [dragging])
+
+  const nameOf = (id: number | null) => gallery.categories.find((c) => c.id === id)?.name
+  const place = (parent: number | null) => (parent === null ? '一番上の階層' : `「${nameOf(parent)}」の下`)
+  const dragLabel = (hit: Hit) => {
+    const name = `「${nameOf(press?.id ?? null)}」`
+    if (hit === 'self') return `${name}を自分の中へは移せません`
+    if (hit === 'same') return `${name}は今ここにあります`
+    if (hit === 'none') return `${name}を移す（カテゴリか見出しの上で離す）`
+    return `${name}を${place(hit.target)}へ移す`
+  }
 
   async function commit() {
     if (!editing) return
@@ -116,12 +150,14 @@ export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) 
             field(depth)
           ) : (
           <span
-            className={`sidebar__item sidebar__item--category${over === c.id ? ' sidebar__item--drop' : ''}`}
+            className={`sidebar__item sidebar__item--category${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
             style={{ '--depth': depth } as CSSProperties}
             data-drop={c.id}
             title="ダブルクリックで名前を変える。ドラッグで移す"
             onDoubleClick={() => setEditing({ kind: 'rename', id: c.id, name: c.name })}
             onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
+            // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない
+            onMouseDown={(e) => e.preventDefault()}
           >
             {c.name}
             <button
@@ -182,6 +218,23 @@ export default function Sidebar({ gallery, onRename, onCreate, onMove }: Props) 
           </li>
         ))}
       </ul>
+      {drag && press && (
+        <div className="sidebar__drag" style={{ left: drag.x, top: drag.y }} role="status">
+          {dragLabel(drag.hit)}
+        </div>
+      )}
+      {pending && (
+        <MoveCategoryDialog
+          name={nameOf(pending.id) ?? ''}
+          to={place(pending.parent)}
+          onConfirm={(skip) => {
+            if (skip) localStorage.setItem(SKIP_CONFIRM, '1')
+            onMove(pending.id, pending.parent)
+            setPending(null)
+          }}
+          onClose={() => setPending(null)}
+        />
+      )}
     </nav>
   )
 }
