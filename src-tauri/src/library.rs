@@ -47,6 +47,17 @@ const MIGRATIONS: &[&str] = &[
         deleted_at INTEGER,
         missing_at INTEGER
     )",
+    // 一覧のサイドバー（FR-503）で読むために先に作る。名前の重複の判定（NFC と大文字・小文字）は
+    // categories と同じくアプリ側で行う。グループ（FR-409、Could）は要るときに列を足す
+    "CREATE TABLE tags(
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL
+    );
+    CREATE TABLE image_tags(
+        image_id INTEGER NOT NULL REFERENCES images(id),
+        tag_id INTEGER NOT NULL REFERENCES tags(id),
+        PRIMARY KEY(image_id, tag_id)
+    )",
 ];
 
 pub struct Library {

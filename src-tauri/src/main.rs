@@ -1,5 +1,6 @@
 mod category;
 mod fileops;
+mod gallery;
 mod import;
 mod library;
 mod recent;
@@ -30,6 +31,10 @@ fn activate(
 ) -> Result<PathBuf, String> {
     let lib = result.inspect_err(|e| log::warn!("{e}"))?;
     let root = lib.root.clone();
+    // 画面がサムネイルを直接読めるのは、開いたライブラリのサムネイルのフォルダの下だけにする
+    app.asset_protocol_scope()
+        .allow_directory(root.join(library::KURA_DIR).join("thumbs"), true)
+        .map_err(|e| e.to_string())?;
     if let Err(e) = recent::push(&recent_file(app)?, &root) {
         // 一覧に残せなくてもライブラリは使えるので、開く処理は止めない
         log::error!("最近使ったライブラリを保存できません：{e}");
@@ -61,6 +66,12 @@ fn create_library(
 #[tauri::command]
 fn open_library(app: AppHandle, current: State<Current>, path: PathBuf) -> Result<PathBuf, String> {
     activate(&app, &current, library::open(&path))
+}
+
+#[tauri::command]
+fn load_gallery(current: State<Current>) -> Result<gallery::Gallery, String> {
+    let current = current.0.lock().unwrap();
+    gallery::load(current.as_ref().ok_or("ライブラリを開いていません")?)
 }
 
 #[derive(Clone, Serialize)]
@@ -108,7 +119,8 @@ fn main() {
             location_warning,
             create_library,
             open_library,
-            import_paths
+            import_paths,
+            load_gallery
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
