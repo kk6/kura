@@ -3,13 +3,14 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { subtree } from './categoryTree'
 import Detail from './Detail'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
-import type { Assigned, Detail as DetailData, Gallery as GalleryData, Tag } from './galleryTypes'
+import type { Assigned, Deleted, Detail as DetailData, Gallery as GalleryData, Tag } from './galleryTypes'
 import type { ImportProgress, Report } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
@@ -18,7 +19,8 @@ import './Gallery.css'
 // ステータスバーに出す一括操作の結果
 type Result =
   | { kind: 'report'; report: Report }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: string; failed?: { file_name: string; message: string }[] }
+  | { kind: 'deleted'; name: string; moved: number }
   | { kind: 'assigned'; moved: number; failed: { file_name: string; message: string }[] }
 
 const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
@@ -134,18 +136,22 @@ export default function Gallery({ root }: { root: string }) {
     if (paths) start(paths)
   }
 
-  async function assign(targets: number[], category: number | null) {
-    const r = await invoke<Assigned>('set_category', { ids: targets, category })
+  // 移した画像のカテゴリとファイル名を手元の値に反映し、移せなかった画像をファイル名で返す
+  function applyMoved(r: Assigned, category: number | null) {
     const names = new Map(r.moved.map((m) => [m.id, m.file_name]))
-    const failed = r.failed.map((f) => ({
-      file_name: data.images.find((i) => i.id === f.id)?.file_name ?? String(f.id),
-      message: f.message,
-    }))
     setData((d) => ({
       ...d,
       images: d.images.map((i) => (names.has(i.id) ? { ...i, category_id: category, file_name: names.get(i.id)! } : i)),
     }))
-    setResult({ kind: 'assigned', moved: r.moved.length, failed })
+    return r.failed.map((f) => ({
+      file_name: data.images.find((i) => i.id === f.id)?.file_name ?? String(f.id),
+      message: f.message,
+    }))
+  }
+
+  async function assign(targets: number[], category: number | null) {
+    const r = await invoke<Assigned>('set_category', { ids: targets, category })
+    setResult({ kind: 'assigned', moved: r.moved.length, failed: applyMoved(r, category) })
   }
 
   // 変わるのはカテゴリの行だけなので、一覧を読み直さずに手元の値を変える
@@ -167,6 +173,27 @@ export default function Gallery({ root }: { root: string }) {
     } catch (e) {
       setResult({ kind: 'error', message: `カテゴリを移せません（${e}）` })
     }
+  }
+
+  async function deleteCategory(id: number) {
+    const name = data.categories.find((c) => c.id === id)?.name ?? ''
+    let r: Deleted
+    try {
+      r = await invoke<Deleted>('delete_category', { id })
+    } catch (e) {
+      setResult({ kind: 'error', message: `カテゴリを削除できません（${e}）` })
+      return
+    }
+    const failed = applyMoved(r, null)
+    if (r.error !== null) {
+      setResult({ kind: 'error', message: `「${name}」を削除できません（${r.error}）`, failed })
+      return
+    }
+    setData((d) => {
+      const gone = subtree(d.categories, id)
+      return { ...d, categories: d.categories.filter((c) => !gone.has(c.id)) }
+    })
+    setResult({ kind: 'deleted', name, moved: r.moved.length })
   }
 
   const addTag = (tag: Tag) =>
@@ -214,7 +241,14 @@ export default function Gallery({ root }: { root: string }) {
         </button>
       </header>
 
-      <Sidebar root={root} gallery={data} onRename={renameCategory} onCreate={createCategory} onMove={moveCategory} />
+      <Sidebar
+        root={root}
+        gallery={data}
+        onRename={renameCategory}
+        onCreate={createCategory}
+        onMove={moveCategory}
+        onDelete={deleteCategory}
+      />
 
       <Masonry
         root={root}
@@ -300,7 +334,18 @@ export default function Gallery({ root }: { root: string }) {
               </span>
             </>
           ) : result?.kind === 'error' ? (
-            <Status kind="error">{result.message}</Status>
+            <>
+              <Status kind="error">{result.message}</Status>
+              {!!result.failed?.length && (
+                <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
+                  <Status kind="error">移せない {result.failed.length}枚</Status>
+                </button>
+              )}
+            </>
+          ) : result?.kind === 'deleted' ? (
+            <Status kind="success">
+              「{result.name}」を削除。未分類へ {result.moved}枚
+            </Status>
           ) : result?.kind === 'assigned' ? (
             <>
               <Status kind="success">カテゴリを変更 {result.moved}枚</Status>
@@ -329,8 +374,8 @@ export default function Gallery({ root }: { root: string }) {
       </footer>
 
       {showSkipped &&
-        (result?.kind === 'assigned' ? (
-          <MoveFailDialog failed={result.failed} onClose={() => setShowSkipped(false)} />
+        (result?.kind === 'assigned' || result?.kind === 'error' ? (
+          <MoveFailDialog failed={result.failed ?? []} onClose={() => setShowSkipped(false)} />
         ) : (
           <SkipDialog skipped={skipped} onClose={() => setShowSkipped(false)} />
         ))}

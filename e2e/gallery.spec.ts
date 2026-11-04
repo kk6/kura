@@ -622,3 +622,41 @@ test('カテゴリを開閉でき、閉じた状態は開き直しても残る�
   await expect(item('制服')).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('カテゴリを子カテゴリごと削除し、件数を確かめてから画像を未分類へ移す', async ({ page }) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const item = (name: string) => categories.locator('.sidebar__item--category').getByText(name, { exact: true })
+  const dialog = page.getByRole('dialog', { name: 'カテゴリを削除する' })
+  const status = page.getByRole('contentinfo')
+  const uncategorized = sidebar.getByRole('listitem').filter({ hasText: '未分類' })
+  await expect(uncategorized).toContainText('500')
+
+  // 消えるカテゴリの数と未分類へ移る枚数を出す。Enter だけで消さないようキャンセルを選んでおく
+  await sidebar.getByRole('button', { name: '服飾 を削除する' }).click()
+  await expect(dialog).toContainText('「服飾」と子カテゴリ 1個を削除します。中の画像 600枚は未分類へ移ります')
+  await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeFocused()
+  await page.screenshot({ path: 'test-results/category-delete-confirm.png' })
+  await page.keyboard.press('Enter')
+  await expect(dialog).toHaveCount(0)
+  await expect(item('制服')).toBeVisible()
+
+  await sidebar.getByRole('button', { name: '服飾 を削除する' }).click()
+  await dialog.getByRole('button', { name: '削除する' }).click()
+  await expect(item('服飾')).toHaveCount(0)
+  await expect(item('制服')).toHaveCount(0)
+  await expect(uncategorized).toContainText('1100')
+  await expect(status).toContainText('完了：「服飾」を削除。未分類へ 600枚')
+
+  // 移せない画像（モックの ref_00007 は「座り」にある）があれば、カテゴリを残して知らせる
+  await sidebar.getByRole('button', { name: 'ポーズ を削除する' }).click()
+  await expect(dialog).toContainText('「ポーズ」と子カテゴリ 2個を削除します')
+  await dialog.getByRole('button', { name: '削除する' }).click()
+  await expect(status).toContainText('「ポーズ」を削除できません（未分類へ移せない画像があるので')
+  await expect(item('ポーズ')).toBeVisible()
+  await expect(item('座り')).toBeVisible()
+  await page.screenshot({ path: 'test-results/category-delete-failed.png' })
+  await status.getByRole('button', { name: /移せない 1枚/ }).click()
+  await expect(page.getByRole('dialog', { name: '移せなかった画像（1枚）' })).toContainText('ref_00007.jpg')
+})

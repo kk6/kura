@@ -33,3 +33,6 @@ export type Assigned = {
   moved: { id: number; file_name: string }[]
   failed: { id: number; message: string }[]
 }
+
+// src-tauri/src/category.rs の Deleted（delete_category コマンドの返り値）。error が null ならカテゴリは子カテゴリごと消えた
+export type Deleted = Assigned & { error: string | null }

@@ -1,5 +1,6 @@
 import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
+import { subtree } from '../categoryTree'
 import type { Assigned, Gallery, Image } from '../galleryTypes'
 import type { Report } from '../importTypes'
 
@@ -178,6 +179,17 @@ const moveCategory: Handler = (args) => {
   c.parent_id = parent
 }
 
+// src-tauri/src/category.rs の delete と同じく、移せない画像（ref_00007 は「座り」にある）があればカテゴリを消さない
+const deleteCategory: Handler = (args) => {
+  const c = categoryOf(args?.id)
+  const ids = subtree(GALLERY.categories, c.id)
+  const images = IMAGES.filter((i) => i.category_id !== null && ids.has(i.category_id)).map((i) => i.id)
+  const out = setCategory({ ids: images, category: null }) as Assigned
+  if (out.failed.length) return { ...out, error: '未分類へ移せない画像があるので、カテゴリを削除しませんでした' }
+  GALLERY.categories = GALLERY.categories.filter((x) => !ids.has(x.id))
+  return { ...out, error: null }
+}
+
 // 画像ごとのタグの id。1枚目に「あおり」と「座り」が付いている
 const imageTags = new Map<number, Set<number>>([[1, new Set([1, 2])]])
 const tagsOf = (id: number) => imageTags.get(id) ?? imageTags.set(id, new Set()).get(id)!
@@ -223,6 +235,7 @@ const handlers: Record<string, Handler> = {
   create_category: createCategory,
   rename_category: renameCategory,
   move_category: moveCategory,
+  delete_category: deleteCategory,
   image_tags: countTags,
   add_tag: addTag,
   remove_tag: removeTag,

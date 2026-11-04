@@ -1,4 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import { subtree } from './categoryTree'
+import DeleteCategoryDialog from './DeleteCategoryDialog'
 import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import type { Category, Gallery } from './galleryTypes'
@@ -11,6 +13,7 @@ type Props = {
   onRename: (id: number, name: string) => Promise<void>
   onCreate: (parent: number | null, name: string) => Promise<void>
   onMove: (id: number, parent: number | null) => void
+  onDelete: (id: number) => void
 }
 
 // ドロップ先の目印。ROOT は見出しに落としたとき（ルート直下へ移す）
@@ -25,7 +28,7 @@ export const SKIP_CONFIRM = 'kura.skipCategoryMoveConfirm'
 type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
 // shortcut: 表示だけで、選んで絞り込む操作と、カテゴリ・タグの件数は持たない。絞り込み（FR-504、タスク#14）で足す
-export default function Sidebar({ root, gallery, onRename, onCreate, onMove }: Props) {
+export default function Sidebar({ root, gallery, onRename, onCreate, onMove, onDelete }: Props) {
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
@@ -57,6 +60,8 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove }: P
   // 落とした後、確認ダイアログで答えを待っている移動
   const [pending, setPending] = useState<{ id: number; parent: number | null } | null>(null)
   const over = drag && typeof drag.hit === 'object' ? (drag.hit.target ?? ROOT) : null
+  // 確認ダイアログで答えを待っている削除
+  const [deleting, setDeleting] = useState<number | null>(null)
 
   // HTML5 のドラッグ＆ドロップは使わない。Tauri がファイルのドロップ（取り込み）を受けるために
   // ウェブビューのドラッグを横取りし、drop がページに届かないため。ポインターの動きで自前に行う
@@ -207,6 +212,16 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove }: P
             >
               <Icon d="M12 5v14M5 12h14" />
             </button>
+            <button
+              type="button"
+              className="sidebar__add sidebar__add--hover"
+              aria-label={`${c.name} を削除する`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onClick={() => setDeleting(c.id)}
+            >
+              <Icon d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+            </button>
           </span>
         )}
         {((children.has(c.id) && !collapsed.has(c.id)) || creatingIn(c.id)) && (
@@ -274,6 +289,22 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove }: P
           {dragLabel(drag.hit)}
         </div>
       )}
+      {deleting !== null &&
+        (() => {
+          const ids = subtree(gallery.categories, deleting)
+          return (
+            <DeleteCategoryDialog
+              name={nameOf(deleting) ?? ''}
+              categories={ids.size}
+              images={gallery.images.filter((i) => i.category_id !== null && ids.has(i.category_id)).length}
+              onConfirm={() => {
+                onDelete(deleting)
+                setDeleting(null)
+              }}
+              onClose={() => setDeleting(null)}
+            />
+          )
+        })()}
       {pending && (
         <MoveCategoryDialog
           name={nameOf(pending.id) ?? ''}
