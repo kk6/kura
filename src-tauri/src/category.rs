@@ -7,7 +7,7 @@ use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::fileops::{self, OnConflict, PendingOp, Request};
-use crate::library::{Library, UNCATEGORIZED_DIR};
+use crate::library::{Library, TRASH_DIR, UNCATEGORIZED_DIR};
 
 /// 画像をカテゴリのフォルダへ移す操作の、pending_ops の種類
 pub const MOVE_IMAGE: &str = "move_image";
@@ -258,6 +258,129 @@ pub fn apply_category(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
         0 => Err(format!("カテゴリが見つかりません（{:?}）", op.target_id)),
         _ => Ok(()),
     }
+}
+
+/// カテゴリのフォルダをゴミ箱へ移す操作の、pending_ops の種類
+pub const TRASH_CATEGORY: &str = "trash_category";
+
+// ?1 のカテゴリと、その子孫のカテゴリ
+const SUBTREE: &str = "WITH RECURSIVE sub(id) AS (
+    SELECT ?1 UNION ALL SELECT c.id FROM categories c JOIN sub ON c.parent_id = sub.id
+)";
+
+#[derive(Debug, Default, Serialize)]
+pub struct Deleted {
+    /// 未分類へ移した画像
+    pub moved: Vec<Moved>,
+    pub failed: Vec<Failed>,
+    /// カテゴリを消せなかった理由。None ならカテゴリは子カテゴリごと消えた
+    pub error: Option<String>,
+}
+
+/// カテゴリを子カテゴリごと削除する（FR-404）。配下の画像を未分類へ移してから、フォルダを .kura/trash/ へ移し、
+/// 移した先で .DS_Store だけか空のフォルダを消す。管理外のファイルが残ったフォルダはゴミ箱に残る。
+/// 移せない画像が1枚でもあれば、カテゴリもフォルダも消さない
+pub fn delete(lib: &mut Library, id: i64) -> Result<Deleted, String> {
+    let src = dir(lib, Some(id))?;
+    let ids = {
+        let mut stmt = lib
+            .conn
+            .prepare(&format!(
+                "{SUBTREE} SELECT id FROM images
+                 WHERE deleted_at IS NULL AND category_id IN sub ORDER BY id"
+            ))
+            .map_err(err)?;
+        let ids = stmt
+            .query_map([id], |r| r.get::<_, i64>(0))
+            .map_err(err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(err)?;
+        ids
+    };
+    let Assigned { moved, failed } = assign(lib, &ids, None)?;
+    let mut out = Deleted {
+        moved,
+        failed,
+        error: None,
+    };
+    if !out.failed.is_empty() {
+        out.error = Some("未分類へ移せない画像があるので、カテゴリを削除しませんでした".into());
+        return Ok(out);
+    }
+
+    // 空のフォルダも含めてまとめてゴミ箱へ移し、カテゴリの行の削除と1つの操作にする。
+    // ライブラリの中で先にフォルダを消していくと、途中で失敗したときにフォルダのないカテゴリが残るため
+    let trash = Path::new(TRASH_DIR);
+    let name = src.file_name().unwrap().to_string_lossy().into_owned();
+    let result = fs::create_dir_all(lib.root.join(trash))
+        .map_err(|e| format!("ゴミ箱のフォルダを作れません（{e}）"))
+        .and_then(|_| {
+            fileops::transfer(
+                lib,
+                Request {
+                    kind: TRASH_CATEGORY,
+                    target_id: Some(id),
+                    copy: false,
+                    src: &src,
+                    dst_dir: trash,
+                    name: &name,
+                    on_conflict: OnConflict::Number,
+                },
+                &apply_trash,
+            )
+        });
+    match result {
+        Ok(dst) => {
+            if let Err(e) = prune(&lib.root.join(&dst)) {
+                log::warn!("ゴミ箱の空のフォルダを消せません（{}、{e}）", dst.display());
+            }
+        }
+        Err(e) => out.error = Some(e),
+    }
+    Ok(out)
+}
+
+/// TRASH_CATEGORY の DB の更新。カテゴリを子孫ごと消す。ゴミ箱の画像は category_id を空にし、
+/// 復元（FR-511）で元のカテゴリが消えたと分かるよう category_deleted に印を付ける。
+/// 未分類へ移していない画像が残っていれば、外部キーの制約で失敗する
+pub fn apply_trash(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
+    tx.execute(
+        &format!(
+            "{SUBTREE} UPDATE images SET category_id = NULL, category_deleted = 1
+             WHERE deleted_at IS NOT NULL AND category_id IN sub"
+        ),
+        [op.target_id],
+    )
+    .map_err(err)?;
+    tx.execute(
+        &format!("{SUBTREE} DELETE FROM categories WHERE id IN sub"),
+        [op.target_id],
+    )
+    .map(|_| ())
+    .map_err(err)
+}
+
+/// .DS_Store だけか空のフォルダを、深い方から消す。管理外のファイルが残るフォルダは消さない。返り値は path を消したか
+fn prune(path: &Path) -> std::io::Result<bool> {
+    let mut keep = false;
+    for e in fs::read_dir(path)? {
+        let e = e?;
+        // シンボリックリンクはたどらず、管理外のファイルとして残す
+        if e.file_type()?.is_dir() {
+            keep |= !prune(&e.path())?;
+        } else {
+            keep |= e.file_name() != ".DS_Store";
+        }
+    }
+    if keep {
+        return Ok(false);
+    }
+    match fs::remove_file(path.join(".DS_Store")) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    fs::remove_dir(path)?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -923,6 +1046,209 @@ mod tests {
 
         assert_eq!(cat(&lib, pose), ("ポーズ".into(), None));
         assert_eq!(top(&lib), [".kura", "_未分類", "ポーズ"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    fn categories(lib: &Library) -> Vec<String> {
+        let mut stmt = lib
+            .conn
+            .prepare("SELECT name FROM categories ORDER BY id")
+            .unwrap();
+        stmt.query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    #[test]
+    fn 子カテゴリごと削除すると画像を未分類へ移しフォルダとカテゴリを消す() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let chair = create(&mut lib, Some(sit), "椅子").unwrap();
+        create(&mut lib, None, "服飾").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let b = put(&lib, Some(chair), "b.png", "B");
+        // Finder が作る .DS_Store だけが残るフォルダは消してよい
+        fs::write(lib.root.join("ポーズ/座り/.DS_Store"), b"").unwrap();
+
+        let r = delete(&mut lib, pose).unwrap();
+
+        assert_eq!(r.error, None);
+        assert_eq!(r.failed, []);
+        assert_eq!(r.moved.len(), 2);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), None));
+        assert_eq!(row(&lib, b), ("b.png".into(), None));
+        assert_eq!(files(&lib, "_未分類"), ["a.jpg", "b.png"]);
+        assert_eq!(files(&lib, ""), [".kura", "_未分類", "服飾"]);
+        assert_eq!(files(&lib, TRASH_DIR), Vec::<String>::new());
+        assert_eq!(categories(&lib), ["服飾"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 管理外のファイルが残ったフォルダはゴミ箱へ移す() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        create(&mut lib, Some(pose), "立ち").unwrap();
+        let a = put(&lib, Some(sit), "a.jpg", "A");
+        fs::write(lib.root.join("ポーズ/座り/メモ.txt"), b"memo").unwrap();
+        fs::write(lib.root.join("ポーズ/座り/.DS_Store"), b"").unwrap();
+        fs::write(lib.root.join("ポーズ/立ち/.DS_Store"), b"").unwrap();
+
+        let r = delete(&mut lib, pose).unwrap();
+
+        assert_eq!(r.error, None);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), None));
+        assert_eq!(files(&lib, ""), [".kura", "_未分類"]);
+        // 管理外のファイルがあるフォルダは中身ごと残し、.DS_Store だけのフォルダは消す
+        assert_eq!(files(&lib, ".kura/trash"), ["ポーズ"]);
+        assert_eq!(files(&lib, ".kura/trash/ポーズ"), ["座り"]);
+        assert_eq!(
+            files(&lib, ".kura/trash/ポーズ/座り"),
+            [".DS_Store", "メモ.txt"]
+        );
+        assert_eq!(categories(&lib), Vec::<String>::new());
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 未分類やゴミ箱に同名があれば連番を付ける() {
+        let (_d, mut lib) = setup();
+        let a = create(&mut lib, None, "女性").unwrap();
+        let b = create(&mut lib, None, "男性").unwrap();
+        let sit_a = create(&mut lib, Some(a), "座り").unwrap();
+        let sit_b = create(&mut lib, Some(b), "座り").unwrap();
+        put(&lib, None, "a.jpg", "A1");
+        let dup = put(&lib, Some(sit_a), "a.jpg", "A2");
+        fs::write(lib.root.join("女性/座り/x.txt"), b"").unwrap();
+        fs::write(lib.root.join("男性/座り/y.txt"), b"").unwrap();
+
+        let r1 = delete(&mut lib, sit_a).unwrap();
+        let r2 = delete(&mut lib, sit_b).unwrap();
+
+        assert_eq!((r1.error, r2.error), (None, None));
+        assert_eq!(r1.moved, [moved(dup, "a (2).jpg")]);
+        assert_eq!(files(&lib, "_未分類"), ["a (2).jpg", "a.jpg"]);
+        assert_eq!(files(&lib, ".kura/trash"), ["座り", "座り (2)"]);
+        assert_eq!(categories(&lib), ["女性", "男性"]);
+    }
+
+    #[test]
+    fn ゴミ箱の画像は元のカテゴリが消えた印を残す() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let trashed = put(&lib, Some(pose), "t.jpg", "T");
+        lib.conn
+            .execute("UPDATE images SET deleted_at = 1 WHERE id = ?1", [trashed])
+            .unwrap();
+        fs::remove_file(lib.root.join("ポーズ/t.jpg")).unwrap();
+
+        let r = delete(&mut lib, pose).unwrap();
+
+        // 復元のとき（FR-511）、元のカテゴリが消えたことを知らせられるように印を残す
+        assert_eq!(r.error, None);
+        assert_eq!(r.moved, []);
+        assert_eq!(row(&lib, trashed), ("t.jpg".into(), None));
+        let flag: i64 = lib
+            .conn
+            .query_row(
+                "SELECT category_deleted FROM images WHERE id = ?1",
+                [trashed],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(flag, 1);
+        assert_eq!(categories(&lib), Vec::<String>::new());
+    }
+
+    #[test]
+    fn 未分類へ移せない画像があればカテゴリもフォルダも消さない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let gone = put(&lib, Some(sit), "gone.jpg", "G");
+        fs::remove_file(lib.root.join("ポーズ/座り/gone.jpg")).unwrap();
+
+        let r = delete(&mut lib, pose).unwrap();
+
+        assert!(r.error.is_some());
+        assert_eq!(r.moved, [moved(a, "a.jpg")]);
+        assert_eq!(r.failed.iter().map(|f| f.id).collect::<Vec<_>>(), [gone]);
+        assert_eq!(row(&lib, gone), ("gone.jpg".into(), Some(sit)));
+        assert_eq!(files(&lib, "ポーズ"), ["座り"]);
+        assert_eq!(categories(&lib), ["ポーズ", "座り"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn フォルダをゴミ箱へ移せなければカテゴリを消さない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let trash = lib.root.join(TRASH_DIR);
+        fs::create_dir_all(&trash).unwrap();
+        fs::set_permissions(&trash, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let r = delete(&mut lib, pose).unwrap();
+
+        fs::set_permissions(&trash, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(r.error.is_some());
+        // 画像は未分類へ移ったまま。カテゴリとフォルダは残る
+        assert_eq!(row(&lib, a), ("a.jpg".into(), None));
+        assert!(lib.root.join("ポーズ").is_dir());
+        assert_eq!(categories(&lib), ["ポーズ"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn ないカテゴリは削除できない() {
+        let (_d, mut lib) = setup();
+        assert!(delete(&mut lib, 999).is_err());
+    }
+
+    #[test]
+    fn フォルダをゴミ箱へ移したあとdbを更新する前に止まった削除は起動時にカテゴリを消す() {
+        let (d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        create(&mut lib, Some(pose), "座り").unwrap();
+        create(&mut lib, None, "服飾").unwrap();
+        lib.conn
+            .execute(
+                "INSERT INTO pending_ops(kind, target_id, copy, src, dst)
+                 VALUES (?1, ?2, 0, 'ポーズ', '.kura/trash/ポーズ')",
+                params![TRASH_CATEGORY, pose],
+            )
+            .unwrap();
+        fs::create_dir_all(lib.root.join(TRASH_DIR)).unwrap();
+        fs::rename(lib.root.join("ポーズ"), lib.root.join(".kura/trash/ポーズ")).unwrap();
+        drop(lib);
+
+        let lib = library::open(d.path()).unwrap();
+
+        assert_eq!(categories(&lib), ["服飾"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn フォルダをゴミ箱へ移す前に止まった削除は起動時に予定だけ消す() {
+        let (d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        lib.conn
+            .execute(
+                "INSERT INTO pending_ops(kind, target_id, copy, src, dst)
+                 VALUES (?1, ?2, 0, 'ポーズ', '.kura/trash/ポーズ')",
+                params![TRASH_CATEGORY, pose],
+            )
+            .unwrap();
+        drop(lib);
+
+        let lib = library::open(d.path()).unwrap();
+
+        assert_eq!(categories(&lib), ["ポーズ"]);
+        assert!(lib.root.join("ポーズ").is_dir());
         assert_eq!(pending(&lib), 0);
     }
 }

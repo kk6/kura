@@ -181,6 +181,17 @@ async fn move_category(app: AppHandle, id: i64, parent: Option<i64>) -> Result<(
 }
 
 #[tauri::command]
+async fn delete_category(app: AppHandle, id: i64) -> Result<category::Deleted, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let mut current = current.0.lock().unwrap();
+        category::delete(current.as_mut().ok_or("ライブラリを開いていません")?, id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn image_tags(current: State<Current>, ids: Vec<i64>) -> Result<Vec<tag::Counted>, String> {
     let current = current.0.lock().unwrap();
     tag::of(current.as_ref().ok_or("ライブラリを開いていません")?, &ids)
@@ -260,6 +271,7 @@ fn main() {
             create_category,
             rename_category,
             move_category,
+            delete_category,
             image_tags,
             add_tag,
             remove_tag
