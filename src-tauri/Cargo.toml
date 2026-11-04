@@ -20,4 +20,5 @@ tauri-plugin-log = "2.10.1"
 unicode-normalization = "0.1.26"
 
 [dev-dependencies]
+tauri = { version = "2", features = ["protocol-asset", "test"] }
 tempfile = "3.27.0"

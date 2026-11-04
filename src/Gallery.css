@@ -161,6 +161,9 @@
 
 .list__canvas {
   position: relative;
+  /* Shift を押して選ぶときに文字の範囲選択が起きないようにする */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .list__thumb {
@@ -174,4 +177,160 @@
   margin: 0;
   padding: var(--space-5);
   color: var(--color-text-sub);
+}
+
+/* 画像が暗くても明るくても見分けられるよう、黒い枠の内側に地の色の線を入れる（docs/design.md） */
+.list__thumb--selected {
+  border: var(--select-inner);
+  outline: var(--select-outline);
+}
+
+.detail__preview {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-raise);
+}
+
+.detail__preview img {
+  display: block;
+  max-width: 100%;
+  max-height: var(--size-detail);
+}
+
+.detail__name {
+  margin: var(--space-4) 0;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  overflow-wrap: anywhere;
+}
+
+.detail__fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3) var(--space-4);
+  margin: 0;
+}
+
+.detail__fields dt {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+}
+
+.detail__fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.detail__memo {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--size-control) * 3);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  color: inherit;
+  background: var(--color-input);
+  resize: vertical;
+}
+
+/* 入力のエラーは、入力欄の枠をキーボードの枠と同じ太さのエラーの色にする（docs/design.md「状態の表示」） */
+.detail__memo--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}
+
+.rating {
+  display: flex;
+}
+
+.rating__star {
+  display: flex;
+  padding: 0 var(--space-1) 0 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+.rating__star[aria-pressed='true'] {
+  color: var(--color-text);
+}
+
+.detail__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag {
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: var(--color-input);
+}
+
+/* 一覧と同じ場所に重ねる。一覧を消さないので、閉じたときにスクロールの位置が残る */
+.gallery__zoom {
+  grid-area: list;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--space-5);
+  background: var(--color-bg);
+  /* 画像の幅を枠の大きさ（cqw、cqh）から決めるため */
+  container-type: size;
+}
+
+
+.zoom__close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+}
+
+/* 画像の左右の端を押す場所にし、乗せたときだけ < > を出す。画像の色を変えないよう、出すまでは何も描かない */
+.zoom__nav {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  width: 15%;
+  padding: 0 var(--space-5);
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.zoom__nav--prev {
+  left: 0;
+}
+
+.zoom__nav--next {
+  right: 0;
+  justify-content: flex-end;
+}
+
+.zoom__arrow {
+  display: flex;
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-sub);
+  background: var(--color-surface);
+  visibility: hidden;
+}
+
+.zoom__nav:hover .zoom__arrow,
+.zoom__nav:focus-visible .zoom__arrow {
+  visibility: visible;
 }

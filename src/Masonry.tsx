@@ -1,11 +1,19 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { Image } from './galleryTypes'
 import { layout, visible } from './layout'
 
-type Props = { root: string; images: Image[]; thumbWidth: number }
+type Props = {
+  root: string
+  images: Image[]
+  thumbWidth: number
+  selected: Set<number>
+  // id が null のときは画像のない所を押した
+  onSelect: (id: number | null, e: MouseEvent) => void
+  onOpen: () => void
+}
 
-export default function Masonry({ root, images, thumbWidth }: Props) {
+export default function Masonry({ root, images, thumbWidth, selected, onSelect, onOpen }: Props) {
   const ref = useRef<HTMLElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewport, setViewport] = useState({ width: 0, height: 0, gap: 0 })
@@ -45,7 +53,18 @@ export default function Masonry({ root, images, thumbWidth }: Props) {
   const shown = l ? visible(l, scrollTop - gap - height, scrollTop - gap + height * 2) : []
 
   return (
-    <main ref={ref} className="gallery__list" aria-label="画像の一覧" onScroll={onScroll}>
+    <main
+      ref={ref}
+      className="gallery__list"
+      aria-label="画像の一覧"
+      onScroll={onScroll}
+      onClick={(e) => {
+        const id = (e.target as HTMLElement).dataset.id
+        onSelect(id ? Number(id) : null, e)
+      }}
+      // 1回目のクリックでその画像だけが選ばれている
+      onDoubleClick={(e) => (e.target as HTMLElement).dataset.id && !e.shiftKey && !e.metaKey && onOpen()}
+    >
       {images.length === 0 ? (
         <p className="list__empty">画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください</p>
       ) : (
@@ -54,10 +73,11 @@ export default function Masonry({ root, images, thumbWidth }: Props) {
             {shown.map((i) => (
               <img
                 key={images[i].id}
-                className="list__thumb"
+                className={selected.has(images[i].id) ? 'list__thumb list__thumb--selected' : 'list__thumb'}
                 src={convertFileSrc(`${root}/.kura/thumbs/${images[i].hash}.jpg`)}
                 alt={images[i].file_name}
                 decoding="async"
+                data-id={images[i].id}
                 style={{
                   width: l.columnWidth,
                   height: l.h[i],

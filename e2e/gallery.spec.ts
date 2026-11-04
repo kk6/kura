@@ -189,3 +189,170 @@ test('画像のないライブラリでは、一覧に取り込み方を出す',
   await expect(page.getByRole('main', { name: '画像の一覧' })).toContainText('画像がありません')
   await expect(page.getByRole('contentinfo')).toContainText('0枚')
 })
+
+const thumb = (page: import('@playwright/test').Page, n: number) =>
+  thumbs(page).and(page.getByAltText(`ref_${String(n).padStart(5, '0')}.jpg`, { exact: true }))
+const selectedNames = (page: import('@playwright/test').Page) =>
+  page.locator('.list__thumb--selected').evaluateAll((imgs) => imgs.map((i) => i.getAttribute('alt')).sort())
+
+test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 1).click()
+
+  await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')
+  await expect(detail.getByRole('img', { name: 'ref_00001.jpg のプレビュー' })).toBeVisible()
+  await expect(detail).toContainText('カテゴリ未分類')
+  await expect(detail.getByRole('listitem')).toHaveText(['あおり', '座り'])
+  await expect(detail).toContainText('元URLhttps://example.com/gallery/pose')
+  await expect(detail).toContainText(/サイズ\d+ × \d+、177 KB/)
+  await expect(detail).toContainText('腕の角度と')
+  expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
+  await page.screenshot({ path: 'test-results/detail.png' })
+
+  // カテゴリは親からの道筋で出し、タグ・元URL・メモがなければ「なし」と出す
+  await thumb(page, 2).click()
+  await expect(detail.getByRole('heading')).toHaveText('ref_00002.jpg')
+  await expect(detail).toContainText('カテゴリポーズ / 座り')
+  await expect(detail).toContainText('タグなし元URLなし')
+  expect(errors).toEqual([])
+})
+
+test('Command で個別に、Shift で範囲で複数の画像を選べる', async ({ page }) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 2).click()
+  await thumb(page, 4).click({ modifiers: ['Meta'] })
+  await expect(detail).toHaveText('2枚を選んでいます')
+  expect(await selectedNames(page)).toEqual(['ref_00002.jpg', 'ref_00004.jpg'])
+
+  // 起点は最後に Command で選んだ ref_00004
+  await thumb(page, 7).click({ modifiers: ['Shift'] })
+  await expect(detail).toHaveText('4枚を選んでいます')
+  expect(await selectedNames(page)).toEqual(['ref_00004.jpg', 'ref_00005.jpg', 'ref_00006.jpg', 'ref_00007.jpg'])
+  await page.screenshot({ path: 'test-results/multi-select.png' })
+
+  await thumb(page, 5).click({ modifiers: ['Meta'] })
+  expect(await selectedNames(page)).toEqual(['ref_00004.jpg', 'ref_00006.jpg', 'ref_00007.jpg'])
+})
+
+test('ダブルクリックで拡大し、左右キーで前後の画像に移り、Escape で閉じる', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const zoom = page.getByRole('region', { name: '拡大表示' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 2).dblclick()
+
+  // サムネイルではなく元の画像を読む
+  await expect(zoom.getByRole('img', { name: 'ref_00002.jpg' })).toHaveAttribute('src', /#\/Users\/me\/Pictures\/Kura ライブラリ\/_未分類\/ref_00002\.jpg$/)
+  await page.screenshot({ path: 'test-results/zoom.png' })
+
+  await page.keyboard.press('ArrowRight')
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00003.jpg')
+  await expect(detail.getByRole('heading')).toHaveText('ref_00003.jpg')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00001.jpg')
+  // 先頭より前には移らない
+  await page.keyboard.press('ArrowLeft')
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00001.jpg')
+
+  await page.keyboard.press('Escape')
+  await expect(zoom).toHaveCount(0)
+  expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
+
+  await thumb(page, 1).dblclick()
+  await zoom.getByRole('button', { name: '閉じる' }).click()
+  await expect(zoom).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('詳細パネルで入力したメモと評価を保存する', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const pressed = () =>
+    detail.getByRole('button', { name: /^評価/ }).evaluateAll((bs) => bs.filter((b) => b.getAttribute('aria-pressed') === 'true').length)
+  const memo = detail.getByRole('textbox', { name: 'メモ' })
+
+  // ref_00002 の評価は1
+  await thumb(page, 2).click()
+  await expect.poll(pressed).toBe(1)
+  await detail.getByRole('button', { name: '評価 4' }).click()
+  await expect.poll(pressed).toBe(4)
+  await memo.fill('手の形を見る')
+  await page.screenshot({ path: 'test-results/memo-rating.png' })
+
+  // 別の画像を選ぶと入力欄から離れて保存され、選び直すと保存した値が出る
+  await thumb(page, 3).click()
+  await expect(detail.getByRole('heading')).toHaveText('ref_00003.jpg')
+  await expect(memo).toHaveValue('')
+  await thumb(page, 2).click()
+  await expect(memo).toHaveValue('手の形を見る')
+  await expect.poll(pressed).toBe(4)
+
+  // 今の評価と同じ星を押すと評価なしに戻す
+  await detail.getByRole('button', { name: '評価 4' }).click()
+  await expect.poll(pressed).toBe(0)
+
+  // 保存に失敗したら入力欄の下にエラーを出す
+  await memo.fill('失敗するメモ')
+  await memo.blur()
+  await expect(detail).toContainText('エラー：メモを保存できません（disk I/O error）')
+  await expect(memo).toHaveAttribute('aria-invalid', 'true')
+  await page.screenshot({ path: 'test-results/memo-error.png' })
+  expect(errors).toEqual([])
+})
+
+test('拡大表示の左右の端にマウスを乗せると < > を出し、押すと前後の画像に移る', async ({ page }) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const zoom = page.getByRole('region', { name: '拡大表示' })
+
+  // 先頭の画像では、前へ移るボタンを出さない
+  await thumb(page, 1).dblclick()
+  await expect(zoom.getByRole('button', { name: '前の画像' })).toHaveCount(0)
+
+  const next = zoom.getByRole('button', { name: '次の画像' })
+  const arrow = next.locator('.zoom__arrow')
+  await expect(arrow).toBeHidden()
+  await next.hover()
+  await expect(arrow).toBeVisible()
+  await page.screenshot({ path: 'test-results/zoom-nav.png' })
+  await next.click()
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00002.jpg')
+
+  await zoom.getByRole('button', { name: '前の画像' }).click()
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00001.jpg')
+})
+
+test('Escape で選択を外す。拡大表示中は先に拡大表示を閉じ、メモの入力中は外さない', async ({ page }) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 2).click()
+  await thumb(page, 3).click({ modifiers: ['Meta'] })
+  await page.keyboard.press('Escape')
+  expect(await selectedNames(page)).toEqual([])
+  await expect(detail).toHaveText('画像を選ぶと、ここに詳細が出ます')
+
+  await thumb(page, 2).dblclick()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('region', { name: '拡大表示' })).toHaveCount(0)
+  expect(await selectedNames(page)).toEqual(['ref_00002.jpg'])
+
+  await detail.getByRole('textbox', { name: 'メモ' }).press('Escape')
+  expect(await selectedNames(page)).toEqual(['ref_00002.jpg'])
+})
