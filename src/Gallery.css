@@ -61,6 +61,8 @@
 
 /* カテゴリツリーの入れ子の深さ（--depth）の分だけ字下げする */
 .sidebar__item--category {
+  /* ドラッグ中に文字が選ばれないようにする */
+  user-select: none;
   padding-left: calc(var(--space-3) + var(--space-4) * var(--depth));
 }
 

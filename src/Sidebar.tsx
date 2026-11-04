@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Status from './Status'
 import type { Category, Gallery } from './galleryTypes'
 
@@ -11,6 +11,8 @@ type Props = {
 
 // ドロップ先の目印。ROOT は見出しに落としたとき（ルート直下へ移す）
 const ROOT = 'root'
+// ドラッグとみなす動きの距離（px）
+const DRAG_START = 4
 
 // shortcut: 表示だけで、選んで絞り込む操作と、カテゴリ・タグの件数は持たない。絞り込み（FR-504、タスク#14）で足す
 export default function Sidebar({ gallery, onRename, onMove }: Props) {
@@ -20,26 +22,46 @@ export default function Sidebar({ gallery, onRename, onMove }: Props) {
   const uncategorized = gallery.images.filter((i) => i.category_id === null).length
 
   const [editing, setEditing] = useState<{ id: number; name: string; error?: string } | null>(null)
-  const [dragged, setDragged] = useState<number | null>(null)
+  // 押した位置。少し動かしたらドラッグとみなす（ダブルクリックと区別するため）
+  const [press, setPress] = useState<{ id: number; x: number; y: number } | null>(null)
   const [over, setOver] = useState<number | typeof ROOT | null>(null)
 
-  // 自分自身と子孫の下へは移せない（FR-412）。祖先をたどって dragged に当たるかを見る
+  // 自分自身と子孫の下へは移せない（FR-412）。祖先をたどって押したカテゴリに当たるかを見る
   const accepts = (target: number | null) => {
-    for (let id: number | null = target; id !== null; id = parentOf.get(id) ?? null) if (id === dragged) return false
-    return dragged !== null
+    if (!press) return false
+    for (let id: number | null = target; id !== null; id = parentOf.get(id) ?? null) if (id === press.id) return false
+    return true
   }
-  const dropProps = (target: number | null) => ({
-    onDragOver: (e: DragEvent) => {
-      if (!accepts(target)) return
-      e.preventDefault()
-      setOver(target ?? ROOT)
-    },
-    onDragLeave: () => setOver(null),
-    onDrop: (e: DragEvent) => {
-      e.preventDefault()
+
+  // HTML5 のドラッグ＆ドロップは使わない。Tauri がファイルのドロップ（取り込み）を受けるために
+  // ウェブビューのドラッグを横取りし、drop がページに届かないため。ポインターの動きで自前に行う
+  useEffect(() => {
+    if (!press) return
+    const targetAt = (e: PointerEvent): number | null | undefined => {
+      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-drop]')
+      if (!el) return undefined
+      const target = el.dataset.drop === ROOT ? null : Number(el.dataset.drop)
+      return accepts(target) ? target : undefined
+    }
+    // state の更新を待たずに判定できるよう、押した位置からの距離で決める
+    const moved = (e: PointerEvent) => Math.hypot(e.clientX - press.x, e.clientY - press.y) >= DRAG_START
+    const onMoveEvent = (e: PointerEvent) => {
+      if (!moved(e)) return
+      const target = targetAt(e)
+      setOver(target === undefined ? null : (target ?? ROOT))
+    }
+    const onUp = (e: PointerEvent) => {
+      const target = moved(e) ? targetAt(e) : undefined
+      if (target !== undefined && parentOf.get(press.id) !== target) onMove(press.id, target)
+      setPress(null)
       setOver(null)
-      if (dragged !== null && parentOf.get(dragged) !== target) onMove(dragged, target)
-    },
+    }
+    window.addEventListener('pointermove', onMoveEvent)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMoveEvent)
+      window.removeEventListener('pointerup', onUp)
+    }
   })
 
   async function commit() {
@@ -83,19 +105,10 @@ export default function Sidebar({ gallery, onRename, onMove }: Props) {
           <span
             className={`sidebar__item sidebar__item--category${over === c.id ? ' sidebar__item--drop' : ''}`}
             style={{ '--depth': depth } as CSSProperties}
-            draggable
+            data-drop={c.id}
             title="ダブルクリックで名前を変える。ドラッグで移す"
             onDoubleClick={() => setEditing({ id: c.id, name: c.name })}
-            onDragStart={(e) => {
-              e.dataTransfer.effectAllowed = 'move'
-              e.dataTransfer.setData('text/plain', c.name)
-              setDragged(c.id)
-            }}
-            onDragEnd={() => {
-              setDragged(null)
-              setOver(null)
-            }}
-            {...dropProps(c.id)}
+            onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
           >
             {c.name}
           </span>
@@ -117,7 +130,7 @@ export default function Sidebar({ gallery, onRename, onMove }: Props) {
       <h2
         className={`sidebar__heading${over === ROOT ? ' sidebar__heading--drop' : ''}`}
         id="sidebar-categories"
-        {...dropProps(null)}
+        data-drop={ROOT}
       >
         カテゴリ
       </h2>
