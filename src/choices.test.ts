@@ -1,5 +1,5 @@
 import { describe, expect, it, test } from 'vitest'
-import { candidates, categoryOptions, filterCandidates } from './choices'
+import { candidates, categoryOptions, filterCandidates, moveActive } from './choices'
 import { NO_FILTER } from './filter'
 
 const TAGS = [
@@ -72,5 +72,26 @@ describe('filterCandidates', () => {
   test('カテゴリとタグはそれぞれ5件までにする', () => {
     const many = Array.from({ length: 7 }, (_, i) => ({ id: i, name: `t${i}` }))
     expect(filterCandidates([], many, 't', NO_FILTER)).toHaveLength(5)
+  })
+})
+
+describe('moveActive', () => {
+  // 候補が3件。-1 は入力した文字そのもの
+  const move = (key: string, active: number, shift = false) => moveActive(key, shift, active, 3)
+
+  test('上下キーは入力した文字と候補を巡る', () => {
+    expect([move('ArrowDown', -1), move('ArrowDown', 2), move('ArrowUp', -1), move('ArrowUp', 0)]).toEqual([0, -1, 2, -1])
+  })
+
+  test('Tab は次の候補、Shift+Tab は前の候補へ移り、端を越えるときは候補の操作に使わない', () => {
+    expect([move('Tab', -1), move('Tab', 1), move('Tab', 0, true), move('Tab', 0, true)]).toEqual([0, 2, -1, -1])
+    expect(move('Tab', 2)).toBeNull()
+    expect(move('Tab', -1, true)).toBeNull()
+  })
+
+  test('候補がないときとほかのキーは候補の操作に使わない', () => {
+    expect(moveActive('ArrowDown', false, -1, 0)).toBeNull()
+    expect(moveActive('Tab', false, -1, 0)).toBeNull()
+    expect(move('Enter', 0)).toBeNull()
   })
 })

@@ -921,6 +921,25 @@ test('検索バーに入れると名前の合うカテゴリとタグを候補�
   // 座りのカテゴリの画像（id を 5 で割って 2 余る）のうち、座りのタグ（5 の倍数）は付いていない
   await expect(status).toContainText('0 / 2000枚')
 
+  // Tab と Shift+Tab で候補を移り、最後の候補で Tab を押すと次の部品（並べ替え）へ移る
+  // 座りのカテゴリとタグは絞り込みに使っているので出さない
+  await search.fill('り')
+  await expect(options).toHaveText(['カテゴリポーズ / 振り返り', 'タグあおり', 'タグ振り返り'])
+  await search.press('Tab')
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true')
+  await search.press('Tab')
+  await search.press('Shift+Tab')
+  await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true')
+  await expect(search).toBeFocused()
+  for (let i = 0; i < 2; i++) await search.press('Tab')
+  await expect(options.nth(2)).toHaveAttribute('aria-selected', 'true')
+  await search.press('Tab')
+  await expect(page.getByRole('combobox', { name: '並べ替え' })).toBeFocused()
+
+  // 自動修正（cat を Cat にする提案）を出さない
+  await expect(search).toHaveAttribute('autocorrect', 'off')
+  await expect(search).toHaveAttribute('autocapitalize', 'off')
+
   // 合う候補がなければ出さず、Escape で文字を消す
   await search.fill('ref_0001')
   await expect(options).toHaveCount(0)

@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { type KeyboardEvent, useCallback, useEffect, useId, useState } from 'react'
 import Status from './Status'
-import { candidates, categoryOptions } from './choices'
+import { candidates, categoryOptions, moveActive } from './choices'
 import type { Category, CountedTag, Image, Tag } from './galleryTypes'
 
 // 選んだ画像（1枚でも複数でも）のカテゴリ（FR-402、FR-407）。選ぶとすぐに移す
@@ -123,11 +123,10 @@ export function TagEditor({
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // かな漢字変換を確定する Enter ではタグを付けない（Safari は確定の keydown の isComposing が false で、keyCode が 229 になる）
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
-    const by = { ArrowDown: 1, ArrowUp: -1 }[e.key]
-    if (by && shown.length) {
+    const next = moveActive(e.key, e.shiftKey, active, shown.length)
+    if (next !== null) {
       e.preventDefault()
-      // 入力した文字（-1）と候補を順に巡る
-      setActive((a) => ((a + 1 + by + shown.length + 1) % (shown.length + 1)) - 1)
+      setActive(next)
     } else if (e.key === 'Enter') {
       e.preventDefault()
       const name = shown[active]?.name ?? text
@@ -178,6 +177,8 @@ export function TagEditor({
         ))}
       <div className="tag-input">
         <input
+          autoCorrect="off"
+          autoCapitalize="off"
           id="detail-tag"
           className={error ? 'tag-input__field tag-input__field--error' : 'tag-input__field'}
           placeholder="タグを追加"

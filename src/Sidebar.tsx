@@ -146,6 +146,8 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onMan
     editing && (
       <div className="sidebar__edit" style={{ '--depth': depth } as CSSProperties}>
         <input
+          autoCorrect="off"
+          autoCapitalize="off"
           className={editing.error ? 'sidebar__input sidebar__input--error' : 'sidebar__input'}
           aria-label={editing.kind === 'rename' ? 'カテゴリ名' : '新しいカテゴリ名'}
           aria-invalid={!!editing.error}

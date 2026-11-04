@@ -94,6 +94,8 @@ function FileName({ image, onRename }: { image: Image; onRename: Props['onRename
     <>
       <h2 className="detail__name detail__rename">
         <input
+          autoCorrect="off"
+          autoCapitalize="off"
           className={editing.error ? 'detail__input detail__input--error' : 'detail__input'}
           aria-label="ファイル名（拡張子を除く）"
           aria-invalid={!!editing.error}
@@ -138,6 +140,8 @@ function Memo({ id, initial, onSaved }: { id: number; initial: string; onSaved: 
   return (
     <>
       <textarea
+        autoCorrect="off"
+        autoCapitalize="off"
         id="detail-memo"
         className={error ? 'detail__memo detail__memo--error' : 'detail__memo'}
         defaultValue={initial}

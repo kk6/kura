@@ -58,6 +58,8 @@ export default function TagDialog({
       return (
         <div className="tags__panel">
           <input
+            autoCorrect="off"
+            autoCapitalize="off"
             className={error ? 'tags__input tags__input--error' : 'tags__input'}
             aria-label={`「${nameOf(a.id)}」の新しい名前`}
             aria-invalid={!!error}

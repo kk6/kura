@@ -1,5 +1,5 @@
 import { useId, useState, type KeyboardEvent } from 'react'
-import { filterCandidates, type FilterCandidate } from './choices'
+import { filterCandidates, type FilterCandidate, moveActive } from './choices'
 import type { Filter } from './filter'
 import type { Category, Tag } from './galleryTypes'
 
@@ -36,10 +36,10 @@ export default function SearchBox({
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // かな漢字変換を確定する Enter では選ばない（Safari は確定の keydown の keyCode が 229 になる）
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
-    const by = { ArrowDown: 1, ArrowUp: -1 }[e.key]
-    if (by && shown.length) {
+    const next = moveActive(e.key, e.shiftKey, active, shown.length)
+    if (next !== null) {
       e.preventDefault()
-      setActive((a) => ((a + 1 + by + shown.length + 1) % (shown.length + 1)) - 1)
+      setActive(next)
     } else if (e.key === 'Enter' && shown[active]) {
       e.preventDefault()
       pick(shown[active])
@@ -52,6 +52,9 @@ export default function SearchBox({
   return (
     <div className="search">
       <input
+        // macOS の自動修正（cat を Cat にする提案の吹き出し）を出さない。名前や検索語を書き換えられないため
+        autoCorrect="off"
+        autoCapitalize="off"
         className="gallery__search"
         type="search"
         placeholder="ファイル名、メモ、タグ、カテゴリを検索"

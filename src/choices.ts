@@ -48,3 +48,15 @@ export function filterCandidates(
       .map((t) => ({ kind: 'tag' as const, id: t.id, label: t.name })),
   ]
 }
+
+// 候補のうちキーボードで選んでいるもの（-1 は入力した文字そのもの）を、押したキーで動かす。
+// 上下キーは端から反対の端へ巡る。Tab と Shift+Tab は端を越えるとき null を返し、次の部品へ移る既定の動きに任せる（候補の中に閉じ込めないため）。
+// null は、そのキーを候補の操作に使わないこと
+export function moveActive(key: string, shift: boolean, active: number, count: number): number | null {
+  if (!count) return null
+  const by = { ArrowDown: 1, ArrowUp: -1 }[key]
+  if (by) return ((active + 1 + by + count + 1) % (count + 1)) - 1
+  if (key !== 'Tab') return null
+  const next = active + (shift ? -1 : 1)
+  return next >= -1 && next < count ? next : null
+}
