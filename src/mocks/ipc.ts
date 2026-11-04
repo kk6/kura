@@ -1,5 +1,6 @@
 import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
+import type { Gallery, Image } from '../galleryTypes'
 import type { Report } from '../importTypes'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
@@ -7,10 +8,64 @@ type Handler = (args: Record<string, unknown> | undefined) => unknown
 // 先頭は外付けドライブが外れたライブラリ。起動時に開けず、選択画面に「見つかりません」が出る
 const RECENT = ['/Volumes/外付けSSD/参考資料', '/Users/me/Pictures/Kura ライブラリ']
 
+// 新しく作ったライブラリは空、一覧から開いたライブラリは画像入りにする
+let created = false
+
 const openLibrary: Handler = (args) => {
   const path = String(args?.path)
   if (path.startsWith('/Volumes/')) throw `ライブラリが見つかりません（${path}）`
+  created = false
   return path
+}
+
+const createLibrary: Handler = (args) => {
+  created = true
+  return args?.path
+}
+
+// 縦長・正方形・横長が混ざる2000枚。乱数の種を固定して、スクリーンショットを毎回同じにする
+const SIZES = [
+  [320, 480],
+  [320, 427],
+  [320, 320],
+  [320, 213],
+  [320, 569],
+  [320, 240],
+]
+let seed = 1
+const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+const IMAGES: Image[] = Array.from({ length: 2000 }, (_, i) => {
+  const [width, height] = SIZES[Math.floor(random() * SIZES.length)]
+  // 写真らしいくすんだ色
+  const channel = () => Math.floor(120 + random() * 100).toString(16)
+  return {
+    id: i + 1,
+    file_name: `ref_${String(i + 1).padStart(5, '0')}.jpg`,
+    hash: `hash${i + 1}`,
+    width,
+    height,
+    color: `#${channel()}${channel()}${channel()}`,
+    category_id: i % 4 === 0 ? null : (i % 5) + 1,
+    rating: i % 6,
+    imported_at: 1_700_000_000_000 + ((i * 7919) % 2000) * 60_000,
+  }
+})
+
+const GALLERY: Gallery = {
+  images: IMAGES,
+  categories: [
+    { id: 1, name: 'ポーズ', parent_id: null },
+    { id: 2, name: '座り', parent_id: 1 },
+    { id: 3, name: '振り返り', parent_id: 1 },
+    { id: 4, name: '服飾', parent_id: null },
+    { id: 5, name: '制服', parent_id: 4 },
+    { id: 6, name: '背景', parent_id: null },
+  ],
+  tags: [
+    { id: 1, name: 'あおり' },
+    { id: 2, name: '座り' },
+    { id: 3, name: '振り返り' },
+  ],
 }
 
 const REPORT: Report = {
@@ -42,8 +97,9 @@ const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
   location_warning: () => null,
   open_library: openLibrary,
-  create_library: (args) => args?.path,
+  create_library: createLibrary,
   import_paths: importPaths,
+  load_gallery: () => (created ? { images: [], categories: [], tags: [] } : GALLERY),
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']
@@ -62,4 +118,11 @@ export function installMockIPC() {
     },
     { shouldMockEvents: true },
   )
+  // ブラウザは asset: のURLを読めないので透明な画像を返し、代表色が見えるようにする。
+  // e2e で読みに行ったパスを確かめられるように、パスをURLの末尾に残す
+  const internals = (window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (path: string) => string } })
+    .__TAURI_INTERNALS__
+  internals.convertFileSrc = (path) => `${BLANK}#${path}`
 }
+
+const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='

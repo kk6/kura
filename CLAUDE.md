@@ -37,6 +37,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - ダミーライブラリの生成：`npm run dev-library -- <枚数>`（`dev-library/` に出力。空でないと止まる）
 - テスト（Rust）：`cargo test`（`src-tauri/` で実行）
 - テスト（Rust、別のファイルシステム）：`hdiutil create -size 64m -fs ExFAT -volname KURAEX <名前>.dmg` で作ったイメージを `hdiutil attach -nobrowse` でマウントし、`KURA_TEST_DIR=<マウント先> cargo test fileops` で同じテストを流す（HFS+ や大文字・小文字を区別する APFS も同じ）
+- テスト（画面の単体テスト）：`npm test`（Vitest。`src/**/*.test.ts` を流す）
 - テスト（画面）：`npm run test:e2e`（モックの開発サーバーを Playwright の WebKit で開き、`test-results/gallery.png` にスクリーンショットを保存する）
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
 - テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`

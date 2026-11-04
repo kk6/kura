@@ -55,6 +55,15 @@
   border-radius: var(--radius-sm);
 }
 
+.sidebar__list .sidebar__list {
+  margin: 0;
+}
+
+/* カテゴリツリーの入れ子の深さ（--depth）の分だけ字下げする */
+.sidebar__item--category {
+  padding-left: calc(var(--space-3) + var(--space-4) * var(--depth));
+}
+
 .sidebar__item--selected {
   background: var(--color-selected);
   font-weight: var(--font-weight-bold);
@@ -134,4 +143,35 @@
   display: block;
   height: 100%;
   background: var(--color-text);
+}
+
+.gallery__sort {
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.gallery__size {
+  width: var(--size-progress-bar);
+  /* 初期のつまみの青を使わず、黒にする */
+  accent-color: var(--color-text);
+}
+
+.list__canvas {
+  position: relative;
+}
+
+.list__thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius-sm);
+}
+
+.list__empty {
+  margin: 0;
+  padding: var(--space-5);
+  color: var(--color-text-sub);
 }

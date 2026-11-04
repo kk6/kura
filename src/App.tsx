@@ -28,6 +28,6 @@ export default function App() {
   }, [])
 
   if (screen.kind === 'loading') return null
-  if (screen.kind === 'gallery') return <Gallery />
+  if (screen.kind === 'gallery') return <Gallery root={screen.path} />
   return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} />
 }
