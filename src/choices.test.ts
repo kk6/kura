@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { candidates, categoryOptions } from './choices'
+import { describe, expect, it, test } from 'vitest'
+import { candidates, categoryOptions, filterCandidates } from './choices'
+import { NO_FILTER } from './filter'
 
 const TAGS = [
   { id: 1, name: 'Pose' },
@@ -39,5 +40,37 @@ describe('categoryOptions', () => {
       { id: 3, label: 'ポーズ / 座り / 椅子' },
       { id: 4, label: '服飾' },
     ])
+  })
+})
+
+describe('filterCandidates', () => {
+  const categories = [
+    { id: 1, name: 'ポーズ', parent_id: null },
+    { id: 2, name: '座り', parent_id: 1 },
+    { id: 3, name: '服飾', parent_id: null },
+  ]
+  const tags = [
+    { id: 10, name: '座り込み' },
+    { id: 11, name: 'あおり' },
+  ]
+
+  test('入力した文字を名前に含むカテゴリ（親からの道筋）とタグを、カテゴリ、タグの順に出す', () => {
+    expect(filterCandidates(categories, tags, '座り', NO_FILTER)).toEqual([
+      { kind: 'category', id: 2, label: 'ポーズ / 座り' },
+      { kind: 'tag', id: 10, label: '座り込み' },
+    ])
+    // 親の名前で探すと子も出す
+    expect(filterCandidates(categories, tags, 'ポーズ', NO_FILTER).map((c) => c.id)).toEqual([1, 2])
+    expect(filterCandidates(categories, tags, '  ', NO_FILTER)).toEqual([])
+  })
+
+  test('いま絞り込みに使っているカテゴリとタグは出さない', () => {
+    const filter = { ...NO_FILTER, category: 2, tags: [10] }
+    expect(filterCandidates(categories, tags, '座り', filter)).toEqual([])
+  })
+
+  test('カテゴリとタグはそれぞれ5件までにする', () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({ id: i, name: `t${i}` }))
+    expect(filterCandidates([], many, 't', NO_FILTER)).toHaveLength(5)
   })
 })

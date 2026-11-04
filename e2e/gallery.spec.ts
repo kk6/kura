@@ -735,7 +735,7 @@ test('サイドバーのカテゴリとタグを押し、検索バーに入れ�
   await tags.getByRole('button', { name: /^あおり/ }).click()
 
   // 検索はファイル名かメモに含む画像。大文字・小文字は区別しない
-  const search = page.getByRole('searchbox', { name: '検索' })
+  const search = page.getByRole('combobox', { name: '検索' })
   await search.fill('REF_0001')
   await expect(status).toContainText('10 / 2000枚')
   await search.fill('肩の線')
@@ -882,4 +882,47 @@ test('カテゴリ名の入力中に別のカテゴリを押すと、名前は�
   await categories.getByRole('button', { name: '振り返り', exact: true }).dblclick()
   await sidebar.getByRole('button', { name: '服飾 を閉じる' }).click()
   await expect(input).toHaveCount(0)
+})
+
+test('検索バーに入れると名前の合うカテゴリとタグを候補に出し、選ぶとそれで絞り込む', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const search = page.getByRole('combobox', { name: '検索' })
+  const options = page.getByRole('listbox', { name: '絞り込みの候補' }).getByRole('option')
+  const status = page.getByRole('contentinfo')
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+
+  // 「座り」はカテゴリ（ポーズの下）とタグの両方にある
+  await search.fill('座り')
+  await expect(options).toHaveText(['カテゴリポーズ / 座り', 'タグ座り'])
+  await page.screenshot({ path: 'test-results/search-candidates.png' })
+
+  // キーボードで選ぶ。入力した文字は消え、文字での絞り込みはやめる
+  await search.press('ArrowDown')
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+  await search.press('Enter')
+  await expect(search).toHaveValue('')
+  await expect(status).toContainText('300 / 2000枚')
+  await expect(
+    sidebar.getByRole('list', { name: 'カテゴリ' }).getByRole('button', { name: '座り', exact: true }),
+  ).toHaveAttribute('aria-current', 'true')
+
+  // 押して選ぶ。いま使っているカテゴリは候補に出さない
+  await search.fill('座り')
+  await expect(options).toHaveText(['タグ座り'])
+  await options.first().click()
+  await expect(sidebar.getByRole('list', { name: 'タグ' }).getByRole('button', { name: /^座り/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  // 座りのカテゴリの画像（id を 5 で割って 2 余る）のうち、座りのタグ（5 の倍数）は付いていない
+  await expect(status).toContainText('0 / 2000枚')
+
+  // 合う候補がなければ出さず、Escape で文字を消す
+  await search.fill('ref_0001')
+  await expect(options).toHaveCount(0)
+  await search.press('Escape')
+  await expect(search).toHaveValue('')
+  expect(errors).toEqual([])
 })

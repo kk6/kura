@@ -8,6 +8,7 @@ import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
+import SearchBox from './SearchBox'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
@@ -262,14 +263,7 @@ export default function Gallery({ root }: { root: string }) {
     <div className="gallery">
       <header className="gallery__header">
         <span className="gallery__logo">Kura</span>
-        <input
-          className="gallery__search"
-          type="search"
-          placeholder="ファイル名とメモを検索"
-          aria-label="検索"
-          value={filter.text}
-          onChange={(e) => changeFilter({ ...filter, text: e.target.value })}
-        />
+        <SearchBox filter={filter} categories={data.categories} tags={data.tags} onFilter={changeFilter} />
         <select
           className="gallery__sort"
           aria-label="並べ替え"

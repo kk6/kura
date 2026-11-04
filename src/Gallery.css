@@ -23,6 +23,12 @@
   font-weight: var(--font-weight-bold);
 }
 
+.search {
+  position: relative;
+  display: flex;
+  flex: 1;
+}
+
 .gallery__search {
   flex: 1;
   height: var(--size-control);
@@ -580,4 +586,17 @@ body.is-dragging * {
   background: var(--color-selected);
   font-weight: var(--font-weight-bold);
   color: var(--color-text);
+}
+
+.search__option {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* 候補がカテゴリかタグか。名前の前に小さく出す */
+.search__kind {
+  flex: none;
+  width: calc(var(--space-5) * 4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
 }

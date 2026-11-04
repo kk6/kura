@@ -1,3 +1,4 @@
+import type { Filter } from './filter'
 import type { Category, Tag } from './galleryTypes'
 
 // src-tauri/src/fileops.rs の key と同じく、正規化（NFC）と大文字・小文字の違いを無視して比べる
@@ -20,4 +21,30 @@ export function categoryOptions(categories: Category[]): { id: number; label: st
       return [{ id: c.id, label }, ...walk(c.id, `${label} / `)]
     })
   return walk(null, '')
+}
+
+// 検索バーの候補（FR-504）。入力した文字を名前に含むカテゴリとタグで、選ぶとそれで絞り込む。
+// カテゴリは親からの道筋で探すので、親の名前を入れると子も出る。いま絞り込みに使っているものは出さない
+export type FilterCandidate = { kind: 'category' | 'tag'; id: number; label: string }
+
+export function filterCandidates(
+  categories: Category[],
+  tags: Tag[],
+  typed: string,
+  filter: Filter,
+  limit = 5,
+): FilterCandidate[] {
+  const key = tagKey(typed)
+  if (!key) return []
+  const match = (label: string) => tagKey(label).includes(key)
+  return [
+    ...categoryOptions(categories)
+      .filter((c) => c.id !== filter.category && match(c.label))
+      .slice(0, limit)
+      .map((c) => ({ kind: 'category' as const, ...c })),
+    ...tags
+      .filter((t) => !filter.tags.includes(t.id) && match(t.name))
+      .slice(0, limit)
+      .map((t) => ({ kind: 'tag' as const, id: t.id, label: t.name })),
+  ]
 }
