@@ -1,5 +1,6 @@
 import { subtree } from './categoryTree'
-import type { Category, Image } from './galleryTypes'
+import { categoryOptions } from './choices'
+import type { Category, Image, Tag } from './galleryTypes'
 
 // 絞り込みの条件（FR-504）。並べ替えと同じく、DB に問い合わせ直さず画面側で絞る
 export type Filter = {
@@ -7,7 +8,7 @@ export type Filter = {
   category: 'all' | 'uncategorized' | number
   tags: number[]
   mode: 'and' | 'or'
-  // ファイル名かメモに含む文字。空白で区切った語はすべてを含む
+  // ファイル名、メモ、タグ名、カテゴリ名（親からの道筋）のどれかに含む文字。空白で区切った語はすべてを含む
   text: string
 }
 
@@ -16,17 +17,21 @@ export const NO_FILTER: Filter = { category: 'all', tags: [], mode: 'and', text:
 // 正規化（NFC）と大文字・小文字の違いを無視して比べる
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
 
-export function filterImages(images: readonly Image[], categories: Category[], filter: Filter): Image[] {
-  const { category, tags, mode } = filter
+export function filterImages(images: readonly Image[], categories: Category[], tags: Tag[], filter: Filter): Image[] {
+  const { category, mode } = filter
   const inCategory = typeof category === 'number' ? subtree(categories, category) : null
   const words = fold(filter.text).split(/\s+/).filter(Boolean)
+  const tagNames = new Map(tags.map((t) => [t.id, t.name]))
+  const paths = new Map(categoryOptions(categories).map((c) => [c.id, c.label]))
   return images.filter((i) => {
     if (category === 'uncategorized' && i.category_id !== null) return false
     if (inCategory && (i.category_id === null || !inCategory.has(i.category_id))) return false
-    if (tags.length && !(mode === 'and' ? tags.every((t) => i.tags.includes(t)) : tags.some((t) => i.tags.includes(t))))
+    const want = filter.tags
+    if (want.length && !(mode === 'and' ? want.every((t) => i.tags.includes(t)) : want.some((t) => i.tags.includes(t))))
       return false
     if (!words.length) return true
-    const hay = fold(`${i.file_name}\n${i.memo}`)
+    const names = i.tags.map((t) => tagNames.get(t)).join('\n')
+    const hay = fold(`${i.file_name}\n${i.memo}\n${names}\n${i.category_id === null ? '' : paths.get(i.category_id)}`)
     return words.every((w) => hay.includes(w))
   })
 }

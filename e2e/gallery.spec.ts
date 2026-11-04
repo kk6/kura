@@ -896,6 +896,8 @@ test('検索バーに入れると名前の合うカテゴリとタグを候補�
   // 「座り」はカテゴリ（ポーズの下）とタグの両方にある
   await search.fill('座り')
   await expect(options).toHaveText(['カテゴリポーズ / 座り', 'タグ座り'])
+  // 選ぶ前から、文字はタグ名とカテゴリ名にも探す。座りのカテゴリ 300枚と、座りのタグ 399枚（重ならない）
+  await expect(status).toContainText('699 / 2000枚')
   await page.screenshot({ path: 'test-results/search-candidates.png' })
 
   // キーボードで選ぶ。入力した文字は消え、文字での絞り込みはやめる

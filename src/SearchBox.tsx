@@ -5,8 +5,8 @@ import type { Category, Tag } from './galleryTypes'
 
 const KIND = { category: 'カテゴリ', tag: 'タグ' }
 
-// 検索バー（FR-504）。入力した文字でファイル名とメモを絞り込み、名前の合うカテゴリとタグを候補に出す。
-// 候補を選ぶとそのカテゴリかタグで絞り込み、入力した文字は消す（文字での絞り込みと重ねないため）
+// 検索バー（FR-504）。入力した文字でファイル名、メモ、タグ名、カテゴリ名を絞り込み、名前の合うカテゴリとタグを候補に出す。
+// 候補を選ぶとそのカテゴリかタグで絞り込み、入力した文字は消す（ファイル名やメモで同じ文字を含む画像まで出さないため）
 export default function SearchBox({
   filter,
   categories,
@@ -54,7 +54,7 @@ export default function SearchBox({
       <input
         className="gallery__search"
         type="search"
-        placeholder="ファイル名とメモを検索。カテゴリとタグは候補から選ぶ"
+        placeholder="ファイル名、メモ、タグ、カテゴリを検索"
         aria-label="検索"
         autoComplete="off"
         role="combobox"

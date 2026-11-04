@@ -58,14 +58,17 @@ export default function Gallery({ root }: { root: string }) {
   useEffect(() => void reload(), [])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
-  const images = useMemo(() => filterImages(sorted, data.categories, filter), [sorted, data.categories, filter])
+  const images = useMemo(
+    () => filterImages(sorted, data.categories, data.tags, filter),
+    [sorted, data.categories, data.tags, filter],
+  )
   const counts = useMemo(() => countImages(data.images, data.categories), [data.images, data.categories])
   const filtered = images.length !== data.images.length
 
   // 絞り込みを変えたら、見えなくなった画像の選択を外す。見えない画像までまとめて変えないため
   function changeFilter(next: Filter) {
     setFilter(next)
-    const visible = new Set(filterImages(data.images, data.categories, next).map((i) => i.id))
+    const visible = new Set(filterImages(data.images, data.categories, data.tags, next).map((i) => i.id))
     setSelection((s) => {
       const ids = new Set([...s.ids].filter((id) => visible.has(id)))
       if (ids.size === s.ids.size) return s

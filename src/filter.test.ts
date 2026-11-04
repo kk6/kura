@@ -25,8 +25,13 @@ const categories = [
   { id: 4, name: '服飾', parent_id: null },
 ]
 
+const tags = [
+  { id: 10, name: 'あおり' },
+  { id: 20, name: 'Sitting' },
+]
+
 const ids = (images: Image[], filter: Partial<Filter>) =>
-  filterImages(images, categories, { ...NO_FILTER, ...filter }).map((i) => i.id)
+  filterImages(images, categories, tags, { ...NO_FILTER, ...filter }).map((i) => i.id)
 
 describe('filterImages', () => {
   const images = [
@@ -63,6 +68,15 @@ describe('filterImages', () => {
     expect(ids(named, { text: '肩' })).toEqual([2, 3])
     expect(ids(named, { text: 'pose　肩' })).toEqual([3])
     expect(ids(named, { text: '  ' })).toEqual([1, 2, 3])
+  })
+
+  test('文字はタグ名とカテゴリ名（親からの道筋）にも探し、語ごとに別の場所に含んでもよい', () => {
+    expect(ids(images, { text: 'sitting' })).toEqual([1, 3])
+    // ポーズの下の座り（2）と、その下の椅子（3）の画像も出す
+    expect(ids(images, { text: 'ポーズ' })).toEqual([1, 2, 3])
+    expect(ids(images, { text: '椅子' })).toEqual([3])
+    // 「座り」はカテゴリ名、「あおり」はタグ名
+    expect(ids(images, { text: '座り あおり' })).toEqual([2])
   })
 
   test('濁点を分けて書いた文字でも合わせた文字と同じに探す', () => {
