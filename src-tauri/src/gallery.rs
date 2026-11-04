@@ -127,14 +127,7 @@ pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
             "SELECT file_name, category_id, file_size, memo FROM images
              WHERE id = ?1 AND deleted_at IS NULL",
             [id],
-            |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                ))
-            },
+            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()
         .map_err(err)?
@@ -177,6 +170,34 @@ pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
         tags,
         source,
     })
+}
+
+// ゴミ箱の画像は画面に出ないので、書き換えない
+fn update(lib: &Library, id: i64, column: &str, value: &dyn rusqlite::ToSql) -> Result<(), String> {
+    let changed = lib
+        .conn
+        .execute(
+            &format!("UPDATE images SET {column} = ?1 WHERE id = ?2 AND deleted_at IS NULL"),
+            rusqlite::params![value, id],
+        )
+        .map_err(err)?;
+    match changed {
+        0 => Err(format!("画像が見つかりません（{id}）")),
+        _ => Ok(()),
+    }
+}
+
+/// メモを保存する（FR-411）
+pub fn set_memo(lib: &Library, id: i64, memo: &str) -> Result<(), String> {
+    update(lib, id, "memo", &memo)
+}
+
+/// 評価を保存する（FR-411）。0 は評価なし
+pub fn set_rating(lib: &Library, id: i64, rating: i64) -> Result<(), String> {
+    if !(0..=5).contains(&rating) {
+        return Err(format!("評価は0〜5で指定してください（{rating}）"));
+    }
+    update(lib, id, "rating", &rating)
 }
 
 #[cfg(test)]
@@ -315,6 +336,65 @@ mod tests {
             let e = detail(&lib, id).unwrap_err();
             assert!(e.contains("画像が見つかりません"), "{e}");
         }
+    }
+
+    #[test]
+    fn メモと評価を保存する() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let a = insert_image(&lib, "a.jpg", None, false);
+        let b = insert_image(&lib, "b.jpg", None, false);
+
+        set_memo(&lib, a, "腕の角度\n肩の線").unwrap();
+        set_rating(&lib, a, 5).unwrap();
+        set_rating(&lib, b, 0).unwrap();
+
+        assert_eq!(detail(&lib, a).unwrap().memo, "腕の角度\n肩の線");
+        let ratings: Vec<i64> = load(&lib)
+            .unwrap()
+            .images
+            .iter()
+            .map(|i| i.rating)
+            .collect();
+        assert_eq!(ratings, [5, 0], "b の評価3を0（評価なし）にした");
+    }
+
+    #[test]
+    fn 評価が0から5の外ならエラーにして変えない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let a = insert_image(&lib, "a.jpg", None, false);
+
+        for rating in [-1, 6] {
+            let e = set_rating(&lib, a, rating).unwrap_err();
+            assert!(e.contains("評価は0〜5"), "{e}");
+        }
+        assert_eq!(load(&lib).unwrap().images[0].rating, 3);
+    }
+
+    #[test]
+    fn ないかゴミ箱にある画像のメモと評価はエラーにして変えない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let trashed = insert_image(&lib, "b.jpg", None, true);
+
+        for id in [trashed, 999] {
+            assert!(set_memo(&lib, id, "x")
+                .unwrap_err()
+                .contains("画像が見つかりません"));
+            assert!(set_rating(&lib, id, 1)
+                .unwrap_err()
+                .contains("画像が見つかりません"));
+        }
+        let (memo, rating): (String, i64) = lib
+            .conn
+            .query_row(
+                "SELECT memo, rating FROM images WHERE id = ?1",
+                [trashed],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((memo.as_str(), rating), ("", 3));
     }
 
     #[test]

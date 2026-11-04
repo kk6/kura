@@ -275,3 +275,42 @@ test('ダブルクリックで拡大し、左右キーで前後の画像に移�
   await expect(zoom).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('詳細パネルで入力したメモと評価を保存する', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const pressed = () =>
+    detail.getByRole('button', { name: /^評価/ }).evaluateAll((bs) => bs.filter((b) => b.getAttribute('aria-pressed') === 'true').length)
+  const memo = detail.getByRole('textbox', { name: 'メモ' })
+
+  // ref_00002 の評価は1
+  await thumb(page, 2).click()
+  await expect.poll(pressed).toBe(1)
+  await detail.getByRole('button', { name: '評価 4' }).click()
+  await expect.poll(pressed).toBe(4)
+  await memo.fill('手の形を見る')
+  await page.screenshot({ path: 'test-results/memo-rating.png' })
+
+  // 別の画像を選ぶと入力欄から離れて保存され、選び直すと保存した値が出る
+  await thumb(page, 3).click()
+  await expect(detail.getByRole('heading')).toHaveText('ref_00003.jpg')
+  await expect(memo).toHaveValue('')
+  await thumb(page, 2).click()
+  await expect(memo).toHaveValue('手の形を見る')
+  await expect.poll(pressed).toBe(4)
+
+  // 今の評価と同じ星を押すと評価なしに戻す
+  await detail.getByRole('button', { name: '評価 4' }).click()
+  await expect.poll(pressed).toBe(0)
+
+  // 保存に失敗したら入力欄の下にエラーを出す
+  await memo.fill('失敗するメモ')
+  await memo.blur()
+  await expect(detail).toContainText('エラー：メモを保存できません（disk I/O error）')
+  await expect(memo).toHaveAttribute('aria-invalid', 'true')
+  await page.screenshot({ path: 'test-results/memo-error.png' })
+  expect(errors).toEqual([])
+})

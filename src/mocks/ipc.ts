@@ -100,10 +100,23 @@ const imageDetail: Handler = (args) => {
   return {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
-    memo: first ? '腕の角度と\n肩の線を見る' : '',
+    memo: memos.get(image.id) ?? (first ? '腕の角度と\n肩の線を見る' : ''),
     tags: first ? GALLERY.tags.slice(0, 2) : [],
     source: first ? { image_url: 'https://example.com/images/ref_00001.jpg', page_url: 'https://example.com/gallery/pose' } : null,
   }
+}
+
+// 保存したメモは、選び直したときの詳細に出す。e2e で失敗の表示を確かめるため、「失敗」を含むメモは保存しない
+const memos = new Map<number, string>()
+const setMemo: Handler = (args) => {
+  const memo = String(args?.memo)
+  if (memo.includes('失敗')) throw 'disk I/O error'
+  memos.set(Number(args?.id), memo)
+}
+
+const setRating: Handler = (args) => {
+  const image = IMAGES.find((i) => i.id === args?.id)!
+  image.rating = Number(args?.rating)
 }
 
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
@@ -115,6 +128,8 @@ const handlers: Record<string, Handler> = {
   import_paths: importPaths,
   load_gallery: () => (created ? { images: [], categories: [], tags: [] } : GALLERY),
   image_detail: imageDetail,
+  set_memo: setMemo,
+  set_rating: setRating,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

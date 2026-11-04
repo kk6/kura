@@ -193,6 +193,10 @@ export default function Gallery({ root }: { root: string }) {
         count={selection.ids.size}
         detail={shown?.detail ?? null}
         error={shown?.error ?? null}
+        onRate={async (id, rating) => {
+          await invoke('set_rating', { id, rating })
+          setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
+        }}
       />
 
       <footer className="gallery__statusbar">

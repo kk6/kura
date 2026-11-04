@@ -224,7 +224,39 @@
 }
 
 .detail__memo {
-  white-space: pre-wrap;
+  display: block;
+  width: 100%;
+  min-height: calc(var(--size-control) * 3);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  color: inherit;
+  background: var(--color-input);
+  resize: vertical;
+}
+
+/* 入力のエラーは、入力欄の枠をキーボードの枠と同じ太さのエラーの色にする（docs/design.md「状態の表示」） */
+.detail__memo--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}
+
+.rating {
+  display: flex;
+}
+
+.rating__star {
+  display: flex;
+  padding: 0 var(--space-1) 0 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+.rating__star[aria-pressed='true'] {
+  color: var(--color-text);
 }
 
 .detail__tags {

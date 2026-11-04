@@ -91,6 +91,26 @@ fn image_detail(current: State<Current>, id: i64) -> Result<gallery::Detail, Str
     gallery::detail(current.as_ref().ok_or("ライブラリを開いていません")?, id)
 }
 
+#[tauri::command]
+fn set_memo(current: State<Current>, id: i64, memo: String) -> Result<(), String> {
+    let current = current.0.lock().unwrap();
+    gallery::set_memo(
+        current.as_ref().ok_or("ライブラリを開いていません")?,
+        id,
+        &memo,
+    )
+}
+
+#[tauri::command]
+fn set_rating(current: State<Current>, id: i64, rating: i64) -> Result<(), String> {
+    let current = current.0.lock().unwrap();
+    gallery::set_rating(
+        current.as_ref().ok_or("ライブラリを開いていません")?,
+        id,
+        rating,
+    )
+}
+
 #[derive(Clone, Serialize)]
 struct ImportProgress {
     done: usize,
@@ -138,7 +158,9 @@ fn main() {
             open_library,
             import_paths,
             load_gallery,
-            image_detail
+            image_detail,
+            set_memo,
+            set_rating
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
