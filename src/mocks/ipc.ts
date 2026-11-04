@@ -135,6 +135,39 @@ const setCategory: Handler = (args) => {
   return out
 }
 
+// src-tauri/src/category.rs の検査と同じ。同名の判定は、本物では実際のフォルダの中身で行う
+const checkCategory = (id: number, parent: number | null, name: string) => {
+  if (!name) throw 'カテゴリ名を入力してください'
+  if (/[/:]/.test(name)) throw 'カテゴリ名に / と : は使えません'
+  if (name.startsWith('.')) throw 'カテゴリ名を . で始めることはできません'
+  if (name === '_未分類') throw '_未分類 はカテゴリ名に使えません'
+  const k = key(name)
+  if (GALLERY.categories.some((c) => c.id !== id && c.parent_id === parent && key(c.name) === k))
+    throw `同じ名前のファイルかフォルダがあります（${name}）`
+}
+
+const categoryOf = (id: unknown) => {
+  const c = GALLERY.categories.find((c) => c.id === id)
+  if (!c) throw `カテゴリが見つかりません（${id}）`
+  return c
+}
+
+const renameCategory: Handler = (args) => {
+  const c = categoryOf(args?.id)
+  const name = String(args?.name).normalize('NFC')
+  checkCategory(c.id, c.parent_id, name)
+  c.name = name
+}
+
+const moveCategory: Handler = (args) => {
+  const c = categoryOf(args?.id)
+  const parent = (args?.parent as number | null) ?? null
+  for (let p = parent; p !== null; p = categoryOf(p).parent_id)
+    if (p === c.id) throw 'カテゴリを自分自身や子孫の下へは移せません'
+  checkCategory(c.id, parent, c.name)
+  c.parent_id = parent
+}
+
 // 画像ごとのタグの id。1枚目に「あおり」と「座り」が付いている
 const imageTags = new Map<number, Set<number>>([[1, new Set([1, 2])]])
 const tagsOf = (id: number) => imageTags.get(id) ?? imageTags.set(id, new Set()).get(id)!
@@ -177,6 +210,8 @@ const handlers: Record<string, Handler> = {
   set_memo: setMemo,
   set_rating: setRating,
   set_category: setCategory,
+  rename_category: renameCategory,
+  move_category: moveCategory,
   image_tags: countTags,
   add_tag: addTag,
   remove_tag: removeTag,

@@ -422,3 +422,68 @@ test('選んだ画像のカテゴリとタグをまとめて変え、入力中�
   await page.screenshot({ path: 'test-results/move-failed.png' })
   expect(errors).toEqual([])
 })
+
+test('サイドバーでカテゴリ名を変え、ドラッグで別のカテゴリの下やルート直下へ移す', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const item = (name: string) => categories.locator('.sidebar__item--category').getByText(name, { exact: true })
+  const branch = (name: string) =>
+    categories.getByRole('listitem').filter({ has: page.getByText(name, { exact: true }) }).first()
+  const input = sidebar.getByRole('textbox', { name: 'カテゴリ名' })
+  const status = page.getByRole('contentinfo')
+
+  // 同名はエラーにして入力欄を残し、別の名前を入れ直してもらう
+  await item('背景').dblclick()
+  await input.fill('ポーズ')
+  await input.press('Enter')
+  await expect(input).toHaveAttribute('aria-invalid', 'true')
+  await expect(sidebar).toContainText('エラー：同じ名前のファイルかフォルダがあります（ポーズ）')
+  await page.screenshot({ path: 'test-results/category-rename-error.png' })
+  await input.fill('風景')
+  await input.press('Enter')
+  await expect(input).toHaveCount(0)
+  await expect(item('風景')).toBeVisible()
+
+  // Escape では変えない
+  await item('風景').dblclick()
+  await input.fill('取り消す')
+  await input.press('Escape')
+  await expect(item('風景')).toBeVisible()
+
+  await item('振り返り').dragTo(item('服飾'))
+  await expect(branch('服飾')).toContainText('振り返り')
+  await expect(branch('ポーズ')).not.toContainText('振り返り')
+
+  // 自分の子孫の上には落とせない
+  await item('ポーズ').dragTo(item('座り'))
+  await expect(branch('ポーズ')).toContainText('座り')
+  // 画面で落とすのを止めるので、コマンドを呼ばずエラーも出ない
+  await expect(status).not.toContainText('移せません')
+
+  await item('座り').dragTo(sidebar.getByRole('heading', { name: 'カテゴリ' }))
+  await expect(branch('ポーズ')).not.toContainText('座り')
+
+  // 移動先に同名があればエラーをステータスバーに出し、移さない
+  await item('座り').dblclick()
+  await input.fill('制服')
+  await input.press('Enter')
+  await item('制服').first().dragTo(item('服飾'))
+  await expect(status).toContainText('エラー：カテゴリを移せません（同じ名前のファイルかフォルダがあります（制服））')
+  await page.screenshot({ path: 'test-results/category-move.png' })
+
+  const saved = await page.evaluate(() =>
+    (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'),
+  )
+  expect((saved as { categories: unknown[] }).categories).toEqual([
+    { id: 1, name: 'ポーズ', parent_id: null },
+    { id: 2, name: '制服', parent_id: null },
+    { id: 3, name: '振り返り', parent_id: 4 },
+    { id: 4, name: '服飾', parent_id: null },
+    { id: 5, name: '制服', parent_id: 4 },
+    { id: 6, name: '風景', parent_id: null },
+  ])
+  expect(errors).toEqual([])
+})

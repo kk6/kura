@@ -148,6 +148,22 @@ export default function Gallery({ root }: { root: string }) {
     setResult({ kind: 'assigned', moved: r.moved.length, failed })
   }
 
+  // 変わるのはカテゴリの行だけなので、一覧を読み直さずに手元の値を変える
+  async function renameCategory(id: number, name: string) {
+    await invoke('rename_category', { id, name })
+    const nfc = name.normalize('NFC')
+    setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, name: nfc } : c)) }))
+  }
+
+  async function moveCategory(id: number, parent: number | null) {
+    try {
+      await invoke('move_category', { id, parent })
+      setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, parent_id: parent } : c)) }))
+    } catch (e) {
+      setResult({ kind: 'error', message: `カテゴリを移せません（${e}）` })
+    }
+  }
+
   const addTag = (tag: Tag) =>
     setData((d) =>
       d.tags.some((t) => t.id === tag.id)
@@ -193,7 +209,7 @@ export default function Gallery({ root }: { root: string }) {
         </button>
       </header>
 
-      <Sidebar gallery={data} />
+      <Sidebar gallery={data} onRename={renameCategory} onMove={moveCategory} />
 
       <Masonry
         root={root}
