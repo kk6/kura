@@ -314,3 +314,45 @@ test('詳細パネルで入力したメモと評価を保存する', async ({ pa
   await page.screenshot({ path: 'test-results/memo-error.png' })
   expect(errors).toEqual([])
 })
+
+test('拡大表示の左右の端にマウスを乗せると < > を出し、押すと前後の画像に移る', async ({ page }) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const zoom = page.getByRole('region', { name: '拡大表示' })
+
+  // 先頭の画像では、前へ移るボタンを出さない
+  await thumb(page, 1).dblclick()
+  await expect(zoom.getByRole('button', { name: '前の画像' })).toHaveCount(0)
+
+  const next = zoom.getByRole('button', { name: '次の画像' })
+  const arrow = next.locator('.zoom__arrow')
+  await expect(arrow).toBeHidden()
+  await next.hover()
+  await expect(arrow).toBeVisible()
+  await page.screenshot({ path: 'test-results/zoom-nav.png' })
+  await next.click()
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00002.jpg')
+
+  await zoom.getByRole('button', { name: '前の画像' }).click()
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00001.jpg')
+})
+
+test('Escape で選択を外す。拡大表示中は先に拡大表示を閉じ、メモの入力中は外さない', async ({ page }) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 2).click()
+  await thumb(page, 3).click({ modifiers: ['Meta'] })
+  await page.keyboard.press('Escape')
+  expect(await selectedNames(page)).toEqual([])
+  await expect(detail).toHaveText('画像を選ぶと、ここに詳細が出ます')
+
+  await thumb(page, 2).dblclick()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('region', { name: '拡大表示' })).toHaveCount(0)
+  expect(await selectedNames(page)).toEqual(['ref_00002.jpg'])
+
+  await detail.getByRole('textbox', { name: 'メモ' }).press('Escape')
+  expect(await selectedNames(page)).toEqual(['ref_00002.jpg'])
+})

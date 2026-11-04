@@ -64,23 +64,33 @@ export default function Gallery({ root }: { root: string }) {
     }
   }, [only])
 
-  // 拡大表示（FR-508）。左右キーで今の並び順の前後の画像に移る
+  // 拡大表示（FR-508）。左右キーか左右の端のボタンで、今の並び順の前後の画像に移る
   const zoomed = zoom ? selectedImage : null
+  const at = zoomed ? order.indexOf(zoomed.id) : -1
+  const step = (by: number) => {
+    const id = order[at + by]
+    if (id !== undefined) setSelection({ ids: new Set([id]), anchor: id })
+  }
+  const stepRef = useRef(step)
+  stepRef.current = step
+
+  // Escape は拡大表示を閉じ、拡大表示でなければ選択を外す（FR-509）
   useEffect(() => {
-    if (!zoomed) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      const next = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
-      if (e.key === 'Escape') setZoom(false)
-      else if (next) {
+      // 入力中の文字の操作と、ダイアログを閉じる Escape は奪わない
+      if ((e.target as Element).closest('input, textarea, select, dialog')) return
+      const by = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
+      if (e.key === 'Escape') {
+        if (zoomed) setZoom(false)
+        else setSelection(EMPTY_SELECTION)
+      } else if (by && zoomed) {
         e.preventDefault()
-        const id = order[order.indexOf(zoomed.id) + next]
-        if (id !== undefined) setSelection({ ids: new Set([id]), anchor: id })
+        stepRef.current(by)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [zoomed, order])
+  }, [zoomed])
 
   // shortcut: 取り込み中に選んだりドロップしたりしたものは無視する。続けて取り込みたい要望が出たら順番待ちにする
   async function start(paths: string[]) {
@@ -180,6 +190,20 @@ export default function Gallery({ root }: { root: string }) {
               background: zoomed.color,
             }}
           />
+          {at > 0 && (
+            <button type="button" className="zoom__nav zoom__nav--prev" aria-label="前の画像" onClick={() => step(-1)}>
+              <span className="zoom__arrow">
+                <Chevron d="M15 6l-6 6 6 6" />
+              </span>
+            </button>
+          )}
+          {at < order.length - 1 && (
+            <button type="button" className="zoom__nav zoom__nav--next" aria-label="次の画像" onClick={() => step(1)}>
+              <span className="zoom__arrow">
+                <Chevron d="M9 6l6 6-6 6" />
+              </span>
+            </button>
+          )}
           <button type="button" className="button zoom__close" onClick={() => setZoom(false)}>
             閉じる
           </button>
@@ -244,3 +268,19 @@ export default function Gallery({ root }: { root: string }) {
     </div>
   )
 }
+
+const Chevron = ({ d }: { d: string }) => (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d={d} />
+  </svg>
+)

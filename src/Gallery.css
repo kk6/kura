@@ -296,3 +296,41 @@
   top: var(--space-3);
   right: var(--space-3);
 }
+
+/* 画像の左右の端を押す場所にし、乗せたときだけ < > を出す。画像の色を変えないよう、出すまでは何も描かない */
+.zoom__nav {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  width: 15%;
+  padding: 0 var(--space-5);
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.zoom__nav--prev {
+  left: 0;
+}
+
+.zoom__nav--next {
+  right: 0;
+  justify-content: flex-end;
+}
+
+.zoom__arrow {
+  display: flex;
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-sub);
+  background: var(--color-surface);
+  visibility: hidden;
+}
+
+.zoom__nav:hover .zoom__arrow,
+.zoom__nav:focus-visible .zoom__arrow {
+  visibility: visible;
+}
