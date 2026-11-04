@@ -116,7 +116,6 @@ pub struct Detail {
     pub path: PathBuf,
     pub file_size: i64,
     pub memo: String,
-    pub tags: Vec<Tag>,
     pub source: Option<Source>,
 }
 
@@ -132,21 +131,6 @@ pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
         .optional()
         .map_err(err)?
         .ok_or(format!("画像が見つかりません（{id}）"))?;
-    let tags = conn
-        .prepare(
-            "SELECT t.id, t.name FROM tags t JOIN image_tags it ON it.tag_id = t.id
-             WHERE it.image_id = ?1 ORDER BY t.name, t.id",
-        )
-        .map_err(err)?
-        .query_map([id], |r| {
-            Ok(Tag {
-                id: r.get(0)?,
-                name: r.get(1)?,
-            })
-        })
-        .map_err(err)?
-        .collect::<Result<_, _>>()
-        .map_err(err)?;
     let source = conn
         .query_row(
             "SELECT image_url, page_url FROM image_sources WHERE image_id = ?1",
@@ -167,7 +151,6 @@ pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
             .join(file_name),
         file_size,
         memo,
-        tags,
         source,
     })
 }
@@ -273,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn 詳細は実ファイルのパスとファイルサイズとメモとタグと元urlを返す() {
+    fn 詳細は実ファイルのパスとファイルサイズとメモと元urlを返す() {
         let dir = tempfile::tempdir().unwrap();
         let mut lib = library::create(dir.path()).unwrap();
         let pose = category::create(&mut lib, None, "ポーズ").unwrap();
@@ -282,8 +265,6 @@ mod tests {
         lib.conn
             .execute_batch(&format!(
                 "UPDATE images SET memo = '腕の角度' WHERE id = {a};
-                 INSERT INTO tags(name) VALUES ('振り返り'), ('あおり'), ('座り');
-                 INSERT INTO image_tags VALUES ({a}, 1), ({a}, 2);
                  INSERT INTO image_sources VALUES ({a}, 'https://example.com/a.jpg', 'https://example.com/', 5)"
             ))
             .unwrap();
@@ -296,16 +277,6 @@ mod tests {
                 path: dir.path().join("ポーズ/座り/a.jpg"),
                 file_size: 1,
                 memo: "腕の角度".into(),
-                tags: vec![
-                    Tag {
-                        id: 2,
-                        name: "あおり".into()
-                    },
-                    Tag {
-                        id: 1,
-                        name: "振り返り".into()
-                    },
-                ],
                 source: Some(Source {
                     image_url: "https://example.com/a.jpg".into(),
                     page_url: Some("https://example.com/".into()),
@@ -323,7 +294,7 @@ mod tests {
         let d = detail(&lib, a).unwrap();
 
         assert_eq!(d.path, dir.path().join("_未分類/a.jpg"));
-        assert_eq!((d.memo.as_str(), d.tags.len(), d.source), ("", 0, None));
+        assert_eq!((d.memo.as_str(), d.source), ("", None));
     }
 
     #[test]

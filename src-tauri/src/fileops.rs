@@ -1,11 +1,3 @@
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "移動・名前変更・コピーを呼ぶコマンドはタスク3以降で作る"
-    )
-)]
-
 use std::collections::HashSet;
 use std::ffi::{CString, OsStr};
 use std::fmt::Display;

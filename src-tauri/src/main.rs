@@ -4,6 +4,7 @@ mod gallery;
 mod import;
 mod library;
 mod recent;
+mod tag;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -111,6 +112,53 @@ fn set_rating(current: State<Current>, id: i64, rating: i64) -> Result<(), Strin
     )
 }
 
+/// 画像を移すので、取り込みと同じく別のスレッドで行う（同期のコマンドは画面のスレッドを止める）
+#[tauri::command]
+async fn set_category(
+    app: AppHandle,
+    ids: Vec<i64>,
+    category: Option<i64>,
+) -> Result<category::Assigned, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let mut current = current.0.lock().unwrap();
+        let lib = current.as_mut().ok_or("ライブラリを開いていません")?;
+        let result = category::assign(lib, &ids, category)?;
+        for f in &result.failed {
+            log::warn!("画像 {} のカテゴリを変えられません：{}", f.id, f.message);
+        }
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn image_tags(current: State<Current>, ids: Vec<i64>) -> Result<Vec<tag::Counted>, String> {
+    let current = current.0.lock().unwrap();
+    tag::of(current.as_ref().ok_or("ライブラリを開いていません")?, &ids)
+}
+
+#[tauri::command]
+fn add_tag(current: State<Current>, ids: Vec<i64>, name: String) -> Result<gallery::Tag, String> {
+    let mut current = current.0.lock().unwrap();
+    tag::add(
+        current.as_mut().ok_or("ライブラリを開いていません")?,
+        &ids,
+        &name,
+    )
+}
+
+#[tauri::command]
+fn remove_tag(current: State<Current>, ids: Vec<i64>, tag_id: i64) -> Result<(), String> {
+    let current = current.0.lock().unwrap();
+    tag::remove(
+        current.as_ref().ok_or("ライブラリを開いていません")?,
+        &ids,
+        tag_id,
+    )
+}
+
 #[derive(Clone, Serialize)]
 struct ImportProgress {
     done: usize,
@@ -160,7 +208,11 @@ fn main() {
             load_gallery,
             image_detail,
             set_memo,
-            set_rating
+            set_rating,
+            set_category,
+            image_tags,
+            add_tag,
+            remove_tag
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

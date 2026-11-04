@@ -135,11 +135,12 @@ fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
 }
 
 // 操作の種類ごとの DB の更新。ファイルを動かす操作を作るタスクで種類を足す
-fn apply_op(_tx: &Transaction, op: &PendingOp) -> Result<(), String> {
+fn apply_op(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
     match op.kind.as_str() {
         // 登録に要る情報（ハッシュ、幅と高さなど）は予定に残していない。ファイルは置いたままにし、
         // 差分検出（FR-104）が新しいファイルとして取り込みと同じ扱いで登録する
         "import" => Ok(()),
+        crate::category::MOVE_IMAGE => crate::category::apply_move(tx, op),
         _ => Err(format!("未知の操作の種類です（{}）", op.kind)),
     }
 }

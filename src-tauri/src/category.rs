@@ -1,15 +1,121 @@
 use std::fmt::Display;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use rusqlite::params;
+use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::fileops::{self, OnConflict};
+use crate::fileops::{self, OnConflict, PendingOp, Request};
 use crate::library::{Library, UNCATEGORIZED_DIR};
+
+/// 画像をカテゴリのフォルダへ移す操作の、pending_ops の種類
+pub const MOVE_IMAGE: &str = "move_image";
 
 fn err(e: impl Display) -> String {
     e.to_string()
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Moved {
+    pub id: i64,
+    /// 移した後のファイル名。移動先に同名があれば連番が付く
+    pub file_name: String,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Failed {
+    pub id: i64,
+    pub message: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct Assigned {
+    pub moved: Vec<Moved>,
+    pub failed: Vec<Failed>,
+}
+
+/// ids の画像のカテゴリを category（None は未分類）にし、ファイルをそのフォルダへ移す（FR-402、FR-407）。
+/// 1枚ずつ移し、移せない画像はファイルも DB も元のまま failed に入れて、残りを続ける
+pub fn assign(lib: &mut Library, ids: &[i64], category: Option<i64>) -> Result<Assigned, String> {
+    let dst_dir = dir(lib, category)?;
+    let mut out = Assigned::default();
+    for &id in ids {
+        match move_image(lib, id, &dst_dir) {
+            Ok(file_name) => out.moved.push(Moved { id, file_name }),
+            Err(message) => out.failed.push(Failed { id, message }),
+        }
+    }
+    Ok(out)
+}
+
+fn move_image(lib: &mut Library, id: i64, dst_dir: &Path) -> Result<String, String> {
+    let (file_name, current): (String, Option<i64>) = lib
+        .conn
+        .query_row(
+            "SELECT file_name, category_id FROM images WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(err)?
+        .ok_or(format!("画像が見つかりません（{id}）"))?;
+    let src = dir(lib, current)?.join(&file_name);
+    let dst = fileops::transfer(
+        lib,
+        Request {
+            kind: MOVE_IMAGE,
+            target_id: Some(id),
+            copy: false,
+            src: &src,
+            dst_dir,
+            name: &file_name,
+            on_conflict: OnConflict::Number,
+        },
+        &apply_move,
+    )?;
+    Ok(dst.file_name().unwrap().to_string_lossy().into_owned())
+}
+
+/// MOVE_IMAGE の DB の更新。カテゴリとファイル名を移動先のパスから決める。
+/// 起動時の後始末でも同じ関数を使うので、予定に残したパスだけを手がかりにする
+pub fn apply_move(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
+    let (Some(parent), Some(name)) = (op.dst.parent(), op.dst.file_name().and_then(|n| n.to_str()))
+    else {
+        return Err(format!("移動先を扱えません（{}）", op.dst.display()));
+    };
+    let changed = tx
+        .execute(
+            "UPDATE images SET category_id = ?1, file_name = ?2 WHERE id = ?3",
+            params![by_dir(tx, parent)?, name, op.target_id],
+        )
+        .map_err(err)?;
+    match changed {
+        0 => Err(format!("画像が見つかりません（{:?}）", op.target_id)),
+        _ => Ok(()),
+    }
+}
+
+/// dir の逆。フォルダ（ライブラリからの相対パス）に当たるカテゴリ
+fn by_dir(conn: &Connection, path: &Path) -> Result<Option<i64>, String> {
+    if path == Path::new(UNCATEGORIZED_DIR) {
+        return Ok(None);
+    }
+    let mut id = None;
+    for name in path.iter() {
+        id = conn
+            .query_row(
+                "SELECT id FROM categories WHERE parent_id IS ?1 AND name = ?2",
+                params![id, name.to_str()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        if id.is_none() {
+            return Err(format!("カテゴリが見つかりません（{}）", path.display()));
+        }
+    }
+    Ok(id)
 }
 
 /// カテゴリのフォルダ（ライブラリからの相対パス）。None は未分類
@@ -220,6 +326,215 @@ mod tests {
         assert!(result.err().unwrap().contains("フォルダを作れません"));
         assert_eq!(count(&lib), 1);
         assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
+    }
+
+    /// category のフォルダに中身 body のファイルを置き、画像として登録する
+    fn put(lib: &Library, category: Option<i64>, name: &str, body: &str) -> i64 {
+        fs::write(lib.root.join(dir(lib, category).unwrap()).join(name), body).unwrap();
+        lib.conn
+            .execute(
+                "INSERT INTO images(file_name, hash, width, height, file_size, file_mtime, color,
+                                    category_id, imported_at, registered_at)
+                 VALUES (?1, ?2, 1, 1, 1, 1, '#808080', ?3, 1, 1)",
+                params![name, body, category],
+            )
+            .unwrap();
+        lib.conn.last_insert_rowid()
+    }
+
+    fn row(lib: &Library, id: i64) -> (String, Option<i64>) {
+        lib.conn
+            .query_row(
+                "SELECT file_name, category_id FROM images WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+    }
+
+    fn read(lib: &Library, rel: &str) -> String {
+        fs::read_to_string(lib.root.join(rel)).unwrap()
+    }
+
+    fn pending(lib: &Library) -> i64 {
+        lib.conn
+            .query_row("SELECT count(*) FROM pending_ops", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn files(lib: &Library, rel: &str) -> Vec<String> {
+        let mut names: Vec<_> = fs::read_dir(lib.root.join(rel))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn moved(id: i64, file_name: &str) -> Moved {
+        Moved {
+            id,
+            file_name: file_name.into(),
+        }
+    }
+
+    #[test]
+    fn 複数の画像にカテゴリを設定するとファイルをそのフォルダへ移しdbも変える() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let a = put(&lib, None, "a.jpg", "A");
+        let b = put(&lib, Some(pose), "b.png", "B");
+
+        let r = assign(&mut lib, &[a, b], Some(sit)).unwrap();
+
+        assert_eq!(r.moved, [moved(a, "a.jpg"), moved(b, "b.png")]);
+        assert!(r.failed.is_empty());
+        assert_eq!(files(&lib, "ポーズ/座り"), ["a.jpg", "b.png"]);
+        assert_eq!(files(&lib, "_未分類"), Vec::<String>::new());
+        assert_eq!(files(&lib, "ポーズ"), ["座り"]);
+        assert_eq!(read(&lib, "ポーズ/座り/a.jpg"), "A");
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(sit)));
+        assert_eq!(row(&lib, b), ("b.png".into(), Some(sit)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 未分類を設定すると未分類のフォルダへ戻す() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+
+        let r = assign(&mut lib, &[a], None).unwrap();
+
+        assert_eq!(r.moved, [moved(a, "a.jpg")]);
+        assert_eq!(files(&lib, "_未分類"), ["a.jpg"]);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), None));
+    }
+
+    #[test]
+    fn 移動先に同名のファイルがあれば連番を付けて移しファイル名も記録する() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let first = put(&lib, Some(pose), "a.jpg", "先客");
+        // Finder で置いた、大文字だけが違う管理外のファイルも衝突として数える
+        fs::write(lib.root.join("ポーズ/A (2).jpg"), "管理外").unwrap();
+        let a = put(&lib, None, "a.jpg", "A");
+
+        let r = assign(&mut lib, &[a], Some(pose)).unwrap();
+
+        assert_eq!(r.moved, [moved(a, "a (3).jpg")]);
+        assert_eq!(read(&lib, "ポーズ/a.jpg"), "先客");
+        assert_eq!(read(&lib, "ポーズ/A (2).jpg"), "管理外");
+        assert_eq!(read(&lib, "ポーズ/a (3).jpg"), "A");
+        assert_eq!(row(&lib, a), ("a (3).jpg".into(), Some(pose)));
+        assert_eq!(row(&lib, first), ("a.jpg".into(), Some(pose)));
+    }
+
+    #[test]
+    fn 別のカテゴリの同名の画像をまとめて移すと2枚目に連番を付ける() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, None, "座り").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let b = put(&lib, Some(sit), "a.jpg", "B");
+
+        let r = assign(&mut lib, &[a, b], None).unwrap();
+
+        assert_eq!(r.moved, [moved(a, "a.jpg"), moved(b, "a (2).jpg")]);
+        assert_eq!(read(&lib, "_未分類/a (2).jpg"), "B");
+    }
+
+    #[test]
+    fn 今と同じカテゴリを設定してもファイルもdbも変えない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+
+        let r = assign(&mut lib, &[a], Some(pose)).unwrap();
+
+        assert_eq!(r.moved, [moved(a, "a.jpg")]);
+        assert_eq!(files(&lib, "ポーズ"), ["a.jpg"]);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(pose)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 途中の画像が移せなくても残りは移し移せない画像のファイルとdbは元のまま() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let locked = create(&mut lib, None, "鍵付き").unwrap();
+        let a = put(&lib, None, "a.jpg", "A");
+        let gone = put(&lib, None, "gone.jpg", "G");
+        fs::remove_file(lib.root.join("_未分類/gone.jpg")).unwrap();
+        let stuck = put(&lib, Some(locked), "stuck.jpg", "S");
+        let trashed = put(&lib, None, "trashed.jpg", "T");
+        lib.conn
+            .execute("UPDATE images SET deleted_at = 1 WHERE id = ?1", [trashed])
+            .unwrap();
+        let c = put(&lib, None, "c.jpg", "C");
+        // 書き込めないフォルダからはファイルを出せない（rename が失敗する）
+        let locked_dir = lib.root.join("鍵付き");
+        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let r = assign(&mut lib, &[a, gone, stuck, trashed, 999, c], Some(pose));
+
+        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        let r = r.unwrap();
+        assert_eq!(r.moved, [moved(a, "a.jpg"), moved(c, "c.jpg")]);
+        let failed: Vec<i64> = r.failed.iter().map(|f| f.id).collect();
+        assert_eq!(failed, [gone, stuck, trashed, 999]);
+        assert!(
+            r.failed[0].message.contains("見つかりません"),
+            "{:?}",
+            r.failed
+        );
+        assert_eq!(files(&lib, "ポーズ"), ["a.jpg", "c.jpg"]);
+        assert_eq!(files(&lib, "鍵付き"), ["stuck.jpg"]);
+        assert_eq!(files(&lib, "_未分類"), ["trashed.jpg"]);
+        assert_eq!(row(&lib, gone), ("gone.jpg".into(), None));
+        assert_eq!(row(&lib, stuck), ("stuck.jpg".into(), Some(locked)));
+        assert_eq!(row(&lib, trashed), ("trashed.jpg".into(), None));
+        assert_eq!(row(&lib, c), ("c.jpg".into(), Some(pose)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn ないカテゴリを設定するとエラーにして何も移さない() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+
+        assert!(assign(&mut lib, &[a], Some(999)).is_err());
+
+        assert_eq!(files(&lib, "_未分類"), ["a.jpg"]);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), None));
+    }
+
+    #[test]
+    fn 移したあとdbを更新する前に止まった移動は起動時にdbを移動先に合わせる() {
+        let (d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let a = put(&lib, None, "a.jpg", "A");
+        // 予定の記録と rename までを済ませ、DB の更新の前に止まった状態を作る
+        lib.conn
+            .execute(
+                "INSERT INTO pending_ops(kind, target_id, copy, src, dst)
+                 VALUES (?1, ?2, 0, '_未分類/a.jpg', 'ポーズ/座り/a (2).jpg')",
+                params![MOVE_IMAGE, a],
+            )
+            .unwrap();
+        fs::rename(
+            lib.root.join("_未分類/a.jpg"),
+            lib.root.join("ポーズ/座り/a (2).jpg"),
+        )
+        .unwrap();
+        drop(lib);
+
+        let lib = library::open(d.path()).unwrap();
+
+        assert_eq!(row(&lib, a), ("a (2).jpg".into(), Some(sit)));
+        assert_eq!(pending(&lib), 0);
     }
 
     #[test]
