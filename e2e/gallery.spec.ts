@@ -863,3 +863,23 @@ test('タグ管理ダイアログで名前を変え、統合すると両方が�
   await expect(detail.locator('.tag')).toHaveText(['座り'])
   expect(errors).toEqual([])
 })
+
+test('カテゴリ名の入力中に別のカテゴリを押すと、名前は変えずに入力をやめ、押したカテゴリで絞り込む', async ({ page }) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const input = sidebar.getByRole('textbox', { name: 'カテゴリ名' })
+
+  await categories.getByRole('button', { name: '座り', exact: true }).dblclick()
+  await input.fill('座る')
+  await categories.getByRole('button', { name: '服飾', exact: true }).click()
+
+  await expect(input).toHaveCount(0)
+  await expect(categories.getByRole('button', { name: '座り', exact: true })).toBeVisible()
+  await expect(page.getByRole('contentinfo')).toContainText('600 / 2000枚')
+
+  // 開閉ボタンを押したときも入力をやめる
+  await categories.getByRole('button', { name: '振り返り', exact: true }).dblclick()
+  await sidebar.getByRole('button', { name: '服飾 を閉じる' }).click()
+  await expect(input).toHaveCount(0)
+})

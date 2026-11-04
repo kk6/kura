@@ -185,8 +185,12 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onMan
             title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
             onDoubleClick={() => setEditing({ kind: 'rename', id: c.id, name: c.name })}
             onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
-            // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない
-            onMouseDown={(e) => e.preventDefault()}
+            // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない。
+            // 既定の動きを止めるとフォーカスも移らず、入力中のカテゴリ名が blur で取り消されないので、自分で外す
+            onMouseDown={(e) => {
+              e.preventDefault()
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+            }}
           >
             {children.has(c.id) ? (
               <button
