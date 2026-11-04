@@ -18,6 +18,8 @@ type Props = {
   // 評価を保存して一覧の値も変える。失敗したら reject する
   onRate: (id: number, rating: number) => Promise<void>
   onAssign: (ids: number[], category: number | null) => Promise<void>
+  // stem は拡張子より前の部分。失敗したら reject する
+  onRename: (id: number, stem: string) => Promise<void>
   onTagCreated: (tag: Tag) => void
 }
 
@@ -66,6 +68,54 @@ function Rating({ image, onRate }: { image: Image; onRate: Props['onRate'] }) {
   )
 }
 
+// ファイル名（FR-410）。ダブルクリックで拡張子より前の部分だけを編集する。
+// 同名などのエラーでは入力欄を残し、別の名前を入れ直してもらう（カテゴリ名の変更と同じ）
+function FileName({ image, onRename }: { image: Image; onRename: Props['onRename'] }) {
+  const [editing, setEditing] = useState<{ stem: string; error?: string }>()
+  // Rust の fileops::split_ext と同じく、先頭の . は拡張子の区切りとみなさない
+  const dot = image.file_name.lastIndexOf('.')
+  const [stem, ext] = dot > 0 ? [image.file_name.slice(0, dot), image.file_name.slice(dot)] : [image.file_name, '']
+  if (!editing)
+    return (
+      <h2 className="detail__name" title="ダブルクリックで名前を変える" onDoubleClick={() => setEditing({ stem })}>
+        {image.file_name}
+      </h2>
+    )
+  const commit = () =>
+    onRename(image.id, editing.stem).then(
+      () => setEditing(undefined),
+      (e) => setEditing({ ...editing, error: String(e) }),
+    )
+  return (
+    <>
+      <h2 className="detail__name detail__rename">
+        <input
+          className={editing.error ? 'detail__input detail__input--error' : 'detail__input'}
+          aria-label="ファイル名（拡張子を除く）"
+          aria-invalid={!!editing.error}
+          aria-describedby={editing.error ? 'detail-name-error' : undefined}
+          value={editing.stem}
+          autoFocus
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setEditing({ stem: e.target.value })}
+          onKeyDown={(e) => {
+            // かな漢字変換を確定する Enter では変えない
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) commit()
+            if (e.key === 'Escape') setEditing(undefined)
+          }}
+          onBlur={() => setEditing(undefined)}
+        />
+        {ext}
+      </h2>
+      {editing.error && (
+        <span id="detail-name-error">
+          <Status kind="error">{editing.error}</Status>
+        </span>
+      )}
+    </>
+  )
+}
+
 // メモ（FR-411）。入力欄から離れたときに保存する
 function Memo({ id, initial }: { id: number; initial: string }) {
   const [saved, setSaved] = useState(initial)
@@ -100,7 +150,8 @@ function Memo({ id, initial }: { id: number; initial: string }) {
 }
 
 export default function Detail(props: Props) {
-  const { root, categories, tags, ids, selected, image, detail, error, onRate, onAssign, onTagCreated } = props
+  const { root, categories, tags, ids, selected, image, detail, error, onRate, onAssign, onRename, onTagCreated } =
+    props
   // カテゴリとタグは、1枚でも複数でも同じ部品で変える
   const classify = (
     <>
@@ -142,7 +193,8 @@ export default function Detail(props: Props) {
               }}
             />
           </div>
-          <h2 className="detail__name">{image.file_name}</h2>
+          {/* key：別の画像に移ったら入力中の名前を捨てる */}
+          <FileName key={image.id} image={image} onRename={onRename} />
           {error && <Status kind="error">詳細を読めません（{error}）</Status>}
           <dl className="detail__fields">
             {classify}

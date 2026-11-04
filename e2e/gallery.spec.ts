@@ -223,6 +223,40 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   expect(errors).toEqual([])
 })
 
+test('詳細パネルで画像のファイル名を変える。拡張子は変えず、同名はエラーにする', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const input = detail.getByRole('textbox', { name: 'ファイル名（拡張子を除く）' })
+
+  await thumb(page, 1).click()
+  await detail.getByRole('heading').dblclick()
+  await expect(input).toHaveValue('ref_00001')
+  await expect(detail.getByRole('heading')).toHaveText('.jpg')
+
+  // 同じフォルダ（未分類）の ref_00005.jpg と同名なので、入力欄を残して入れ直してもらう
+  await input.fill('REF_00005')
+  await input.press('Enter')
+  await expect(input).toHaveAttribute('aria-invalid', 'true')
+  await expect(detail).toContainText('エラー：同じ名前のファイルかフォルダがあります（REF_00005.jpg）')
+  await page.screenshot({ path: 'test-results/image-rename-error.png' })
+
+  await input.fill('ref_00001_立ち')
+  await input.press('Enter')
+  await expect(input).toHaveCount(0)
+  await expect(detail.getByRole('heading')).toHaveText('ref_00001_立ち.jpg')
+  await expect(page.locator('.list__thumb[alt="ref_00001_立ち.jpg"]')).toHaveCount(1)
+
+  // Escape では変えない
+  await detail.getByRole('heading').dblclick()
+  await input.fill('取り消す')
+  await input.press('Escape')
+  await expect(detail.getByRole('heading')).toHaveText('ref_00001_立ち.jpg')
+  expect(errors).toEqual([])
+})
+
 test('Command で個別に、Shift で範囲で複数の画像を選べる', async ({ page }) => {
   await openGallery(page)
   await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })

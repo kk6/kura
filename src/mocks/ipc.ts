@@ -190,6 +190,23 @@ const deleteCategory: Handler = (args) => {
   return { ...out, error: null }
 }
 
+// 画像のファイル名の変更。Rust と同じく、同じフォルダ（カテゴリ）に同名があればエラーにする
+const renameImage: Handler = (args) => {
+  const stem = String(args?.stem)
+  if (!stem) throw 'ファイル名を入力してください'
+  if (/[/:]/.test(stem)) throw 'ファイル名に / と : は使えません'
+  if (stem.startsWith('.')) throw 'ファイル名を . で始めることはできません'
+  const image = IMAGES.find((i) => i.id === args?.id)
+  if (!image) throw `画像が見つかりません（${args?.id}）`
+  const dot = image.file_name.lastIndexOf('.')
+  const name = (dot > 0 ? stem + image.file_name.slice(dot) : stem).normalize('NFC')
+  const k = key(name)
+  if (IMAGES.some((i) => i !== image && i.category_id === image.category_id && key(i.file_name) === k))
+    throw `同じ名前のファイルかフォルダがあります（${name}）`
+  image.file_name = name
+  return name
+}
+
 // 画像ごとのタグの id。1枚目に「あおり」と「座り」が付いている
 const imageTags = new Map<number, Set<number>>([[1, new Set([1, 2])]])
 const tagsOf = (id: number) => imageTags.get(id) ?? imageTags.set(id, new Set()).get(id)!
@@ -232,6 +249,7 @@ const handlers: Record<string, Handler> = {
   set_memo: setMemo,
   set_rating: setRating,
   set_category: setCategory,
+  rename_image: renameImage,
   create_category: createCategory,
   rename_category: renameCategory,
   move_category: moveCategory,

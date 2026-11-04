@@ -321,6 +321,29 @@ body.is-dragging * {
   overflow-wrap: anywhere;
 }
 
+.detail__rename {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.detail__input {
+  flex: 1;
+  min-width: 0;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  color: inherit;
+  background: var(--color-input);
+}
+
+.detail__input--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}
+
 .detail__fields {
   display: grid;
   grid-template-columns: auto 1fr;

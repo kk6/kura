@@ -154,6 +154,11 @@ export default function Gallery({ root }: { root: string }) {
     setResult({ kind: 'assigned', moved: r.moved.length, failed: applyMoved(r, category) })
   }
 
+  async function renameImage(id: number, stem: string) {
+    const file_name = await invoke<string>('rename_image', { id, stem })
+    setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, file_name } : i)) }))
+  }
+
   // 変わるのはカテゴリの行だけなので、一覧を読み直さずに手元の値を変える
   async function renameCategory(id: number, name: string) {
     await invoke('rename_category', { id, name })
@@ -309,6 +314,7 @@ export default function Gallery({ root }: { root: string }) {
           setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
         }}
         onAssign={assign}
+        onRename={renameImage}
         onTagCreated={addTag}
       />
 
