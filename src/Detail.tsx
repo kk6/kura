@@ -1,9 +1,16 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { useEffect, useState } from 'react'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import Status from './Status'
 import type { Category, Detail as DetailData, Image } from './galleryTypes'
 
-type Props = { root: string; categories: Category[]; image: Image | null; count: number }
+type Props = {
+  root: string
+  categories: Category[]
+  image: Image | null
+  count: number
+  // image の詳細。読み込み中は null
+  detail: DetailData | null
+  error: string | null
+}
 
 function categoryPath(categories: Category[], id: number | null): string {
   const names = []
@@ -17,25 +24,7 @@ function fileSize(bytes: number): string {
 }
 
 // 詳細パネル（FR-507）。1枚だけ選んでいるときに詳細を出す
-export default function Detail({ root, categories, image, count }: Props) {
-  const [detail, setDetail] = useState<DetailData | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const id = image?.id
-  useEffect(() => {
-    if (id === undefined) return
-    let current = true
-    setDetail(null)
-    setError(null)
-    invoke<DetailData>('image_detail', { id }).then(
-      (d) => current && setDetail(d),
-      (e) => current && setError(String(e)),
-    )
-    return () => {
-      current = false
-    }
-  }, [id])
-
+export default function Detail({ root, categories, image, count, detail, error }: Props) {
   return (
     <aside className="gallery__detail" aria-label="詳細">
       {!image ? (

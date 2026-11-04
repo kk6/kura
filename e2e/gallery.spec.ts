@@ -241,3 +241,37 @@ test('Command で個別に、Shift で範囲で複数の画像を選べる', asy
   await thumb(page, 5).click({ modifiers: ['Meta'] })
   expect(await selectedNames(page)).toEqual(['ref_00004.jpg', 'ref_00006.jpg', 'ref_00007.jpg'])
 })
+
+test('ダブルクリックで拡大し、左右キーで前後の画像に移り、Escape で閉じる', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const zoom = page.getByRole('region', { name: '拡大表示' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 2).dblclick()
+
+  // サムネイルではなく元の画像を読む
+  await expect(zoom.getByRole('img', { name: 'ref_00002.jpg' })).toHaveAttribute('src', /#\/Users\/me\/Pictures\/Kura ライブラリ\/_未分類\/ref_00002\.jpg$/)
+  await page.screenshot({ path: 'test-results/zoom.png' })
+
+  await page.keyboard.press('ArrowRight')
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00003.jpg')
+  await expect(detail.getByRole('heading')).toHaveText('ref_00003.jpg')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00001.jpg')
+  // 先頭より前には移らない
+  await page.keyboard.press('ArrowLeft')
+  await expect(zoom.getByRole('img')).toHaveAccessibleName('ref_00001.jpg')
+
+  await page.keyboard.press('Escape')
+  await expect(zoom).toHaveCount(0)
+  expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
+
+  await thumb(page, 1).dblclick()
+  await zoom.getByRole('button', { name: '閉じる' }).click()
+  await expect(zoom).toHaveCount(0)
+  expect(errors).toEqual([])
+})

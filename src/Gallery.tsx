@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -8,7 +8,7 @@ import Masonry from './Masonry'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
-import type { Gallery as GalleryData } from './galleryTypes'
+import type { Detail as DetailData, Gallery as GalleryData } from './galleryTypes'
 import type { ImportProgress, Report } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
@@ -31,6 +31,9 @@ export default function Gallery({ root }: { root: string }) {
   const [result, setResult] = useState<Result | null>(null)
   const [showSkipped, setShowSkipped] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
+  const [zoom, setZoom] = useState(false)
+  // 読み込んだ詳細。id は、別の画像に移った直後に前の画像の詳細を使わないため
+  const [detail, setDetail] = useState<{ id: number; detail?: DetailData; error?: string } | null>(null)
   const busy = useRef(false)
 
   async function reload() {
@@ -47,6 +50,37 @@ export default function Gallery({ root }: { root: string }) {
   const order = useMemo(() => images.map((i) => i.id), [images])
   const only = selection.ids.size === 1 ? [...selection.ids][0] : null
   const selectedImage = useMemo(() => data.images.find((i) => i.id === only) ?? null, [data.images, only])
+  const shown = detail && detail.id === only ? detail : null
+
+  useEffect(() => {
+    if (only === null) return
+    let current = true
+    invoke<DetailData>('image_detail', { id: only }).then(
+      (d) => current && setDetail({ id: only, detail: d }),
+      (e) => current && setDetail({ id: only, error: String(e) }),
+    )
+    return () => {
+      current = false
+    }
+  }, [only])
+
+  // 拡大表示（FR-508）。左右キーで今の並び順の前後の画像に移る
+  const zoomed = zoom ? selectedImage : null
+  useEffect(() => {
+    if (!zoomed) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      const next = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
+      if (e.key === 'Escape') setZoom(false)
+      else if (next) {
+        e.preventDefault()
+        const id = order[order.indexOf(zoomed.id) + next]
+        if (id !== undefined) setSelection({ ids: new Set([id]), anchor: id })
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [zoomed, order])
 
   // shortcut: 取り込み中に選んだりドロップしたりしたものは無視する。続けて取り込みたい要望が出たら順番待ちにする
   async function start(paths: string[]) {
@@ -129,9 +163,37 @@ export default function Gallery({ root }: { root: string }) {
         onSelect={(id, e) =>
           setSelection((s) => (id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey })))
         }
+        onOpen={() => setZoom(true)}
       />
 
-      <Detail root={root} categories={data.categories} image={selectedImage} count={selection.ids.size} />
+      {zoomed && (
+        <section className="gallery__zoom" aria-label="拡大表示">
+          <img
+            className="zoom__image"
+            // 元の画像のパスがわかるまではサムネイルを出す
+            src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
+            alt={zoomed.file_name}
+            style={{
+              // 小さい画像も枠いっぱいに広げ、縦横比を保ったまま収める
+              width: `min(100cqw, calc(100cqh * ${zoomed.width / zoomed.height}))`,
+              aspectRatio: `${zoomed.width} / ${zoomed.height}`,
+              background: zoomed.color,
+            }}
+          />
+          <button type="button" className="button zoom__close" onClick={() => setZoom(false)}>
+            閉じる
+          </button>
+        </section>
+      )}
+
+      <Detail
+        root={root}
+        categories={data.categories}
+        image={selectedImage}
+        count={selection.ids.size}
+        detail={shown?.detail ?? null}
+        error={shown?.error ?? null}
+      />
 
       <footer className="gallery__statusbar">
         <span>{data.images.length}枚</span>

@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use library::Library;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 // 開いているライブラリ。後のタスクのコマンドはここから DB を使う
 #[derive(Default)]
@@ -24,6 +24,20 @@ fn recent_file(app: &AppHandle) -> Result<PathBuf, String> {
         .join("recent-libraries.json"))
 }
 
+/// 画面が直接読めるのは開いたライブラリの画像とサムネイルだけにし、DB とゴミ箱は読めないようにする
+fn allow_assets<R: Runtime>(app: &AppHandle<R>, root: &std::path::Path) -> tauri::Result<()> {
+    let scope = app.asset_protocol_scope();
+    let kura = root.join(library::KURA_DIR);
+    // ルートの ** は . で始まる .kura に入らないので、サムネイルは別に許可する。
+    // DB とゴミ箱はそれに頼らず明示的に禁じる（forbid は allow より優先される）
+    scope.allow_directory(root, true)?;
+    scope.allow_directory(kura.join("thumbs"), true)?;
+    for name in ["kura.db", "kura.db-wal", "kura.db-shm"] {
+        scope.forbid_file(kura.join(name))?;
+    }
+    scope.forbid_directory(kura.join("trash"), true)
+}
+
 fn activate(
     app: &AppHandle,
     current: &Current,
@@ -31,10 +45,7 @@ fn activate(
 ) -> Result<PathBuf, String> {
     let lib = result.inspect_err(|e| log::warn!("{e}"))?;
     let root = lib.root.clone();
-    // 画面がサムネイルを直接読めるのは、開いたライブラリのサムネイルのフォルダの下だけにする
-    app.asset_protocol_scope()
-        .allow_directory(root.join(library::KURA_DIR).join("thumbs"), true)
-        .map_err(|e| e.to_string())?;
+    allow_assets(app, &root).map_err(|e| e.to_string())?;
     if let Err(e) = recent::push(&recent_file(app)?, &root) {
         // 一覧に残せなくてもライブラリは使えるので、開く処理は止めない
         log::error!("最近使ったライブラリを保存できません：{e}");
@@ -131,4 +142,30 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 画面からはライブラリの画像とサムネイルを読めてdbとゴミ箱とライブラリの外は読めない() {
+        let app = tauri::test::mock_app();
+        let root = std::path::Path::new("/Volumes/外付け/参考 [資料]");
+        allow_assets(app.handle(), root).unwrap();
+        let scope = app.asset_protocol_scope();
+
+        for ok in ["ポーズ/座り/a.jpg", "_未分類/b.png", ".kura/thumbs/abc.jpg"] {
+            assert!(scope.is_allowed(root.join(ok)), "{ok}");
+        }
+        for ng in [
+            ".kura/kura.db",
+            ".kura/kura.db-wal",
+            ".kura/kura.db-shm",
+            ".kura/trash/1.jpg",
+        ] {
+            assert!(!scope.is_allowed(root.join(ng)), "{ng}");
+        }
+        assert!(!scope.is_allowed("/Volumes/外付け/a.jpg"));
+    }
 }

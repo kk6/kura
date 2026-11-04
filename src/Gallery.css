@@ -243,3 +243,24 @@
   font-size: var(--font-size-sm);
   background: var(--color-input);
 }
+
+/* 一覧と同じ場所に重ねる。一覧を消さないので、閉じたときにスクロールの位置が残る */
+.gallery__zoom {
+  grid-area: list;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--space-5);
+  background: var(--color-bg);
+  /* 画像の幅を枠の大きさ（cqw、cqh）から決めるため */
+  container-type: size;
+}
+
+
+.zoom__close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+}

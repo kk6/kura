@@ -10,9 +10,10 @@ type Props = {
   selected: Set<number>
   // id が null のときは画像のない所を押した
   onSelect: (id: number | null, e: MouseEvent) => void
+  onOpen: () => void
 }
 
-export default function Masonry({ root, images, thumbWidth, selected, onSelect }: Props) {
+export default function Masonry({ root, images, thumbWidth, selected, onSelect, onOpen }: Props) {
   const ref = useRef<HTMLElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewport, setViewport] = useState({ width: 0, height: 0, gap: 0 })
@@ -61,6 +62,8 @@ export default function Masonry({ root, images, thumbWidth, selected, onSelect }
         const id = (e.target as HTMLElement).dataset.id
         onSelect(id ? Number(id) : null, e)
       }}
+      // 1回目のクリックでその画像だけが選ばれている
+      onDoubleClick={(e) => (e.target as HTMLElement).dataset.id && !e.shiftKey && !e.metaKey && onOpen()}
     >
       {images.length === 0 ? (
         <p className="list__empty">画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください</p>
