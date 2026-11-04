@@ -129,7 +129,7 @@ test('一覧は2000枚のうち表示範囲の近くだけを描き、サムネ�
   await expect(sidebar.getByRole('listitem').filter({ hasText: '未分類' })).toContainText('500')
   const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
   await expect(categories.getByRole('listitem').filter({ hasText: 'ポーズ' })).toContainText('座り')
-  await expect(sidebar.getByRole('list', { name: 'タグ' }).getByRole('listitem')).toHaveText(['あおり', '座り', '振り返り'])
+  await expect(sidebar.getByRole('list', { name: 'タグ' }).locator('.sidebar__name')).toHaveText(['あおり', '座り', '振り返り'])
   expect(errors).toEqual([])
 
   await page.screenshot({ path: 'test-results/gallery-list.png' })
@@ -425,7 +425,7 @@ test('選んだ画像のカテゴリとタグをまとめて変え、入力中�
   await tagInput.fill('立ち')
   await tagInput.press('Enter')
   await expect(chips).toHaveText(['あおり', '立ち'])
-  await expect(page.getByRole('list', { name: 'タグ' }).getByRole('listitem')).toHaveText(['あおり', '座り', '振り返り', '立ち'])
+  await expect(page.getByRole('list', { name: 'タグ' }).locator('.sidebar__name')).toHaveText(['あおり', '座り', '振り返り', '立ち'])
 
   // 一部の画像にだけ付いているタグは枚数を出す。外すと選んだ画像のすべてから外れる
   await thumb(page, 1).click({ modifiers: ['Meta'] })
@@ -497,7 +497,7 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   await page.mouse.down()
   await page.mouse.move(to.x + 10, to.y + 10, { steps: 5 })
   await expect(label).toHaveText('「振り返り」を「服飾」の下へ移す')
-  await expect(categories.locator('.sidebar__item--drop')).toHaveText('服飾')
+  await expect(categories.locator('.sidebar__item--drop .sidebar__name')).toHaveText('服飾')
   await page.screenshot({ path: 'test-results/category-drag.png' })
   await page.mouse.up()
   await expect(label).toHaveCount(0)
@@ -693,4 +693,111 @@ test('カテゴリを子カテゴリごと削除し、件数を確かめてか�
   await page.screenshot({ path: 'test-results/category-delete-failed.png' })
   await status.getByRole('button', { name: /移せない 1枚/ }).click()
   await expect(page.getByRole('dialog', { name: '移せなかった画像（1枚）' })).toContainText('ref_00007.jpg')
+})
+
+test('サイドバーのカテゴリとタグを押し、検索バーに入れると絞り込み、件数は子カテゴリを含めて数える', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const status = page.getByRole('contentinfo')
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const row = (name: string) => categories.locator('.sidebar__item').filter({ has: page.getByRole('button', { name, exact: true }) })
+
+  // ポーズ（id 1）は 300枚、子の座り・振り返りは 300枚ずつ。ポーズの件数は子を含めて 900枚
+  await expect(row('ポーズ').locator('.sidebar__count')).toHaveText('900')
+  await expect(row('座り').locator('.sidebar__count')).toHaveText('300')
+
+  await categories.getByRole('button', { name: 'ポーズ', exact: true }).click()
+  await expect(status).toContainText('900 / 2000枚')
+  await expect(row('ポーズ')).toHaveClass(/sidebar__item--selected/)
+
+  await sidebar.getByRole('button', { name: /^未分類/ }).click()
+  await expect(status).toContainText('500 / 2000枚')
+
+  await sidebar.getByRole('button', { name: /^すべての画像/ }).click()
+  await expect(status).toContainText('2000枚')
+  await expect(status).not.toContainText('/ 2000枚')
+
+  // 2〜10枚目以外は、id が3の倍数に「あおり」、5の倍数に「座り」が付く
+  const tags = sidebar.getByRole('list', { name: 'タグ' })
+  await tags.getByRole('button', { name: /^あおり/ }).click()
+  await tags.getByRole('button', { name: /^座り/ }).click()
+  await expect(tags.getByRole('button', { name: /^あおり/ })).toHaveAttribute('aria-pressed', 'true')
+  // AND は 15 の倍数と1枚目、OR は 3 か 5 の倍数と1枚目
+  await expect(status).toContainText('134 / 2000枚')
+  await sidebar.getByRole('button', { name: 'OR' }).click()
+  await expect(status).toContainText('929 / 2000枚')
+  await page.screenshot({ path: 'test-results/filter-tags.png' })
+
+  await sidebar.getByRole('button', { name: 'AND' }).click()
+  await tags.getByRole('button', { name: /^座り/ }).click()
+  await tags.getByRole('button', { name: /^あおり/ }).click()
+
+  // 検索はファイル名かメモに含む画像。大文字・小文字は区別しない
+  const search = page.getByRole('searchbox', { name: '検索' })
+  await search.fill('REF_0001')
+  await expect(status).toContainText('10 / 2000枚')
+  await search.fill('肩の線')
+  await expect(status).toContainText('1 / 2000枚')
+  await search.fill('')
+  expect(errors).toEqual([])
+})
+
+test('見えなくなった画像の選択は絞り込みで外し、タグを外すと件数と絞り込みに反映する', async ({ page }) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const status = page.getByRole('contentinfo')
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const aori = sidebar.getByRole('list', { name: 'タグ' }).getByRole('button', { name: /^あおり/ })
+
+  await expect(aori.locator('.sidebar__count')).toHaveText('664')
+  await aori.click()
+  await expect(status).toContainText('664 / 2000枚')
+  await thumb(page, 1).click()
+  await detail.getByRole('button', { name: 'あおり を外す' }).click()
+  await expect(aori.locator('.sidebar__count')).toHaveText('663')
+  await expect(status).toContainText('663 / 2000枚')
+
+  // 15枚目は制服にあるので、ポーズで絞ると見えなくなり、選択も外れる
+  await thumb(page, 15).click()
+  await expect(detail.getByRole('heading')).toHaveText('ref_00015.jpg')
+  await sidebar.getByRole('list', { name: 'カテゴリ' }).getByRole('button', { name: 'ポーズ', exact: true }).click()
+  await expect(detail).toContainText('画像を選ぶと、ここに詳細が出ます')
+})
+
+test('2万枚でも、タグ・カテゴリ・文字の絞り込みの結果が0.5秒以内に出る（NFR-02）', async ({ page }) => {
+  await page.goto('/?images=20000')
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  const status = page.getByRole('contentinfo')
+  await expect(status).toContainText('20000枚')
+
+  // 押してから、ステータスバーの枚数が変わった後の最初の描画までの時間を測る
+  const measure = (act: string) =>
+    page.evaluate(async (act) => {
+      const bar = document.querySelector('footer')!
+      const before = bar.textContent
+      const start = performance.now()
+      if (act.startsWith('search:')) {
+        const input = document.querySelector<HTMLInputElement>('input[type=search]')!
+        const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+        set.call(input, act.slice(7))
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      } else {
+        Array.from(document.querySelectorAll<HTMLButtonElement>('nav button')).find((b) => b.textContent!.startsWith(act))!.click()
+      }
+      while (bar.textContent === before) await new Promise((r) => requestAnimationFrame(r))
+      await new Promise((r) => requestAnimationFrame(r))
+      return performance.now() - start
+    }, act)
+
+  const times = {
+    tag: await measure('あおり'),
+    category: await measure('ポーズ'),
+    text: await measure('search:ref_1'),
+    clear: await measure('すべての画像'),
+  }
+  console.log('NFR-02 絞り込みの時間（ms）', times)
+  for (const [name, ms] of Object.entries(times)) expect(ms, name).toBeLessThan(500)
 })

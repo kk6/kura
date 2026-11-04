@@ -21,6 +21,10 @@ type Props = {
   // stem は拡張子より前の部分。失敗したら reject する
   onRename: (id: number, stem: string) => Promise<void>
   onTagCreated: (tag: Tag) => void
+  // タグを付けた・外した画像と、保存したメモ。一覧の絞り込みと件数に反映する
+  onTagged: (tag: number, ids: number[]) => void
+  onUntagged: (tag: number, ids: number[]) => void
+  onMemo: (id: number, memo: string) => void
 }
 
 function fileSize(bytes: number): string {
@@ -117,7 +121,7 @@ function FileName({ image, onRename }: { image: Image; onRename: Props['onRename
 }
 
 // メモ（FR-411）。入力欄から離れたときに保存する
-function Memo({ id, initial }: { id: number; initial: string }) {
+function Memo({ id, initial, onSaved }: { id: number; initial: string; onSaved: (memo: string) => void }) {
   const [saved, setSaved] = useState(initial)
   const [error, setError] = useState<string | null>(null)
   const save = (memo: string) => {
@@ -126,6 +130,7 @@ function Memo({ id, initial }: { id: number; initial: string }) {
       () => {
         setSaved(memo)
         setError(null)
+        onSaved(memo)
       },
       (e) => setError(String(e)),
     )
@@ -150,8 +155,7 @@ function Memo({ id, initial }: { id: number; initial: string }) {
 }
 
 export default function Detail(props: Props) {
-  const { root, categories, tags, ids, selected, image, detail, error, onRate, onAssign, onRename, onTagCreated } =
-    props
+  const { root, categories, tags, ids, selected, image, detail, error, onRate, onAssign, onRename } = props
   // カテゴリとタグは、1枚でも複数でも同じ部品で変える
   const classify = (
     <>
@@ -166,7 +170,14 @@ export default function Detail(props: Props) {
       </dt>
       <dd>
         {/* key：選び直したら、付けていない入力中のタグを消す。前の選択に付いたのか見分けにくいため */}
-        <TagEditor key={ids.join(',')} ids={ids} tags={tags} onCreated={onTagCreated} />
+        <TagEditor
+          key={ids.join(',')}
+          ids={ids}
+          tags={tags}
+          onCreated={props.onTagCreated}
+          onTagged={props.onTagged}
+          onUntagged={props.onUntagged}
+        />
       </dd>
     </>
   )
@@ -214,7 +225,9 @@ export default function Detail(props: Props) {
               <label htmlFor="detail-memo">メモ</label>
             </dt>
             {/* key：別の画像に移ったら入力欄を作り直し、その画像のメモで始める */}
-            <dd>{detail && <Memo key={image.id} id={image.id} initial={detail.memo} />}</dd>
+            <dd>
+              <Memo key={image.id} id={image.id} initial={image.memo} onSaved={(memo) => props.onMemo(image.id, memo)} />
+            </dd>
           </dl>
         </>
       )}

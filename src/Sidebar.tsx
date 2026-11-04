@@ -3,12 +3,17 @@ import { subtree } from './categoryTree'
 import DeleteCategoryDialog from './DeleteCategoryDialog'
 import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
+import type { countImages, Filter } from './filter'
 import type { Category, Gallery } from './galleryTypes'
 
 type Props = {
   // 開いているライブラリ。カテゴリの開閉の状態をライブラリごとに覚えるのに使う
   root: string
   gallery: Gallery
+  // 絞り込み（FR-504）。カテゴリとタグを押すと変える
+  filter: Filter
+  counts: ReturnType<typeof countImages>
+  onFilter: (filter: Filter) => void
   // 失敗したら理由の文字列で reject する
   onRename: (id: number, name: string) => Promise<void>
   onCreate: (parent: number | null, name: string) => Promise<void>
@@ -27,12 +32,13 @@ export const SKIP_CONFIRM = 'kura.skipCategoryMoveConfirm'
 // ドラッグ中のポインターの下。none は落とせる先の外、self は自分か子孫、same は今の親、target は移せる先
 type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
-// shortcut: 表示だけで、選んで絞り込む操作と、カテゴリ・タグの件数は持たない。絞り込み（FR-504、タスク#14）で足す
-export default function Sidebar({ root, gallery, onRename, onCreate, onMove, onDelete }: Props) {
+export default function Sidebar({ root, gallery, filter, counts, onFilter, onRename, onCreate, onMove, onDelete }: Props) {
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
-  const uncategorized = gallery.images.filter((i) => i.category_id === null).length
+  const scope = (category: Filter['category']) => onFilter({ ...filter, category })
+  const toggleTag = (id: number) =>
+    onFilter({ ...filter, tags: filter.tags.includes(id) ? filter.tags.filter((t) => t !== id) : [...filter.tags, id] })
 
   // 閉じているカテゴリ。shortcut: このウェブビューに保存する。設定ダイアログ（タスク#18）でアプリの設定にまとめるなら移す
   const collapsedKey = `kura.collapsedCategories:${root}`
@@ -172,10 +178,10 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove, onD
             field(depth)
           ) : (
           <span
-            className={`sidebar__item sidebar__item--category${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
+            className={`sidebar__item sidebar__item--category${filter.category === c.id ? ' sidebar__item--selected' : ''}${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
             style={{ '--depth': depth } as CSSProperties}
             data-drop={c.id}
-            title="ダブルクリックで名前を変える。ドラッグで移す"
+            title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
             onDoubleClick={() => setEditing({ kind: 'rename', id: c.id, name: c.name })}
             onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
             // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない
@@ -196,7 +202,14 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove, onD
             ) : (
               <span className="sidebar__toggle" />
             )}
-            <span className="sidebar__name">{c.name}</span>
+            <button
+              type="button"
+              className="sidebar__name"
+              aria-current={filter.category === c.id}
+              onClick={() => scope(c.id)}
+            >
+              {c.name}
+            </button>
             <button
               type="button"
               className="sidebar__add sidebar__add--hover"
@@ -222,6 +235,8 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove, onD
             >
               <Icon d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
             </button>
+            {/* 件数は行の右端に置き、タグの件数と縦にそろえる */}
+            <span className="sidebar__count">{counts.categories.get(c.id) ?? 0}</span>
           </span>
         )}
         {((children.has(c.id) && !collapsed.has(c.id)) || creatingIn(c.id)) && (
@@ -239,11 +254,25 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove, onD
   return (
     <nav className="gallery__sidebar" aria-label="サイドバー">
       <ul className="sidebar__list">
-        <li className="sidebar__item sidebar__item--selected" aria-current="true">
-          すべての画像<span className="sidebar__count">{gallery.images.length}</span>
+        <li>
+          <button
+            type="button"
+            className={`sidebar__item sidebar__button${filter.category === 'all' ? ' sidebar__item--selected' : ''}`}
+            aria-current={filter.category === 'all'}
+            onClick={() => scope('all')}
+          >
+            すべての画像<span className="sidebar__count">{gallery.images.length}</span>
+          </button>
         </li>
-        <li className="sidebar__item">
-          未分類<span className="sidebar__count">{uncategorized}</span>
+        <li>
+          <button
+            type="button"
+            className={`sidebar__item sidebar__button${filter.category === 'uncategorized' ? ' sidebar__item--selected' : ''}`}
+            aria-current={filter.category === 'uncategorized'}
+            onClick={() => scope('uncategorized')}
+          >
+            未分類<span className="sidebar__count">{counts.uncategorized}</span>
+          </button>
         </li>
       </ul>
       <h2
@@ -276,11 +305,34 @@ export default function Sidebar({ root, gallery, onRename, onCreate, onMove, onD
       </ul>
       <h2 className="sidebar__heading" id="sidebar-tags">
         タグ
+        {/* 選んだタグをすべて含む（AND）か、どれかを含む（OR）か */}
+        <span className="sidebar__actions" role="group" aria-label="タグの組み合わせ">
+          {(['and', 'or'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={`sidebar__mode${filter.mode === mode ? ' sidebar__mode--on' : ''}`}
+              aria-pressed={filter.mode === mode}
+              title={mode === 'and' ? '選んだタグをすべて含む画像' : '選んだタグのどれかを含む画像'}
+              onClick={() => onFilter({ ...filter, mode })}
+            >
+              {mode.toUpperCase()}
+            </button>
+          ))}
+        </span>
       </h2>
       <ul className="sidebar__list" aria-labelledby="sidebar-tags">
         {gallery.tags.map((t) => (
-          <li key={t.id} className="sidebar__item">
-            {t.name}
+          <li key={t.id}>
+            <button
+              type="button"
+              className={`sidebar__item sidebar__button${filter.tags.includes(t.id) ? ' sidebar__item--selected' : ''}`}
+              aria-pressed={filter.tags.includes(t.id)}
+              onClick={() => toggleTag(t.id)}
+            >
+              <span className="sidebar__name">{t.name}</span>
+              <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
+            </button>
           </li>
         ))}
       </ul>

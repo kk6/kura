@@ -12,6 +12,8 @@ const image = (id: number, fields: Partial<Image> = {}): Image => ({
   category_id: null,
   rating: 0,
   imported_at: 0,
+  memo: '',
+  tags: [],
   ...fields,
 })
 

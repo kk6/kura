@@ -63,7 +63,19 @@ export function CategorySelect({
 
 // 選んだ画像のタグ（FR-406、FR-407）。付いているタグを外し、入力したタグを全部に付ける。
 // 入力中は、名前に入力した文字を含む既存のタグを候補に出す
-export function TagEditor({ ids, tags, onCreated }: { ids: number[]; tags: Tag[]; onCreated: (tag: Tag) => void }) {
+export function TagEditor({
+  ids,
+  tags,
+  onCreated,
+  onTagged,
+  onUntagged,
+}: {
+  ids: number[]
+  tags: Tag[]
+  onCreated: (tag: Tag) => void
+  onTagged: (tag: number, ids: number[]) => void
+  onUntagged: (tag: number, ids: number[]) => void
+}) {
   const [on, setOn] = useState<CountedTag[] | null>(null)
   const [text, setText] = useState('')
   const [focused, setFocused] = useState(false)
@@ -98,6 +110,7 @@ export function TagEditor({ ids, tags, onCreated }: { ids: number[]; tags: Tag[]
     run(
       invoke<Tag>('add_tag', { ids, name }).then((tag) => {
         onCreated(tag)
+        onTagged(tag.id, ids)
         setText('')
         setActive(-1)
       }),
@@ -141,7 +154,7 @@ export function TagEditor({ ids, tags, onCreated }: { ids: number[]; tags: Tag[]
                   type="button"
                   className="tag__remove"
                   aria-label={`${t.name} を外す`}
-                  onClick={() => run(invoke('remove_tag', { ids, tagId: t.id }))}
+                  onClick={() => run(invoke('remove_tag', { ids, tagId: t.id }).then(() => onUntagged(t.id, ids)))}
                 >
                   <svg
                     width="14"

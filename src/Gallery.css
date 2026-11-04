@@ -125,6 +125,12 @@ body.is-dragging * {
 
 .sidebar__name {
   flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: inherit;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -540,4 +546,37 @@ body.is-dragging * {
 .zoom__nav:hover .zoom__arrow,
 .zoom__nav:focus-visible .zoom__arrow {
   visibility: visible;
+}
+
+/* 押して絞り込む行（すべての画像、未分類、タグ） */
+.sidebar__button {
+  width: 100%;
+  gap: var(--space-1);
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar__button.sidebar__item--selected {
+  background: var(--color-selected);
+}
+
+/* タグの AND と OR の切り替え */
+.sidebar__mode {
+  height: var(--size-control-sm);
+  padding: 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-sub);
+  cursor: pointer;
+}
+
+.sidebar__mode--on {
+  background: var(--color-selected);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
 }

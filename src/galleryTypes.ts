@@ -9,6 +9,9 @@ export type Image = {
   category_id: number | null
   rating: number
   imported_at: number
+  memo: string
+  // 付いているタグの id
+  tags: number[]
 }
 
 export type Category = { id: number; name: string; parent_id: number | null }
@@ -21,7 +24,6 @@ export type Gallery = { images: Image[]; categories: Category[]; tags: Tag[] }
 export type Detail = {
   path: string
   file_size: number
-  memo: string
   source: { image_url: string; page_url: string | null } | null
 }
 

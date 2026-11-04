@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::PathBuf;
 
@@ -23,6 +24,9 @@ pub struct Image {
     pub category_id: Option<i64>,
     pub rating: i64,
     pub imported_at: i64,
+    /// 絞り込み（FR-504）を画面側で行うため、メモとタグの id も一覧に含める
+    pub memo: String,
+    pub tags: Vec<i64>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -48,10 +52,21 @@ pub struct Gallery {
 
 pub fn load(lib: &Library) -> Result<Gallery, String> {
     let conn = &lib.conn;
+    let mut tags_of: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut stmt = conn
+        .prepare("SELECT image_id, tag_id FROM image_tags ORDER BY image_id, tag_id")
+        .map_err(err)?;
+    let mut rows = stmt.query([]).map_err(err)?;
+    while let Some(r) = rows.next().map_err(err)? {
+        tags_of
+            .entry(r.get(0).map_err(err)?)
+            .or_default()
+            .push(r.get(1).map_err(err)?);
+    }
     // ゴミ箱の画像は一覧に出さない（FR-511）
     let images = conn
         .prepare(
-            "SELECT id, file_name, hash, width, height, color, category_id, rating, imported_at
+            "SELECT id, file_name, hash, width, height, color, category_id, rating, imported_at, memo
              FROM images WHERE deleted_at IS NULL ORDER BY id",
         )
         .map_err(err)?
@@ -66,6 +81,8 @@ pub fn load(lib: &Library) -> Result<Gallery, String> {
                 category_id: r.get(6)?,
                 rating: r.get(7)?,
                 imported_at: r.get(8)?,
+                memo: r.get(9)?,
+                tags: tags_of.remove(&r.get(0)?).unwrap_or_default(),
             })
         })
         .map_err(err)?
@@ -115,18 +132,17 @@ pub struct Detail {
     /// 実ファイルの絶対パス。拡大表示（FR-508）で元の画像を読む
     pub path: PathBuf,
     pub file_size: i64,
-    pub memo: String,
     pub source: Option<Source>,
 }
 
 pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
     let conn = &lib.conn;
-    let (file_name, category_id, file_size, memo) = conn
+    let (file_name, category_id, file_size) = conn
         .query_row(
-            "SELECT file_name, category_id, file_size, memo FROM images
+            "SELECT file_name, category_id, file_size FROM images
              WHERE id = ?1 AND deleted_at IS NULL",
             [id],
-            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .map_err(err)?
@@ -150,7 +166,6 @@ pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
             .join(category::dir(lib, category_id)?)
             .join(file_name),
         file_size,
-        memo,
         source,
     })
 }
@@ -210,7 +225,11 @@ mod tests {
         insert_image(&lib, "b.jpg", None, true);
         let c = insert_image(&lib, "c.jpg", None, false);
         lib.conn
-            .execute_batch("INSERT INTO tags(name) VALUES ('振り返り'), ('座り')")
+            .execute_batch(&format!(
+                "INSERT INTO tags(name) VALUES ('振り返り'), ('座り');
+                 INSERT INTO image_tags VALUES ({a}, 2), ({a}, 1);
+                 UPDATE images SET memo = '腕の角度' WHERE id = {a};"
+            ))
             .unwrap();
 
         let g = load(&lib).unwrap();
@@ -232,8 +251,11 @@ mod tests {
                 category_id: Some(sit),
                 rating: 3,
                 imported_at: 1000,
+                memo: "腕の角度".into(),
+                tags: vec![1, 2],
             }
         );
+        assert_eq!(g.images[1].tags, Vec::<i64>::new());
         assert_eq!(
             g.categories,
             [
@@ -256,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn 詳細は実ファイルのパスとファイルサイズとメモと元urlを返す() {
+    fn 詳細は実ファイルのパスとファイルサイズと元urlを返す() {
         let dir = tempfile::tempdir().unwrap();
         let mut lib = library::create(dir.path()).unwrap();
         let pose = category::create(&mut lib, None, "ポーズ").unwrap();
@@ -264,8 +286,7 @@ mod tests {
         let a = insert_image(&lib, "a.jpg", Some(sit), false);
         lib.conn
             .execute_batch(&format!(
-                "UPDATE images SET memo = '腕の角度' WHERE id = {a};
-                 INSERT INTO image_sources VALUES ({a}, 'https://example.com/a.jpg', 'https://example.com/', 5)"
+                "INSERT INTO image_sources VALUES ({a}, 'https://example.com/a.jpg', 'https://example.com/', 5)"
             ))
             .unwrap();
 
@@ -276,7 +297,6 @@ mod tests {
             Detail {
                 path: dir.path().join("ポーズ/座り/a.jpg"),
                 file_size: 1,
-                memo: "腕の角度".into(),
                 source: Some(Source {
                     image_url: "https://example.com/a.jpg".into(),
                     page_url: Some("https://example.com/".into()),
@@ -294,7 +314,7 @@ mod tests {
         let d = detail(&lib, a).unwrap();
 
         assert_eq!(d.path, dir.path().join("_未分類/a.jpg"));
-        assert_eq!((d.memo.as_str(), d.source), ("", None));
+        assert_eq!(d.source, None);
     }
 
     #[test]
@@ -320,13 +340,9 @@ mod tests {
         set_rating(&lib, a, 5).unwrap();
         set_rating(&lib, b, 0).unwrap();
 
-        assert_eq!(detail(&lib, a).unwrap().memo, "腕の角度\n肩の線");
-        let ratings: Vec<i64> = load(&lib)
-            .unwrap()
-            .images
-            .iter()
-            .map(|i| i.rating)
-            .collect();
+        let images = load(&lib).unwrap().images;
+        assert_eq!(images[0].memo, "腕の角度\n肩の線");
+        let ratings: Vec<i64> = images.iter().map(|i| i.rating).collect();
         assert_eq!(ratings, [5, 0], "b の評価3を0（評価なし）にした");
     }
 

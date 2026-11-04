@@ -24,7 +24,8 @@ const createLibrary: Handler = (args) => {
   return args?.path
 }
 
-// 縦長・正方形・横長が混ざる2000枚。乱数の種を固定して、スクリーンショットを毎回同じにする
+// 縦長・正方形・横長が混ざる2000枚。乱数の種を固定して、スクリーンショットを毎回同じにする。
+// ?images=20000 で枚数を変えられる（e2e で絞り込みの速さを測るため）
 const SIZES = [
   [320, 480],
   [320, 427],
@@ -35,7 +36,8 @@ const SIZES = [
 ]
 let seed = 1
 const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
-const IMAGES: Image[] = Array.from({ length: 2000 }, (_, i) => {
+const COUNT = Number(new URLSearchParams(location.search).get('images') ?? 2000)
+const IMAGES: Image[] = Array.from({ length: COUNT }, (_, i) => {
   const [width, height] = SIZES[Math.floor(random() * SIZES.length)]
   // 写真らしいくすんだ色
   const channel = () => Math.floor(120 + random() * 100).toString(16)
@@ -49,6 +51,9 @@ const IMAGES: Image[] = Array.from({ length: 2000 }, (_, i) => {
     category_id: i % 4 === 0 ? null : (i % 5) + 1,
     rating: i % 6,
     imported_at: 1_700_000_000_000 + ((i * 7919) % 2000) * 60_000,
+    // 1枚目はメモと「あおり」「座り」を持つ。2〜10枚目はタグなし、11枚目からは id で決まるタグを持つ
+    memo: i === 0 ? '腕の角度と\n肩の線を見る' : '',
+    tags: i === 0 ? [1, 2] : i < 10 ? [] : [1, 2, 3].filter((t) => (i + 1) % (t * 2 + 1) === 0),
   }
 })
 
@@ -93,7 +98,7 @@ const importPaths: Handler = async () => {
   return REPORT
 }
 
-// 1枚目だけタグ・元URL・メモを持つ。タグは image_tags で返す
+// 1枚目だけ元URLを持つ
 const imageDetail: Handler = (args) => {
   const image = IMAGES.find((i) => i.id === args?.id)
   if (!image) throw `画像が見つかりません（${args?.id}）`
@@ -101,17 +106,15 @@ const imageDetail: Handler = (args) => {
   return {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
-    memo: memos.get(image.id) ?? (first ? '腕の角度と\n肩の線を見る' : ''),
     source: first ? { image_url: 'https://example.com/images/ref_00001.jpg', page_url: 'https://example.com/gallery/pose' } : null,
   }
 }
 
-// 保存したメモは、選び直したときの詳細に出す。e2e で失敗の表示を確かめるため、「失敗」を含むメモは保存しない
-const memos = new Map<number, string>()
+// e2e で失敗の表示を確かめるため、「失敗」を含むメモは保存しない
 const setMemo: Handler = (args) => {
   const memo = String(args?.memo)
   if (memo.includes('失敗')) throw 'disk I/O error'
-  memos.set(Number(args?.id), memo)
+  IMAGES.find((i) => i.id === args?.id)!.memo = memo
 }
 
 const setRating: Handler = (args) => {
@@ -207,14 +210,12 @@ const renameImage: Handler = (args) => {
   return name
 }
 
-// 画像ごとのタグの id。1枚目に「あおり」と「座り」が付いている
-const imageTags = new Map<number, Set<number>>([[1, new Set([1, 2])]])
-const tagsOf = (id: number) => imageTags.get(id) ?? imageTags.set(id, new Set()).get(id)!
+const tagsOf = (id: number) => IMAGES.find((i) => i.id === id)!.tags
 
 const countTags: Handler = (args) => {
   const ids = args?.ids as number[]
   return GALLERY.tags
-    .map((t) => ({ ...t, count: ids.filter((id) => tagsOf(id).has(t.id)).length }))
+    .map((t) => ({ ...t, count: ids.filter((id) => tagsOf(id).includes(t.id)).length }))
     .filter((t) => t.count > 0)
 }
 
@@ -228,12 +229,12 @@ const addTag: Handler = (args) => {
     GALLERY.tags.push(tag)
     GALLERY.tags.sort((a, b) => (a.name < b.name ? -1 : 1))
   }
-  for (const id of args?.ids as number[]) tagsOf(id).add(tag.id)
+  for (const id of args?.ids as number[]) if (!tagsOf(id).includes(tag.id)) tagsOf(id).push(tag.id)
   return tag
 }
 
 const removeTag: Handler = (args) => {
-  for (const id of args?.ids as number[]) tagsOf(id).delete(Number(args?.tagId))
+  for (const i of IMAGES) if ((args?.ids as number[]).includes(i.id)) i.tags = i.tags.filter((t) => t !== args?.tagId)
 }
 
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す

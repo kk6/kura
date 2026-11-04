@@ -5,12 +5,13 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
 import Detail from './Detail'
+import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
-import type { Assigned, Deleted, Detail as DetailData, Gallery as GalleryData, Tag } from './galleryTypes'
+import type { Assigned, Deleted, Detail as DetailData, Gallery as GalleryData, Image, Tag } from './galleryTypes'
 import type { ImportProgress, Report } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
@@ -32,6 +33,7 @@ const THUMB_MAX = 320
 export default function Gallery({ root }: { root: string }) {
   const [data, setData] = useState(EMPTY)
   const [sort, setSort] = useState<SortKey>('imported')
+  const [filter, setFilter] = useState(NO_FILTER)
   const [thumbWidth, setThumbWidth] = useState(200)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
@@ -53,7 +55,27 @@ export default function Gallery({ root }: { root: string }) {
   }
   useEffect(() => void reload(), [])
 
-  const images = useMemo(() => sortImages(data.images, sort), [data.images, sort])
+  const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
+  const images = useMemo(() => filterImages(sorted, data.categories, filter), [sorted, data.categories, filter])
+  const counts = useMemo(() => countImages(data.images, data.categories), [data.images, data.categories])
+  const filtered = images.length !== data.images.length
+
+  // 絞り込みを変えたら、見えなくなった画像の選択を外す。見えない画像までまとめて変えないため
+  function changeFilter(next: Filter) {
+    setFilter(next)
+    const visible = new Set(filterImages(data.images, data.categories, next).map((i) => i.id))
+    setSelection((s) => {
+      const ids = new Set([...s.ids].filter((id) => visible.has(id)))
+      if (ids.size === s.ids.size) return s
+      return { ids, anchor: s.anchor !== null && ids.has(s.anchor) ? s.anchor : null }
+    })
+  }
+
+  // タグの付け外しとメモを手元の値に反映する。絞り込みと件数は手元の値で数えるため
+  const editImages = (ids: number[], edit: (i: Image) => Image) => {
+    const targets = new Set(ids)
+    setData((d) => ({ ...d, images: d.images.map((i) => (targets.has(i.id) ? edit(i) : i)) }))
+  }
   const order = useMemo(() => images.map((i) => i.id), [images])
   const ids = useMemo(() => [...selection.ids], [selection.ids])
   const selected = useMemo(() => data.images.filter((i) => selection.ids.has(i.id)), [data.images, selection.ids])
@@ -215,7 +237,14 @@ export default function Gallery({ root }: { root: string }) {
     <div className="gallery">
       <header className="gallery__header">
         <span className="gallery__logo">Kura</span>
-        <input className="gallery__search" type="search" placeholder="検索" aria-label="検索" />
+        <input
+          className="gallery__search"
+          type="search"
+          placeholder="ファイル名とメモを検索"
+          aria-label="検索"
+          value={filter.text}
+          onChange={(e) => changeFilter({ ...filter, text: e.target.value })}
+        />
         <select
           className="gallery__sort"
           aria-label="並べ替え"
@@ -249,6 +278,9 @@ export default function Gallery({ root }: { root: string }) {
       <Sidebar
         root={root}
         gallery={data}
+        filter={filter}
+        counts={counts}
+        onFilter={changeFilter}
         onRename={renameCategory}
         onCreate={createCategory}
         onMove={moveCategory}
@@ -316,10 +348,13 @@ export default function Gallery({ root }: { root: string }) {
         onAssign={assign}
         onRename={renameImage}
         onTagCreated={addTag}
+        onTagged={(tag, ids) => editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))}
+        onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
+        onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
       />
 
       <footer className="gallery__statusbar">
-        <span>{data.images.length}枚</span>
+        <span>{filtered ? `${images.length} / ${data.images.length}枚` : `${data.images.length}枚`}</span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <span className="statusbar__import" role="status">
           {progress ? (
