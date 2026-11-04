@@ -149,6 +149,22 @@ async fn create_category(app: AppHandle, parent: Option<i64>, name: String) -> R
     .map_err(|e| e.to_string())?
 }
 
+/// 画像のファイル名を変える（FR-410）。stem は拡張子より前の部分。返り値は変えた後のファイル名
+#[tauri::command]
+async fn rename_image(app: AppHandle, id: i64, stem: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let mut current = current.0.lock().unwrap();
+        category::rename_image(
+            current.as_mut().ok_or("ライブラリを開いていません")?,
+            id,
+            &stem,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// フォルダの名前を変えたり移したりするので、set_category と同じく別のスレッドで行う
 #[tauri::command]
 async fn rename_category(app: AppHandle, id: i64, name: String) -> Result<(), String> {
@@ -268,6 +284,7 @@ fn main() {
             set_memo,
             set_rating,
             set_category,
+            rename_image,
             create_category,
             rename_category,
             move_category,

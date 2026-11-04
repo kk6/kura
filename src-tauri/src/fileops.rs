@@ -93,7 +93,7 @@ fn rename_excl(from: &Path, to: &Path) -> Result<(), String> {
     ))
 }
 
-fn split_ext(name: &str) -> (&str, &str) {
+pub fn split_ext(name: &str) -> (&str, &str) {
     match name.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() => (stem, ext),
         _ => (name, ""),

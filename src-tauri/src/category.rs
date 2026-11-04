@@ -50,7 +50,32 @@ pub fn assign(lib: &mut Library, ids: &[i64], category: Option<i64>) -> Result<A
 }
 
 fn move_image(lib: &mut Library, id: i64, dst_dir: &Path) -> Result<String, String> {
-    let (file_name, current): (String, Option<i64>) = lib
+    let (src_dir, file_name) = locate(lib, id)?;
+    transfer_image(
+        lib,
+        id,
+        &src_dir.join(&file_name),
+        dst_dir,
+        &file_name,
+        OnConflict::Number,
+    )
+}
+
+/// 画像のファイル名を変える（FR-410）。拡張子は元のまま残し、stem は拡張子より前の部分。
+/// 同じフォルダに同名があればエラーにする。返り値は変えた後のファイル名
+pub fn rename_image(lib: &mut Library, id: i64, stem: &str) -> Result<String, String> {
+    check_name("ファイル名", stem)?;
+    let (dir, file_name) = locate(lib, id)?;
+    let name = match fileops::split_ext(&file_name) {
+        (_, "") => stem.to_string(),
+        (_, ext) => format!("{stem}.{ext}"),
+    };
+    transfer_image(lib, id, &dir.join(file_name), &dir, &name, OnConflict::Fail)
+}
+
+/// ゴミ箱にない画像の、フォルダ（ライブラリからの相対パス）とファイル名
+fn locate(lib: &Library, id: i64) -> Result<(PathBuf, String), String> {
+    let (file_name, category): (String, Option<i64>) = lib
         .conn
         .query_row(
             "SELECT file_name, category_id FROM images WHERE id = ?1 AND deleted_at IS NULL",
@@ -60,17 +85,27 @@ fn move_image(lib: &mut Library, id: i64, dst_dir: &Path) -> Result<String, Stri
         .optional()
         .map_err(err)?
         .ok_or(format!("画像が見つかりません（{id}）"))?;
-    let src = dir(lib, current)?.join(&file_name);
+    Ok((dir(lib, category)?, file_name))
+}
+
+fn transfer_image(
+    lib: &mut Library,
+    id: i64,
+    src: &Path,
+    dst_dir: &Path,
+    name: &str,
+    on_conflict: OnConflict,
+) -> Result<String, String> {
     let dst = fileops::transfer(
         lib,
         Request {
             kind: MOVE_IMAGE,
             target_id: Some(id),
             copy: false,
-            src: &src,
+            src,
             dst_dir,
-            name: &file_name,
-            on_conflict: OnConflict::Number,
+            name,
+            on_conflict,
         },
         &apply_move,
     )?;
@@ -146,17 +181,23 @@ pub fn dir(lib: &Library, id: Option<i64>) -> Result<PathBuf, String> {
     Ok(names)
 }
 
-fn validate(name: &str) -> Result<(), String> {
+/// カテゴリ名とファイル名に共通の検査。what は「カテゴリ名」などの呼び名
+fn check_name(what: &str, name: &str) -> Result<(), String> {
     if name.is_empty() {
-        return Err("カテゴリ名を入力してください".into());
+        return Err(format!("{what}を入力してください"));
     }
     if name.contains(['/', ':']) {
-        return Err("カテゴリ名に / と : は使えません".into());
+        return Err(format!("{what}に / と : は使えません"));
     }
-    // .kura もここで弾かれる
+    // .kura もここで弾かれる。. で始まる画像は Finder でも差分検出（FR-104）でも見えなくなる
     if name.starts_with('.') {
-        return Err("カテゴリ名を . で始めることはできません".into());
+        return Err(format!("{what}を . で始めることはできません"));
     }
+    Ok(())
+}
+
+fn validate(name: &str) -> Result<(), String> {
+    check_name("カテゴリ名", name)?;
     if name == UNCATEGORIZED_DIR {
         return Err(format!("{UNCATEGORIZED_DIR} はカテゴリ名に使えません"));
     }
@@ -691,6 +732,89 @@ mod tests {
         assert_eq!(row(&lib, stuck), ("stuck.jpg".into(), Some(locked)));
         assert_eq!(row(&lib, trashed), ("trashed.jpg".into(), None));
         assert_eq!(row(&lib, c), ("c.jpg".into(), Some(pose)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn ファイル名を変えると実ファイル名とdbが変わり拡張子は元のまま() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+
+        // NFD の「ポ」も NFC にそろえる
+        let name = rename_image(&mut lib, a, "ホ\u{309a}ーズ.参考").unwrap();
+
+        assert_eq!(name, "ポーズ.参考.jpg");
+        assert_eq!(files(&lib, "ポーズ"), ["ポーズ.参考.jpg"]);
+        assert_eq!(read(&lib, "ポーズ/ポーズ.参考.jpg"), "A");
+        assert_eq!(row(&lib, a), ("ポーズ.参考.jpg".into(), Some(pose)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 大文字と小文字だけのファイル名の変更ができる() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.JPG", "A");
+
+        assert_eq!(rename_image(&mut lib, a, "A").unwrap(), "A.JPG");
+
+        assert_eq!(files(&lib, "_未分類"), ["A.JPG"]);
+        assert_eq!(row(&lib, a), ("A.JPG".into(), None));
+    }
+
+    #[test]
+    fn 同じフォルダに同名のファイルがあればエラーにして何も変えない() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+        put(&lib, None, "b.jpg", "B");
+        // Finder で置いた管理外のファイルも、大文字・小文字を無視して衝突として数える
+        fs::write(lib.root.join("_未分類/C.jpg"), "管理外").unwrap();
+
+        for stem in ["b", "B", "c"] {
+            let err = rename_image(&mut lib, a, stem).err().unwrap();
+            assert!(err.contains("同じ名前"), "{err}");
+        }
+
+        assert_eq!(files(&lib, "_未分類"), ["C.jpg", "a.jpg", "b.jpg"]);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), None));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 使えないファイル名とゴミ箱の画像はエラーにして何も変えない() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+        let trashed = put(&lib, None, "t.jpg", "T");
+        lib.conn
+            .execute("UPDATE images SET deleted_at = 1 WHERE id = ?1", [trashed])
+            .unwrap();
+
+        for stem in ["", "x/y", "x:y", ".隠し"] {
+            assert!(rename_image(&mut lib, a, stem).is_err(), "{stem:?}");
+        }
+        assert!(rename_image(&mut lib, trashed, "u").is_err());
+        assert!(rename_image(&mut lib, 999, "u").is_err());
+
+        assert_eq!(files(&lib, "_未分類"), ["a.jpg", "t.jpg"]);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), None));
+        assert_eq!(row(&lib, trashed), ("t.jpg".into(), None));
+    }
+
+    #[test]
+    fn ファイル名を変えられなければファイルもdbも元のまま() {
+        let (_d, mut lib) = setup();
+        let locked = create(&mut lib, None, "鍵付き").unwrap();
+        let a = put(&lib, Some(locked), "a.jpg", "A");
+        // 書き込めないフォルダの中では rename が失敗する
+        let locked_dir = lib.root.join("鍵付き");
+        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let r = rename_image(&mut lib, a, "b");
+
+        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(r.is_err());
+        assert_eq!(files(&lib, "鍵付き"), ["a.jpg"]);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(locked)));
         assert_eq!(pending(&lib), 0);
     }
 
