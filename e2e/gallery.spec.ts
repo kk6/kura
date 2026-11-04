@@ -189,3 +189,55 @@ test('画像のないライブラリでは、一覧に取り込み方を出す',
   await expect(page.getByRole('main', { name: '画像の一覧' })).toContainText('画像がありません')
   await expect(page.getByRole('contentinfo')).toContainText('0枚')
 })
+
+const thumb = (page: import('@playwright/test').Page, n: number) =>
+  thumbs(page).and(page.getByAltText(`ref_${String(n).padStart(5, '0')}.jpg`, { exact: true }))
+const selectedNames = (page: import('@playwright/test').Page) =>
+  page.locator('.list__thumb--selected').evaluateAll((imgs) => imgs.map((i) => i.getAttribute('alt')).sort())
+
+test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 1).click()
+
+  await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')
+  await expect(detail.getByRole('img', { name: 'ref_00001.jpg のプレビュー' })).toBeVisible()
+  await expect(detail).toContainText('カテゴリ未分類')
+  await expect(detail.getByRole('listitem')).toHaveText(['あおり', '座り'])
+  await expect(detail).toContainText('元URLhttps://example.com/gallery/pose')
+  await expect(detail).toContainText(/サイズ\d+ × \d+、177 KB/)
+  await expect(detail).toContainText('腕の角度と')
+  expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
+  await page.screenshot({ path: 'test-results/detail.png' })
+
+  // カテゴリは親からの道筋で出し、タグ・元URL・メモがなければ「なし」と出す
+  await thumb(page, 2).click()
+  await expect(detail.getByRole('heading')).toHaveText('ref_00002.jpg')
+  await expect(detail).toContainText('カテゴリポーズ / 座り')
+  await expect(detail).toContainText('タグなし元URLなし')
+  expect(errors).toEqual([])
+})
+
+test('Command で個別に、Shift で範囲で複数の画像を選べる', async ({ page }) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  await thumb(page, 2).click()
+  await thumb(page, 4).click({ modifiers: ['Meta'] })
+  await expect(detail).toHaveText('2枚を選んでいます')
+  expect(await selectedNames(page)).toEqual(['ref_00002.jpg', 'ref_00004.jpg'])
+
+  // 起点は最後に Command で選んだ ref_00004
+  await thumb(page, 7).click({ modifiers: ['Shift'] })
+  await expect(detail).toHaveText('4枚を選んでいます')
+  expect(await selectedNames(page)).toEqual(['ref_00004.jpg', 'ref_00005.jpg', 'ref_00006.jpg', 'ref_00007.jpg'])
+  await page.screenshot({ path: 'test-results/multi-select.png' })
+
+  await thumb(page, 5).click({ modifiers: ['Meta'] })
+  expect(await selectedNames(page)).toEqual(['ref_00004.jpg', 'ref_00006.jpg', 'ref_00007.jpg'])
+})

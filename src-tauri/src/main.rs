@@ -74,6 +74,12 @@ fn load_gallery(current: State<Current>) -> Result<gallery::Gallery, String> {
     gallery::load(current.as_ref().ok_or("ライブラリを開いていません")?)
 }
 
+#[tauri::command]
+fn image_detail(current: State<Current>, id: i64) -> Result<gallery::Detail, String> {
+    let current = current.0.lock().unwrap();
+    gallery::detail(current.as_ref().ok_or("ライブラリを開いていません")?, id)
+}
+
 #[derive(Clone, Serialize)]
 struct ImportProgress {
     done: usize,
@@ -120,7 +126,8 @@ fn main() {
             create_library,
             open_library,
             import_paths,
-            load_gallery
+            load_gallery,
+            image_detail
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

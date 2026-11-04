@@ -64,6 +64,8 @@ CSS変数として `src/styles/tokens.css` に定義し、コンポーネント�
 | `--radius-md` | `3px` | 入力欄、ボタン |
 | `--border` | `1px solid var(--color-line)` | 境界線 |
 | `--focus-ring` | `2px solid var(--color-text)` | キーボードで選んだ部品の枠（ブラウザの初期の青い枠の代わり） |
+| `--select-outline` | `2px solid var(--color-text)` | 選択中の画像の枠 |
+| `--select-inner` | `1px solid var(--color-bg)` | 選択中の画像の枠の内側の線 |
 
 ### レイアウト
 

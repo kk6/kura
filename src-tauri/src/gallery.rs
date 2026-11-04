@@ -1,7 +1,10 @@
 use std::fmt::Display;
+use std::path::PathBuf;
 
+use rusqlite::OptionalExtension;
 use serde::Serialize;
 
+use crate::category;
 use crate::library::Library;
 
 fn err(e: impl Display) -> String {
@@ -100,6 +103,82 @@ pub fn load(lib: &Library) -> Result<Gallery, String> {
     })
 }
 
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Source {
+    pub image_url: String,
+    pub page_url: Option<String>,
+}
+
+/// 詳細パネル（FR-507）に出すもののうち、一覧の Image に含めていないもの
+#[derive(Debug, PartialEq, Serialize)]
+pub struct Detail {
+    /// 実ファイルの絶対パス。拡大表示（FR-508）で元の画像を読む
+    pub path: PathBuf,
+    pub file_size: i64,
+    pub memo: String,
+    pub tags: Vec<Tag>,
+    pub source: Option<Source>,
+}
+
+pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
+    let conn = &lib.conn;
+    let (file_name, category_id, file_size, memo) = conn
+        .query_row(
+            "SELECT file_name, category_id, file_size, memo FROM images
+             WHERE id = ?1 AND deleted_at IS NULL",
+            [id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(err)?
+        .ok_or(format!("画像が見つかりません（{id}）"))?;
+    let tags = conn
+        .prepare(
+            "SELECT t.id, t.name FROM tags t JOIN image_tags it ON it.tag_id = t.id
+             WHERE it.image_id = ?1 ORDER BY t.name, t.id",
+        )
+        .map_err(err)?
+        .query_map([id], |r| {
+            Ok(Tag {
+                id: r.get(0)?,
+                name: r.get(1)?,
+            })
+        })
+        .map_err(err)?
+        .collect::<Result<_, _>>()
+        .map_err(err)?;
+    let source = conn
+        .query_row(
+            "SELECT image_url, page_url FROM image_sources WHERE image_id = ?1",
+            [id],
+            |r| {
+                Ok(Source {
+                    image_url: r.get(0)?,
+                    page_url: r.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(err)?;
+    Ok(Detail {
+        path: lib
+            .root
+            .join(category::dir(lib, category_id)?)
+            .join(file_name),
+        file_size,
+        memo,
+        tags,
+        source,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +249,72 @@ mod tests {
             g.tags.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
             ["座り", "振り返り"]
         );
+    }
+
+    #[test]
+    fn 詳細は実ファイルのパスとファイルサイズとメモとタグと元urlを返す() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut lib = library::create(dir.path()).unwrap();
+        let pose = category::create(&mut lib, None, "ポーズ").unwrap();
+        let sit = category::create(&mut lib, Some(pose), "座り").unwrap();
+        let a = insert_image(&lib, "a.jpg", Some(sit), false);
+        lib.conn
+            .execute_batch(&format!(
+                "UPDATE images SET memo = '腕の角度' WHERE id = {a};
+                 INSERT INTO tags(name) VALUES ('振り返り'), ('あおり'), ('座り');
+                 INSERT INTO image_tags VALUES ({a}, 1), ({a}, 2);
+                 INSERT INTO image_sources VALUES ({a}, 'https://example.com/a.jpg', 'https://example.com/', 5)"
+            ))
+            .unwrap();
+
+        let d = detail(&lib, a).unwrap();
+
+        assert_eq!(
+            d,
+            Detail {
+                path: dir.path().join("ポーズ/座り/a.jpg"),
+                file_size: 1,
+                memo: "腕の角度".into(),
+                tags: vec![
+                    Tag {
+                        id: 2,
+                        name: "あおり".into()
+                    },
+                    Tag {
+                        id: 1,
+                        name: "振り返り".into()
+                    },
+                ],
+                source: Some(Source {
+                    image_url: "https://example.com/a.jpg".into(),
+                    page_url: Some("https://example.com/".into()),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn 未分類の画像の詳細は未分類のフォルダのパスで元urlはない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let a = insert_image(&lib, "a.jpg", None, false);
+
+        let d = detail(&lib, a).unwrap();
+
+        assert_eq!(d.path, dir.path().join("_未分類/a.jpg"));
+        assert_eq!((d.memo.as_str(), d.tags.len(), d.source), ("", 0, None));
+    }
+
+    #[test]
+    fn ないかゴミ箱にある画像の詳細はエラーにする() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let trashed = insert_image(&lib, "b.jpg", None, true);
+
+        for id in [trashed, 999] {
+            let e = detail(&lib, id).unwrap_err();
+            assert!(e.contains("画像が見つかりません"), "{e}");
+        }
     }
 
     #[test]

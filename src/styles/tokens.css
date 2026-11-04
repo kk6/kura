@@ -34,6 +34,8 @@
   --radius-md: 3px;
   --border: 1px solid var(--color-line);
   --focus-ring: 2px solid var(--color-text);
+  --select-outline: 2px solid var(--color-text);
+  --select-inner: 1px solid var(--color-bg);
 
   --size-header: 48px;
   --size-sidebar: 208px;

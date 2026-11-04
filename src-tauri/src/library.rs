@@ -58,6 +58,13 @@ const MIGRATIONS: &[&str] = &[
         tag_id INTEGER NOT NULL REFERENCES tags(id),
         PRIMARY KEY(image_id, tag_id)
     )",
+    // 詳細パネル（FR-507）で元URLを読むために先に作る。書き込むのは URL 取り込み（フェーズ2）
+    "CREATE TABLE image_sources(
+        image_id INTEGER PRIMARY KEY REFERENCES images(id),
+        image_url TEXT NOT NULL,
+        page_url TEXT,
+        fetched_at INTEGER NOT NULL
+    )",
 ];
 
 pub struct Library {

@@ -3,12 +3,14 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Detail from './Detail'
 import Masonry from './Masonry'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
 import type { Gallery as GalleryData } from './galleryTypes'
 import type { ImportProgress, Report } from './importTypes'
+import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
 
@@ -28,6 +30,7 @@ export default function Gallery({ root }: { root: string }) {
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [showSkipped, setShowSkipped] = useState(false)
+  const [selection, setSelection] = useState(EMPTY_SELECTION)
   const busy = useRef(false)
 
   async function reload() {
@@ -41,6 +44,9 @@ export default function Gallery({ root }: { root: string }) {
   useEffect(() => void reload(), [])
 
   const images = useMemo(() => sortImages(data.images, sort), [data.images, sort])
+  const order = useMemo(() => images.map((i) => i.id), [images])
+  const only = selection.ids.size === 1 ? [...selection.ids][0] : null
+  const selectedImage = useMemo(() => data.images.find((i) => i.id === only) ?? null, [data.images, only])
 
   // shortcut: 取り込み中に選んだりドロップしたりしたものは無視する。続けて取り込みたい要望が出たら順番待ちにする
   async function start(paths: string[]) {
@@ -115,11 +121,17 @@ export default function Gallery({ root }: { root: string }) {
 
       <Sidebar gallery={data} />
 
-      <Masonry root={root} images={images} thumbWidth={thumbWidth} />
+      <Masonry
+        root={root}
+        images={images}
+        thumbWidth={thumbWidth}
+        selected={selection.ids}
+        onSelect={(id, e) =>
+          setSelection((s) => (id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey })))
+        }
+      />
 
-      <aside className="gallery__detail" aria-label="詳細">
-        <p className="detail__empty">画像を選ぶと、ここに詳細が出ます</p>
-      </aside>
+      <Detail root={root} categories={data.categories} image={selectedImage} count={selection.ids.size} />
 
       <footer className="gallery__statusbar">
         <span>{data.images.length}枚</span>
