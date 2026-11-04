@@ -445,6 +445,24 @@ mod tests {
         (dir, lib)
     }
 
+    /// 書き込めないフォルダにして、失敗を起こす。exFAT と FAT32 は Unix の権限を持たず書き込めてしまうので、
+    /// そのときは元に戻して false を返し、テストはそこで終える（失敗時の巻き戻しはファイルシステムに依らないため）
+    fn lock(dir: &Path) -> bool {
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = dir.join(".kura-probe");
+        if fs::create_dir(&probe).is_err() {
+            return true;
+        }
+        fs::remove_dir(&probe).unwrap();
+        unlock(dir);
+        eprintln!("skip: {} は権限で書き込みを止められない", dir.display());
+        false
+    }
+
+    fn unlock(dir: &Path) {
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     fn count(lib: &Library) -> i64 {
         lib.conn
             .query_row("SELECT count(*) FROM categories", [], |r| r.get(0))
@@ -493,12 +511,7 @@ mod tests {
         }
 
         assert_eq!(count(&lib), 1);
-        let mut names: Vec<_> = fs::read_dir(&lib.root)
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        names.sort();
-        assert_eq!(names, [".kura", "_未分類", "ポーズ"]);
+        assert_eq!(files(&lib, ""), [".kura", "_未分類", "ポーズ"]);
         assert_eq!(fs::read_dir(lib.root.join("ポーズ")).unwrap().count(), 0);
     }
 
@@ -554,11 +567,13 @@ mod tests {
         let pose = create(&mut lib, None, "ポーズ").unwrap();
         // 読めるが書き込めない親フォルダ。名前の検査は通り、フォルダの作成で失敗する
         let parent = lib.root.join("ポーズ");
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+        if !lock(&parent) {
+            return;
+        }
 
         let result = create(&mut lib, Some(pose), "座り");
 
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+        unlock(&parent);
         assert!(result.err().unwrap().contains("フォルダを作れません"));
         assert_eq!(count(&lib), 1);
         assert_eq!(fs::read_dir(&parent).unwrap().count(), 0);
@@ -711,11 +726,13 @@ mod tests {
         let c = put(&lib, None, "c.jpg", "C");
         // 書き込めないフォルダからはファイルを出せない（rename が失敗する）
         let locked_dir = lib.root.join("鍵付き");
-        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        if !lock(&locked_dir) {
+            return;
+        }
 
         let r = assign(&mut lib, &[a, gone, stuck, trashed, 999, c], Some(pose));
 
-        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        unlock(&locked_dir);
         let r = r.unwrap();
         assert_eq!(r.moved, [moved(a, "a.jpg"), moved(c, "c.jpg")]);
         let failed: Vec<i64> = r.failed.iter().map(|f| f.id).collect();
@@ -807,11 +824,13 @@ mod tests {
         let a = put(&lib, Some(locked), "a.jpg", "A");
         // 書き込めないフォルダの中では rename が失敗する
         let locked_dir = lib.root.join("鍵付き");
-        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+        if !lock(&locked_dir) {
+            return;
+        }
 
         let r = rename_image(&mut lib, a, "b");
 
-        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        unlock(&locked_dir);
         assert!(r.is_err());
         assert_eq!(files(&lib, "鍵付き"), ["a.jpg"]);
         assert_eq!(row(&lib, a), ("a.jpg".into(), Some(locked)));
@@ -995,11 +1014,13 @@ mod tests {
         let sit = create(&mut lib, Some(pose), "座り").unwrap();
         // 書き込めない親フォルダの中では rename が失敗する
         let parent = lib.root.join("ポーズ");
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+        if !lock(&parent) {
+            return;
+        }
 
         let result = rename(&mut lib, sit, "しゃがみ");
 
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+        unlock(&parent);
         assert!(result.is_err());
         assert_eq!(files(&lib, "ポーズ"), ["座り"]);
         assert_eq!(cat(&lib, sit), ("座り".into(), Some(pose)));
@@ -1118,11 +1139,13 @@ mod tests {
         let sit = create(&mut lib, Some(pose), "座り").unwrap();
         let wear = create(&mut lib, None, "服飾").unwrap();
         let parent = lib.root.join("ポーズ");
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+        if !lock(&parent) {
+            return;
+        }
 
         let result = move_to(&mut lib, sit, Some(wear));
 
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+        unlock(&parent);
         assert!(result.is_err());
         assert_eq!(files(&lib, "ポーズ"), ["座り"]);
         assert_eq!(files(&lib, "服飾"), Vec::<String>::new());
@@ -1314,11 +1337,13 @@ mod tests {
         let a = put(&lib, Some(pose), "a.jpg", "A");
         let trash = lib.root.join(TRASH_DIR);
         fs::create_dir_all(&trash).unwrap();
-        fs::set_permissions(&trash, fs::Permissions::from_mode(0o555)).unwrap();
+        if !lock(&trash) {
+            return;
+        }
 
         let r = delete(&mut lib, pose).unwrap();
 
-        fs::set_permissions(&trash, fs::Permissions::from_mode(0o755)).unwrap();
+        unlock(&trash);
         assert!(r.error.is_some());
         // 画像は未分類へ移ったまま。カテゴリとフォルダは残る
         assert_eq!(row(&lib, a), ("a.jpg".into(), None));
