@@ -237,6 +237,38 @@ const removeTag: Handler = (args) => {
   for (const i of IMAGES) if ((args?.ids as number[]).includes(i.id)) i.tags = i.tags.filter((t) => t !== args?.tagId)
 }
 
+// タグ管理（FR-408）。src-tauri/src/tag.rs と同じく、ほかのタグと同じ名前にはできない
+const tagOf = (id: unknown) => {
+  const t = GALLERY.tags.find((t) => t.id === id)
+  if (!t) throw `タグが見つかりません（${id}）`
+  return t
+}
+
+const renameTag: Handler = (args) => {
+  const tag = tagOf(args?.id)
+  const name = String(args?.name).trim().normalize('NFC')
+  if (!name) throw 'タグ名を入力してください'
+  if (GALLERY.tags.some((t) => t !== tag && key(t.name) === key(name)))
+    throw `同じ名前のタグがあります（${name}）。1つにまとめるときは統合してください`
+  tag.name = name
+  GALLERY.tags.sort((a, b) => (a.name < b.name ? -1 : 1))
+  return { ...tag }
+}
+
+const mergeTag: Handler = (args) => {
+  const from = tagOf(args?.from).id
+  const into = tagOf(args?.into).id
+  if (from === into) throw '同じタグには統合できません'
+  for (const i of IMAGES) if (i.tags.includes(from)) i.tags = [...new Set(i.tags.map((t) => (t === from ? into : t)))]
+  GALLERY.tags = GALLERY.tags.filter((t) => t.id !== from)
+}
+
+const deleteTag: Handler = (args) => {
+  const id = tagOf(args?.id).id
+  for (const i of IMAGES) i.tags = i.tags.filter((t) => t !== id)
+  GALLERY.tags = GALLERY.tags.filter((t) => t.id !== id)
+}
+
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
 const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
@@ -258,6 +290,9 @@ const handlers: Record<string, Handler> = {
   image_tags: countTags,
   add_tag: addTag,
   remove_tag: removeTag,
+  rename_tag: renameTag,
+  merge_tag: mergeTag,
+  delete_tag: deleteTag,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

@@ -11,6 +11,7 @@ import Masonry from './Masonry'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
+import TagDialog from './TagDialog'
 import type { Assigned, Deleted, Detail as DetailData, Gallery as GalleryData, Image, Tag } from './galleryTypes'
 import type { ImportProgress, Report } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
@@ -224,11 +225,35 @@ export default function Gallery({ root }: { root: string }) {
   }
 
   const addTag = (tag: Tag) =>
-    setData((d) =>
-      d.tags.some((t) => t.id === tag.id)
-        ? d
-        : { ...d, tags: [...d.tags, tag].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id)) },
-    )
+    setData((d) => (d.tags.some((t) => t.id === tag.id) ? d : { ...d, tags: sortTags([...d.tags, tag]) }))
+
+  // タグ管理（FR-408）。変わるのはタグの行と画像のタグだけなので、一覧を読み直さずに手元の値を変える
+  const [managingTags, setManagingTags] = useState(false)
+  async function renameTag(id: number, name: string) {
+    const tag = await invoke<Tag>('rename_tag', { id, name })
+    setData((d) => ({ ...d, tags: sortTags(d.tags.map((t) => (t.id === id ? tag : t))) }))
+  }
+  // from のタグを画像と絞り込みの条件から外す。into があれば代わりに付ける
+  function dropTag(from: number, into: number | null) {
+    const swap = (tags: number[]) =>
+      tags.includes(from)
+        ? [...new Set(tags.flatMap((t) => (t === from ? (into === null ? [] : [into]) : [t])))]
+        : tags
+    setData((d) => ({
+      ...d,
+      tags: d.tags.filter((t) => t.id !== from),
+      images: d.images.map((i) => (i.tags.includes(from) ? { ...i, tags: swap(i.tags) } : i)),
+    }))
+    setFilter((f) => ({ ...f, tags: swap(f.tags) }))
+  }
+  async function mergeTag(from: number, into: number) {
+    await invoke('merge_tag', { from, into })
+    dropTag(from, into)
+  }
+  async function deleteTag(id: number) {
+    await invoke('delete_tag', { id })
+    dropTag(id, null)
+  }
 
   const skipped = result?.kind === 'report' ? result.report.skipped : []
   const errors = skipped.filter((s) => s.kind === 'error').length
@@ -281,6 +306,7 @@ export default function Gallery({ root }: { root: string }) {
         filter={filter}
         counts={counts}
         onFilter={changeFilter}
+        onManageTags={() => setManagingTags(true)}
         onRename={renameCategory}
         onCreate={createCategory}
         onMove={moveCategory}
@@ -414,6 +440,17 @@ export default function Gallery({ root }: { root: string }) {
         </span>
       </footer>
 
+      {managingTags && (
+        <TagDialog
+          tags={data.tags}
+          counts={counts.tags}
+          onRename={renameTag}
+          onMerge={mergeTag}
+          onDelete={deleteTag}
+          onClose={() => setManagingTags(false)}
+        />
+      )}
+
       {showSkipped &&
         (result?.kind === 'assigned' || result?.kind === 'error' ? (
           <MoveFailDialog failed={result.failed ?? []} onClose={() => setShowSkipped(false)} />
@@ -423,6 +460,8 @@ export default function Gallery({ root }: { root: string }) {
     </div>
   )
 }
+
+const sortTags = (tags: Tag[]) => tags.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
 
 const Chevron = ({ d }: { d: string }) => (
   <svg

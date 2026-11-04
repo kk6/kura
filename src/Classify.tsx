@@ -94,7 +94,8 @@ export function TagEditor({
     return () => {
       current = false
     }
-  }, [refresh])
+    // タグ管理（FR-408）で名前が変わったり消えたりしたら読み直す
+  }, [refresh, tags])
 
   const run = async (op: Promise<unknown>) => {
     try {

@@ -801,3 +801,65 @@ test('2万枚でも、タグ・カテゴリ・文字の絞り込みの結果が0
   console.log('NFR-02 絞り込みの時間（ms）', times)
   for (const [name, ms] of Object.entries(times)) expect(ms, name).toBeLessThan(500)
 })
+
+test('タグ管理ダイアログで名前を変え、統合すると両方が付いていた画像も1つのタグになり、削除すると全部から外れる', async ({
+  page,
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const sideTags = sidebar.getByRole('list', { name: 'タグ' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const status = page.getByRole('contentinfo')
+
+  // 1枚目には「あおり」と「座り」が付いている。「座り」で絞っておく
+  await thumb(page, 1).click()
+  await expect(detail.locator('.tag')).toHaveText(['あおり', '座り'])
+  await sideTags.getByRole('button', { name: /^座り/ }).click()
+  await expect(status).toContainText('399 / 2000枚')
+
+  await sidebar.getByRole('button', { name: 'タグを管理する' }).click()
+  const dialog = page.getByRole('dialog', { name: 'タグを管理する' })
+  const rows = dialog.getByRole('list', { name: 'タグ' }).locator('.tags__name')
+  await expect(rows).toHaveText(['あおり', '座り', '振り返り'])
+  await expect(dialog.getByRole('listitem').filter({ hasText: 'あおり' })).toContainText('664枚')
+
+  // 名前の変更。ほかのタグと同じ名前はエラーにし、入力欄を残す
+  await dialog.getByRole('button', { name: '「振り返り」の名前を変える' }).click()
+  const input = dialog.getByRole('textbox', { name: '「振り返り」の新しい名前' })
+  await input.fill('あおり')
+  await input.press('Enter')
+  await expect(dialog).toContainText('エラー：同じ名前のタグがあります（あおり）')
+  await expect(input).toHaveAttribute('aria-invalid', 'true')
+  await page.screenshot({ path: 'test-results/tag-dialog-rename-error.png' })
+  await input.fill('振り向き')
+  await input.press('Enter')
+  await expect(rows).toHaveText(['あおり', '座り', '振り向き'])
+  await expect(sideTags.locator('.sidebar__name')).toHaveText(['あおり', '座り', '振り向き'])
+
+  // 統合。「あおり」を「座り」にまとめる。1枚目は両方が付いているが「座り」1つになる
+  await dialog.getByRole('button', { name: '「あおり」を統合する' }).click()
+  await dialog.getByRole('combobox').selectOption({ label: '座り' })
+  await expect(dialog).toContainText('「あおり」の 664枚に「座り」を付け、「あおり」を削除します')
+  await page.screenshot({ path: 'test-results/tag-dialog-merge.png' })
+  await dialog.getByRole('button', { name: '統合する', exact: true }).click()
+  await expect(rows).toHaveText(['座り', '振り向き'])
+  // 3 か 5 の倍数と1枚目
+  await expect(dialog.getByRole('listitem').filter({ hasText: '座り' })).toContainText('929枚')
+
+  // 削除。確かめてから全部の画像から外す
+  await dialog.getByRole('button', { name: '「振り向き」を削除する' }).click()
+  await expect(dialog).toContainText('「振り向き」を 284枚から外して削除します')
+  await dialog.getByRole('button', { name: '削除する', exact: true }).click()
+  await expect(rows).toHaveText(['座り'])
+
+  await dialog.getByRole('button', { name: '閉じる' }).click()
+  await expect(dialog).toHaveCount(0)
+  // 絞り込みの「座り」は残り、統合した分が増える。詳細パネルの1枚目のタグも読み直す
+  await expect(sideTags.locator('.sidebar__name')).toHaveText(['座り'])
+  await expect(status).toContainText('929 / 2000枚')
+  await expect(detail.locator('.tag')).toHaveText(['座り'])
+  expect(errors).toEqual([])
+})

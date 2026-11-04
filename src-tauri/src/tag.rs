@@ -109,6 +109,68 @@ pub fn of(lib: &Library, ids: &[i64]) -> Result<Vec<Counted>, String> {
         .map_err(err)
 }
 
+fn exists(conn: &Connection, id: i64) -> Result<(), String> {
+    let n: i64 = conn
+        .query_row("SELECT count(*) FROM tags WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .map_err(err)?;
+    match n {
+        0 => Err(format!("タグが見つかりません（{id}）")),
+        _ => Ok(()),
+    }
+}
+
+/// タグ名を変える（FR-408）。名前の扱いは add と同じ。大文字・小文字だけの変更はできる
+pub fn rename(lib: &Library, id: i64, name: &str) -> Result<Tag, String> {
+    let name: String = name.trim().nfc().collect();
+    if name.is_empty() {
+        return Err("タグ名を入力してください".into());
+    }
+    exists(&lib.conn, id)?;
+    if find(&lib.conn, &name)?.is_some_and(|t| t.id != id) {
+        return Err(format!(
+            "同じ名前のタグがあります（{name}）。1つにまとめるときは統合してください"
+        ));
+    }
+    lib.conn
+        .execute("UPDATE tags SET name = ?1 WHERE id = ?2", params![name, id])
+        .map_err(err)?;
+    Ok(Tag { id, name })
+}
+
+/// from のタグを into のタグにまとめる（FR-408）。両方が付いていた画像にも into が1つだけ付く
+pub fn merge(lib: &mut Library, from: i64, into: i64) -> Result<(), String> {
+    if from == into {
+        return Err("同じタグには統合できません".into());
+    }
+    let tx = lib.conn.transaction().map_err(err)?;
+    exists(&tx, from)?;
+    exists(&tx, into)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO image_tags(image_id, tag_id)
+         SELECT image_id, ?2 FROM image_tags WHERE tag_id = ?1",
+        [from, into],
+    )
+    .map_err(err)?;
+    tx.execute("DELETE FROM image_tags WHERE tag_id = ?1", [from])
+        .map_err(err)?;
+    tx.execute("DELETE FROM tags WHERE id = ?1", [from])
+        .map_err(err)?;
+    tx.commit().map_err(err)
+}
+
+/// タグを削除し、付いていたすべての画像（ゴミ箱の画像を含む）から外す（FR-408）
+pub fn delete(lib: &mut Library, id: i64) -> Result<(), String> {
+    let tx = lib.conn.transaction().map_err(err)?;
+    exists(&tx, id)?;
+    tx.execute("DELETE FROM image_tags WHERE tag_id = ?1", [id])
+        .map_err(err)?;
+    tx.execute("DELETE FROM tags WHERE id = ?1", [id])
+        .map_err(err)?;
+    tx.commit().map_err(err)
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -274,5 +336,88 @@ mod tests {
 
         assert_eq!(tags, [("あおり".into(), 1), ("振り返り".into(), 2)]);
         assert!(of(&lib, &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn タグを統合すると両方が付いていた画像も1つのタグになり元のタグは消える() {
+        let (_d, mut lib) = setup();
+        let a = image(&lib, "a");
+        let b = image(&lib, "b");
+        let c = image(&lib, "c");
+        let from = add(&mut lib, &[a, b], "座る").unwrap();
+        let into = add(&mut lib, &[b, c], "座り").unwrap();
+
+        merge(&mut lib, from.id, into.id).unwrap();
+
+        for id in [a, b, c] {
+            assert_eq!(names(&lib, id), ["座り"]);
+        }
+        let rows: i64 = lib
+            .conn
+            .query_row("SELECT count(*) FROM image_tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 3, "b に2つ付いていたタグは1つになる");
+        assert_eq!(tag_count(&lib), 1);
+    }
+
+    #[test]
+    fn 自分自身やないタグへは統合できず何も変えない() {
+        let (_d, mut lib) = setup();
+        let a = image(&lib, "a");
+        let sit = add(&mut lib, &[a], "座り").unwrap();
+
+        assert!(merge(&mut lib, sit.id, sit.id).is_err());
+        assert!(merge(&mut lib, sit.id, 999).is_err());
+        assert!(merge(&mut lib, 999, sit.id).is_err());
+        assert_eq!(names(&lib, a), ["座り"]);
+    }
+
+    #[test]
+    fn タグを削除すると全部の画像から外れる() {
+        let (_d, mut lib) = setup();
+        let a = image(&lib, "a");
+        let b = image(&lib, "b");
+        let sit = add(&mut lib, &[a, b], "座り").unwrap();
+        add(&mut lib, &[a], "あおり").unwrap();
+
+        delete(&mut lib, sit.id).unwrap();
+
+        assert_eq!(names(&lib, a), ["あおり"]);
+        assert_eq!(names(&lib, b), Vec::<String>::new());
+        assert_eq!(tag_count(&lib), 1);
+        assert!(delete(&mut lib, sit.id).is_err(), "もうない");
+    }
+
+    #[test]
+    fn タグ名を変えると付いている画像のタグ名も変わる() {
+        let (_d, mut lib) = setup();
+        let a = image(&lib, "a");
+        let sit = add(&mut lib, &[a], "座る").unwrap();
+
+        let renamed = rename(&lib, sit.id, " ホ\u{309a}ーズ ").unwrap();
+
+        assert_eq!(
+            renamed,
+            Tag {
+                id: sit.id,
+                name: "ポーズ".into()
+            }
+        );
+        assert_eq!(names(&lib, a), ["ポーズ"]);
+    }
+
+    #[test]
+    fn 大文字小文字だけの名前変更はできるがほかのタグと同じ名前と空の名前はエラーにする() {
+        let (_d, mut lib) = setup();
+        let a = image(&lib, "a");
+        let pose = add(&mut lib, &[a], "pose").unwrap();
+        add(&mut lib, &[a], "座り").unwrap();
+
+        assert_eq!(rename(&lib, pose.id, "Pose").unwrap().name, "Pose");
+        let e = rename(&lib, pose.id, "座り").unwrap_err();
+        assert!(e.contains("同じ名前のタグ"), "{e}");
+        assert!(rename(&lib, pose.id, " ").is_err());
+        assert!(rename(&lib, 999, "立ち").is_err());
+        assert_eq!(names(&lib, a), ["Pose", "座り"]);
     }
 }

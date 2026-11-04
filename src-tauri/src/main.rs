@@ -233,6 +233,32 @@ fn remove_tag(current: State<Current>, ids: Vec<i64>, tag_id: i64) -> Result<(),
     )
 }
 
+#[tauri::command]
+fn rename_tag(current: State<Current>, id: i64, name: String) -> Result<gallery::Tag, String> {
+    let current = current.0.lock().unwrap();
+    tag::rename(
+        current.as_ref().ok_or("ライブラリを開いていません")?,
+        id,
+        &name,
+    )
+}
+
+#[tauri::command]
+fn merge_tag(current: State<Current>, from: i64, into: i64) -> Result<(), String> {
+    let mut current = current.0.lock().unwrap();
+    tag::merge(
+        current.as_mut().ok_or("ライブラリを開いていません")?,
+        from,
+        into,
+    )
+}
+
+#[tauri::command]
+fn delete_tag(current: State<Current>, id: i64) -> Result<(), String> {
+    let mut current = current.0.lock().unwrap();
+    tag::delete(current.as_mut().ok_or("ライブラリを開いていません")?, id)
+}
+
 #[derive(Clone, Serialize)]
 struct ImportProgress {
     done: usize,
@@ -291,7 +317,10 @@ fn main() {
             delete_category,
             image_tags,
             add_tag,
-            remove_tag
+            remove_tag,
+            rename_tag,
+            merge_tag,
+            delete_tag
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

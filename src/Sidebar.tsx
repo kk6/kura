@@ -14,6 +14,7 @@ type Props = {
   filter: Filter
   counts: ReturnType<typeof countImages>
   onFilter: (filter: Filter) => void
+  onManageTags: () => void
   // 失敗したら理由の文字列で reject する
   onRename: (id: number, name: string) => Promise<void>
   onCreate: (parent: number | null, name: string) => Promise<void>
@@ -32,7 +33,7 @@ export const SKIP_CONFIRM = 'kura.skipCategoryMoveConfirm'
 // ドラッグ中のポインターの下。none は落とせる先の外、self は自分か子孫、same は今の親、target は移せる先
 type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
-export default function Sidebar({ root, gallery, filter, counts, onFilter, onRename, onCreate, onMove, onDelete }: Props) {
+export default function Sidebar({ root, gallery, filter, counts, onFilter, onManageTags, onRename, onCreate, onMove, onDelete }: Props) {
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
@@ -319,6 +320,9 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onRen
               {mode.toUpperCase()}
             </button>
           ))}
+          <button type="button" className="sidebar__add" aria-label="タグを管理する" onClick={onManageTags}>
+            <Icon d="M4 6h16M4 12h16M4 18h10" />
+          </button>
         </span>
       </h2>
       <ul className="sidebar__list" aria-labelledby="sidebar-tags">
