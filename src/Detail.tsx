@@ -1,25 +1,24 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { useState } from 'react'
+import { CategorySelect, TagEditor } from './Classify'
 import Status from './Status'
-import type { Category, Detail as DetailData, Image } from './galleryTypes'
+import type { Category, Detail as DetailData, Image, Tag } from './galleryTypes'
 
 type Props = {
   root: string
   categories: Category[]
+  tags: Tag[]
+  // 選んでいる画像。1枚だけのときは image にも入る
+  ids: number[]
+  selected: Image[]
   image: Image | null
-  count: number
   // image の詳細。読み込み中は null
   detail: DetailData | null
   error: string | null
   // 評価を保存して一覧の値も変える。失敗したら reject する
   onRate: (id: number, rating: number) => Promise<void>
-}
-
-function categoryPath(categories: Category[], id: number | null): string {
-  const names = []
-  for (let c = categories.find((c) => c.id === id); c; c = categories.find((p) => p.id === c!.parent_id))
-    names.unshift(c.name)
-  return names.length ? names.join(' / ') : '未分類'
+  onAssign: (ids: number[], category: number | null) => Promise<void>
+  onTagCreated: (tag: Tag) => void
 }
 
 function fileSize(bytes: number): string {
@@ -100,13 +99,34 @@ function Memo({ id, initial }: { id: number; initial: string }) {
   )
 }
 
-export default function Detail({ root, categories, image, count, detail, error, onRate }: Props) {
+export default function Detail(props: Props) {
+  const { root, categories, tags, ids, selected, image, detail, error, onRate, onAssign, onTagCreated } = props
+  // カテゴリとタグは、1枚でも複数でも同じ部品で変える
+  const classify = (
+    <>
+      <dt>
+        <label htmlFor="detail-category">カテゴリ</label>
+      </dt>
+      <dd>
+        <CategorySelect selected={selected} categories={categories} onAssign={onAssign} />
+      </dd>
+      <dt>
+        <label htmlFor="detail-tag">タグ</label>
+      </dt>
+      <dd>
+        <TagEditor ids={ids} tags={tags} onCreated={onTagCreated} />
+      </dd>
+    </>
+  )
   return (
     <aside className="gallery__detail" aria-label="詳細">
-      {!image ? (
-        <p className="detail__empty">
-          {count ? `${count}枚を選んでいます` : '画像を選ぶと、ここに詳細が出ます'}
-        </p>
+      {!selected.length ? (
+        <p className="detail__empty">画像を選ぶと、ここに詳細が出ます</p>
+      ) : !image ? (
+        <>
+          <h2 className="detail__name">{selected.length}枚を選んでいます</h2>
+          <dl className="detail__fields">{classify}</dl>
+        </>
       ) : (
         <>
           <div className="detail__preview">
@@ -124,22 +144,7 @@ export default function Detail({ root, categories, image, count, detail, error, 
           <h2 className="detail__name">{image.file_name}</h2>
           {error && <Status kind="error">詳細を読めません（{error}）</Status>}
           <dl className="detail__fields">
-            <dt>カテゴリ</dt>
-            <dd>{categoryPath(categories, image.category_id)}</dd>
-            <dt>タグ</dt>
-            <dd>
-              {detail?.tags.length ? (
-                <ul className="detail__tags">
-                  {detail.tags.map((t) => (
-                    <li key={t.id} className="tag">
-                      {t.name}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                detail && 'なし'
-              )}
-            </dd>
+            {classify}
             <dt>元URL</dt>
             {/* shortcut: 文字として出すだけで、ブラウザでは開けない。URL 取り込み（フェーズ2）で元URLが入るようになったら開けるようにする */}
             <dd className="detail__url">{detail && (detail.source?.page_url ?? detail.source?.image_url ?? 'なし')}</dd>

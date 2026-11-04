@@ -269,11 +269,80 @@
 }
 
 .tag {
-  padding: 0 var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 0 0 var(--space-2);
   border: var(--border);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
   background: var(--color-input);
+}
+
+.tag__count {
+  color: var(--color-text-faint);
+}
+
+.tag__remove {
+  display: flex;
+  padding: 0 var(--space-1);
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+.detail__select,
+.tag-input__field {
+  width: 100%;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-input);
+}
+
+.detail__select--error,
+.tag-input__field--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}
+
+.detail__tags + .tag-input {
+  margin-top: var(--space-3);
+}
+
+/* 候補は入力欄のすぐ下に重ねる。影は使わず、枠線で地と分ける */
+.tag-input {
+  position: relative;
+}
+
+.tag-input__list {
+  position: absolute;
+  z-index: 1;
+  top: 100%;
+  right: 0;
+  left: 0;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1) 0;
+  border: var(--border);
+  border-radius: var(--radius-md);
+  list-style: none;
+  background: var(--color-surface);
+}
+
+.tag-input__option {
+  padding: 0 var(--space-3);
+  cursor: pointer;
+}
+
+.tag-input__option:hover {
+  background: var(--color-raise);
+}
+
+.tag-input__option[aria-selected='true'] {
+  font-weight: var(--font-weight-bold);
+  background: var(--color-selected);
 }
 
 /* 一覧と同じ場所に重ねる。一覧を消さないので、閉じたときにスクロールの位置が残る */

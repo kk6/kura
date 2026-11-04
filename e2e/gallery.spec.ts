@@ -206,7 +206,8 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
 
   await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')
   await expect(detail.getByRole('img', { name: 'ref_00001.jpg のプレビュー' })).toBeVisible()
-  await expect(detail).toContainText('カテゴリ未分類')
+  const category = detail.getByRole('combobox', { name: 'カテゴリ' })
+  await expect(category.locator('option:checked')).toHaveText('未分類')
   await expect(detail.getByRole('listitem')).toHaveText(['あおり', '座り'])
   await expect(detail).toContainText('元URLhttps://example.com/gallery/pose')
   await expect(detail).toContainText(/サイズ\d+ × \d+、177 KB/)
@@ -217,7 +218,7 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   // カテゴリは親からの道筋で出し、タグ・元URL・メモがなければ「なし」と出す
   await thumb(page, 2).click()
   await expect(detail.getByRole('heading')).toHaveText('ref_00002.jpg')
-  await expect(detail).toContainText('カテゴリポーズ / 座り')
+  await expect(category.locator('option:checked')).toHaveText('ポーズ / 座り')
   await expect(detail).toContainText('タグなし元URLなし')
   expect(errors).toEqual([])
 })
@@ -229,12 +230,12 @@ test('Command で個別に、Shift で範囲で複数の画像を選べる', asy
 
   await thumb(page, 2).click()
   await thumb(page, 4).click({ modifiers: ['Meta'] })
-  await expect(detail).toHaveText('2枚を選んでいます')
+  await expect(detail.getByRole('heading')).toHaveText('2枚を選んでいます')
   expect(await selectedNames(page)).toEqual(['ref_00002.jpg', 'ref_00004.jpg'])
 
   // 起点は最後に Command で選んだ ref_00004
   await thumb(page, 7).click({ modifiers: ['Shift'] })
-  await expect(detail).toHaveText('4枚を選んでいます')
+  await expect(detail.getByRole('heading')).toHaveText('4枚を選んでいます')
   expect(await selectedNames(page)).toEqual(['ref_00004.jpg', 'ref_00005.jpg', 'ref_00006.jpg', 'ref_00007.jpg'])
   await page.screenshot({ path: 'test-results/multi-select.png' })
 
@@ -355,4 +356,66 @@ test('Escape で選択を外す。拡大表示中は先に拡大表示を閉じ�
 
   await detail.getByRole('textbox', { name: 'メモ' }).press('Escape')
   expect(await selectedNames(page)).toEqual(['ref_00002.jpg'])
+})
+
+test('選んだ画像のカテゴリとタグをまとめて変え、入力中は既存のタグを候補に出す', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const category = detail.getByRole('combobox', { name: 'カテゴリ' })
+  const tagInput = detail.getByRole('combobox', { name: 'タグ' })
+  const chips = detail.locator('.tag')
+  const status = page.getByRole('contentinfo')
+
+  // ref_00002〜4 のカテゴリは 座り・振り返り・服飾 で、タグはない
+  await thumb(page, 2).click()
+  await thumb(page, 4).click({ modifiers: ['Shift'] })
+  await expect(detail.getByRole('heading')).toHaveText('3枚を選んでいます')
+  await expect(category.locator('option:checked')).toHaveText('複数のカテゴリ')
+  await expect(detail).toContainText('タグなし')
+
+  // 大文字・小文字や正規化に関係なく、入力した文字を含む既存のタグを候補に出す
+  await tagInput.fill('あお')
+  const options = detail.getByRole('listbox', { name: '既存のタグ' }).getByRole('option')
+  await expect(options).toHaveText(['あおり'])
+  await page.screenshot({ path: 'test-results/tag-candidates.png' })
+  await tagInput.press('ArrowDown')
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+  await tagInput.press('Enter')
+  await expect(chips).toHaveText(['あおり'])
+  await expect(tagInput).toHaveValue('')
+
+  // 新しい名前は新しいタグとして付け、サイドバーのタグ一覧にも出す
+  await tagInput.fill('立ち')
+  await tagInput.press('Enter')
+  await expect(chips).toHaveText(['あおり', '立ち'])
+  await expect(page.getByRole('list', { name: 'タグ' }).getByRole('listitem')).toHaveText(['あおり', '座り', '振り返り', '立ち'])
+
+  // 一部の画像にだけ付いているタグは枚数を出す。外すと選んだ画像のすべてから外れる
+  await thumb(page, 1).click({ modifiers: ['Meta'] })
+  await expect(chips).toHaveText(['あおり', '座り1/4', '立ち3/4'])
+  await detail.getByRole('button', { name: '立ち を外す' }).click()
+  await expect(chips).toHaveText(['あおり', '座り1/4'])
+
+  await category.selectOption({ label: '服飾 / 制服' })
+  await expect(status).toContainText('完了：カテゴリを変更 4枚')
+  await expect(category.locator('option:checked')).toHaveText('服飾 / 制服')
+  await page.screenshot({ path: 'test-results/bulk-classify.png' })
+
+  await thumb(page, 3).click()
+  await expect(category.locator('option:checked')).toHaveText('服飾 / 制服')
+  await expect(chips).toHaveText(['あおり'])
+
+  // 移せなかった画像はステータスバーに件数を出し、押すと一覧を開く（モックでは ref_00007 を移せない）
+  await thumb(page, 7).click({ modifiers: ['Meta'] })
+  await category.selectOption({ label: '背景' })
+  await expect(status).toContainText('完了：カテゴリを変更 1枚')
+  await status.getByRole('button', { name: /移せない 1枚/ }).click()
+  const dialog = page.getByRole('dialog', { name: '移せなかった画像（1枚）' })
+  await expect(dialog).toContainText('ref_00007.jpg')
+  await expect(dialog).toContainText('エラー：移動元が見つかりません')
+  await page.screenshot({ path: 'test-results/move-failed.png' })
+  expect(errors).toEqual([])
 })

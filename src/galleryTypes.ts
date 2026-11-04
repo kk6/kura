@@ -22,6 +22,14 @@ export type Detail = {
   path: string
   file_size: number
   memo: string
-  tags: Tag[]
   source: { image_url: string; page_url: string | null } | null
+}
+
+// src-tauri/src/tag.rs の Counted（image_tags コマンドの返り値）。count は選んだ画像のうちそのタグが付いている枚数
+export type CountedTag = Tag & { count: number }
+
+// src-tauri/src/category.rs の Assigned（set_category コマンドの返り値）
+export type Assigned = {
+  moved: { id: number; file_name: string }[]
+  failed: { id: number; message: string }[]
 }

@@ -1,6 +1,6 @@
 import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
-import type { Gallery, Image } from '../galleryTypes'
+import type { Assigned, Gallery, Image } from '../galleryTypes'
 import type { Report } from '../importTypes'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
@@ -92,7 +92,7 @@ const importPaths: Handler = async () => {
   return REPORT
 }
 
-// 1枚目だけタグ・元URL・メモを持つ
+// 1枚目だけタグ・元URL・メモを持つ。タグは image_tags で返す
 const imageDetail: Handler = (args) => {
   const image = IMAGES.find((i) => i.id === args?.id)
   if (!image) throw `画像が見つかりません（${args?.id}）`
@@ -101,7 +101,6 @@ const imageDetail: Handler = (args) => {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
     memo: memos.get(image.id) ?? (first ? '腕の角度と\n肩の線を見る' : ''),
-    tags: first ? GALLERY.tags.slice(0, 2) : [],
     source: first ? { image_url: 'https://example.com/images/ref_00001.jpg', page_url: 'https://example.com/gallery/pose' } : null,
   }
 }
@@ -119,6 +118,52 @@ const setRating: Handler = (args) => {
   image.rating = Number(args?.rating)
 }
 
+// e2e で失敗の表示を確かめるため、ref_00007 は移せない
+const setCategory: Handler = (args) => {
+  const category = args?.category as number | null
+  if (category !== null && !GALLERY.categories.some((c) => c.id === category)) throw `カテゴリが見つかりません（${category}）`
+  const out: Assigned = { moved: [], failed: [] }
+  for (const id of args?.ids as number[]) {
+    const image = IMAGES.find((i) => i.id === id)!
+    if (id === 7) {
+      out.failed.push({ id, message: `移動元が見つかりません（_未分類/${image.file_name}）` })
+      continue
+    }
+    image.category_id = category
+    out.moved.push({ id, file_name: image.file_name })
+  }
+  return out
+}
+
+// 画像ごとのタグの id。1枚目に「あおり」と「座り」が付いている
+const imageTags = new Map<number, Set<number>>([[1, new Set([1, 2])]])
+const tagsOf = (id: number) => imageTags.get(id) ?? imageTags.set(id, new Set()).get(id)!
+
+const countTags: Handler = (args) => {
+  const ids = args?.ids as number[]
+  return GALLERY.tags
+    .map((t) => ({ ...t, count: ids.filter((id) => tagsOf(id).has(t.id)).length }))
+    .filter((t) => t.count > 0)
+}
+
+const key = (name: string) => name.trim().normalize('NFC').toLowerCase()
+const addTag: Handler = (args) => {
+  const name = String(args?.name).trim().normalize('NFC')
+  if (!name) throw 'タグ名を入力してください'
+  let tag = GALLERY.tags.find((t) => key(t.name) === key(name))
+  if (!tag) {
+    tag = { id: Math.max(...GALLERY.tags.map((t) => t.id)) + 1, name }
+    GALLERY.tags.push(tag)
+    GALLERY.tags.sort((a, b) => (a.name < b.name ? -1 : 1))
+  }
+  for (const id of args?.ids as number[]) tagsOf(id).add(tag.id)
+  return tag
+}
+
+const removeTag: Handler = (args) => {
+  for (const id of args?.ids as number[]) tagsOf(id).delete(Number(args?.tagId))
+}
+
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
 const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
@@ -126,10 +171,15 @@ const handlers: Record<string, Handler> = {
   open_library: openLibrary,
   create_library: createLibrary,
   import_paths: importPaths,
-  load_gallery: () => (created ? { images: [], categories: [], tags: [] } : GALLERY),
+  // 本物の IPC と同じく複製を返す。画面の state とモックの値を同じ配列にしないため
+  load_gallery: () => (created ? { images: [], categories: [], tags: [] } : structuredClone(GALLERY)),
   image_detail: imageDetail,
   set_memo: setMemo,
   set_rating: setRating,
+  set_category: setCategory,
+  image_tags: countTags,
+  add_tag: addTag,
+  remove_tag: removeTag,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

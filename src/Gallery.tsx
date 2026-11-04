@@ -4,17 +4,22 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Detail from './Detail'
+import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
-import type { Detail as DetailData, Gallery as GalleryData } from './galleryTypes'
+import type { Assigned, Detail as DetailData, Gallery as GalleryData, Tag } from './galleryTypes'
 import type { ImportProgress, Report } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
 
-type Result = { kind: 'report'; report: Report } | { kind: 'error'; message: string }
+// ステータスバーに出す一括操作の結果
+type Result =
+  | { kind: 'report'; report: Report }
+  | { kind: 'error'; message: string }
+  | { kind: 'assigned'; moved: number; failed: { file_name: string; message: string }[] }
 
 const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
 
@@ -48,9 +53,13 @@ export default function Gallery({ root }: { root: string }) {
 
   const images = useMemo(() => sortImages(data.images, sort), [data.images, sort])
   const order = useMemo(() => images.map((i) => i.id), [images])
-  const only = selection.ids.size === 1 ? [...selection.ids][0] : null
-  const selectedImage = useMemo(() => data.images.find((i) => i.id === only) ?? null, [data.images, only])
+  const ids = useMemo(() => [...selection.ids], [selection.ids])
+  const selected = useMemo(() => data.images.filter((i) => selection.ids.has(i.id)), [data.images, selection.ids])
+  const only = ids.length === 1 ? ids[0] : null
+  const selectedImage = only === null ? null : (selected[0] ?? null)
   const shown = detail && detail.id === only ? detail : null
+  // カテゴリを変えるとファイルの場所が変わるので、詳細（拡大表示で読む元の画像のパス）を読み直す
+  const place = selectedImage && `${selectedImage.category_id}/${selectedImage.file_name}`
 
   useEffect(() => {
     if (only === null) return
@@ -62,7 +71,7 @@ export default function Gallery({ root }: { root: string }) {
     return () => {
       current = false
     }
-  }, [only])
+  }, [only, place])
 
   // 拡大表示（FR-508）。左右キーか左右の端のボタンで、今の並び順の前後の画像に移る
   const zoomed = zoom ? selectedImage : null
@@ -124,6 +133,27 @@ export default function Gallery({ root }: { root: string }) {
     const paths = await open({ multiple: true, directory, title })
     if (paths) start(paths)
   }
+
+  async function assign(targets: number[], category: number | null) {
+    const r = await invoke<Assigned>('set_category', { ids: targets, category })
+    const names = new Map(r.moved.map((m) => [m.id, m.file_name]))
+    const failed = r.failed.map((f) => ({
+      file_name: data.images.find((i) => i.id === f.id)?.file_name ?? String(f.id),
+      message: f.message,
+    }))
+    setData((d) => ({
+      ...d,
+      images: d.images.map((i) => (names.has(i.id) ? { ...i, category_id: category, file_name: names.get(i.id)! } : i)),
+    }))
+    setResult({ kind: 'assigned', moved: r.moved.length, failed })
+  }
+
+  const addTag = (tag: Tag) =>
+    setData((d) =>
+      d.tags.some((t) => t.id === tag.id)
+        ? d
+        : { ...d, tags: [...d.tags, tag].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id)) },
+    )
 
   const skipped = result?.kind === 'report' ? result.report.skipped : []
   const errors = skipped.filter((s) => s.kind === 'error').length
@@ -213,14 +243,18 @@ export default function Gallery({ root }: { root: string }) {
       <Detail
         root={root}
         categories={data.categories}
+        tags={data.tags}
+        ids={ids}
+        selected={selected}
         image={selectedImage}
-        count={selection.ids.size}
         detail={shown?.detail ?? null}
         error={shown?.error ?? null}
         onRate={async (id, rating) => {
           await invoke('set_rating', { id, rating })
           setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
         }}
+        onAssign={assign}
+        onTagCreated={addTag}
       />
 
       <footer className="gallery__statusbar">
@@ -246,6 +280,15 @@ export default function Gallery({ root }: { root: string }) {
             </>
           ) : result?.kind === 'error' ? (
             <Status kind="error">{result.message}</Status>
+          ) : result?.kind === 'assigned' ? (
+            <>
+              <Status kind="success">カテゴリを変更 {result.moved}枚</Status>
+              {result.failed.length > 0 && (
+                <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
+                  <Status kind="error">移せない {result.failed.length}枚</Status>
+                </button>
+              )}
+            </>
           ) : result ? (
             <>
               <Status kind="success">取り込み {result.report.added}枚</Status>
@@ -264,7 +307,12 @@ export default function Gallery({ root }: { root: string }) {
         </span>
       </footer>
 
-      {showSkipped && <SkipDialog skipped={skipped} onClose={() => setShowSkipped(false)} />}
+      {showSkipped &&
+        (result?.kind === 'assigned' ? (
+          <MoveFailDialog failed={result.failed} onClose={() => setShowSkipped(false)} />
+        ) : (
+          <SkipDialog skipped={skipped} onClose={() => setShowSkipped(false)} />
+        ))}
     </div>
   )
 }
