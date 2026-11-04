@@ -192,6 +192,74 @@ pub fn create(lib: &mut Library, parent: Option<i64>, name: &str) -> Result<i64,
     Ok(id)
 }
 
+/// カテゴリのフォルダの名前を変える・移す操作の、pending_ops の種類
+pub const MOVE_CATEGORY: &str = "move_category";
+
+/// カテゴリ名を変え、フォルダ名も変える（FR-403）。同じ場所に同名があればエラーにする
+pub fn rename(lib: &mut Library, id: i64, name: &str) -> Result<(), String> {
+    let name: String = name.nfc().collect();
+    validate(&name)?;
+    let src = dir(lib, Some(id))?;
+    let parent = src.parent().unwrap_or(Path::new("")).to_path_buf();
+    transfer_category(lib, id, &src, &parent, &name)
+}
+
+/// カテゴリを parent の下（None はルート直下）へ移し、フォルダも移す（FR-412）
+pub fn move_to(lib: &mut Library, id: i64, parent: Option<i64>) -> Result<(), String> {
+    let src = dir(lib, Some(id))?;
+    let dst_dir = match parent {
+        Some(_) => dir(lib, parent)?,
+        None => PathBuf::new(),
+    };
+    // フォルダは1対1なので、パスの包含で子孫を判定できる
+    if dst_dir.starts_with(&src) {
+        return Err("カテゴリを自分自身や子孫の下へは移せません".into());
+    }
+    let name = src.file_name().unwrap().to_string_lossy().into_owned();
+    transfer_category(lib, id, &src, &dst_dir, &name)
+}
+
+fn transfer_category(
+    lib: &mut Library,
+    id: i64,
+    src: &Path,
+    dst_dir: &Path,
+    name: &str,
+) -> Result<(), String> {
+    fileops::transfer(
+        lib,
+        Request {
+            kind: MOVE_CATEGORY,
+            target_id: Some(id),
+            copy: false,
+            src,
+            dst_dir,
+            name,
+            on_conflict: OnConflict::Fail,
+        },
+        &apply_category,
+    )
+    .map(|_| ())
+}
+
+/// MOVE_CATEGORY の DB の更新。名前と親を移動先のパスから決める。配下のカテゴリと画像の行はパスを持たないので変えない
+pub fn apply_category(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
+    let (Some(parent), Some(name)) = (op.dst.parent(), op.dst.file_name().and_then(|n| n.to_str()))
+    else {
+        return Err(format!("移動先を扱えません（{}）", op.dst.display()));
+    };
+    let changed = tx
+        .execute(
+            "UPDATE categories SET name = ?1, parent_id = ?2 WHERE id = ?3",
+            params![name, by_dir(tx, parent)?, op.target_id],
+        )
+        .map_err(err)?;
+    match changed {
+        0 => Err(format!("カテゴリが見つかりません（{:?}）", op.target_id)),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -203,8 +271,12 @@ mod tests {
     use super::*;
     use crate::library::{self, UNCATEGORIZED_DIR};
 
+    // fileops のテストと同じく、KURA_TEST_DIR に exFAT などのボリュームを指定できる
     fn setup() -> (TempDir, Library) {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = match std::env::var_os("KURA_TEST_DIR") {
+            Some(base) => tempfile::tempdir_in(base).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        };
         let lib = library::create(dir.path()).unwrap();
         (dir, lib)
     }
@@ -365,7 +437,7 @@ mod tests {
     fn files(lib: &Library, rel: &str) -> Vec<String> {
         let mut names: Vec<_> = fs::read_dir(lib.root.join(rel))
             .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .map(|e| e.unwrap().file_name().to_string_lossy().nfc().collect())
             .collect();
         names.sort();
         names
@@ -547,5 +619,310 @@ mod tests {
 
         assert_eq!(count(&lib), 1);
         assert!(!lib.root.join("ポーズ").exists());
+    }
+
+    fn cat(lib: &Library, id: i64) -> (String, Option<i64>) {
+        lib.conn
+            .query_row(
+                "SELECT name, parent_id FROM categories WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+    }
+
+    // ._ は exFAT で macOS が拡張属性を置くファイルなので数えない
+    fn top(lib: &Library) -> Vec<String> {
+        files(lib, "")
+            .into_iter()
+            .filter(|n| !n.starts_with("._"))
+            .collect()
+    }
+
+    #[test]
+    fn カテゴリ名を変えるとフォルダ名も変わり配下の画像の行は変えない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let a = put(&lib, Some(sit), "a.jpg", "A");
+
+        rename(&mut lib, pose, "人物").unwrap();
+
+        assert_eq!(top(&lib), [".kura", "_未分類", "人物"]);
+        assert_eq!(read(&lib, "人物/座り/a.jpg"), "A");
+        assert_eq!(cat(&lib, pose), ("人物".into(), None));
+        assert_eq!(dir(&lib, Some(sit)).unwrap(), Path::new("人物/座り"));
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(sit)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 入れ子のカテゴリの名前も変えられる() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+
+        rename(&mut lib, sit, "しゃがみ").unwrap();
+
+        assert_eq!(files(&lib, "ポーズ"), ["しゃがみ"]);
+        assert_eq!(cat(&lib, sit), ("しゃがみ".into(), Some(pose)));
+    }
+
+    #[test]
+    fn 大文字と小文字だけの名前変更もできる() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "pose").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+
+        rename(&mut lib, pose, "Pose").unwrap();
+
+        assert_eq!(top(&lib), [".kura", "Pose", "_未分類"]);
+        assert_eq!(read(&lib, "Pose/a.jpg"), "A");
+        assert_eq!(cat(&lib, pose), ("Pose".into(), None));
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(pose)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 同じ名前への変更は何もしない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+
+        // NFD の「ポ」も同じ名前
+        rename(&mut lib, pose, "ホ\u{309a}ーズ").unwrap();
+
+        assert_eq!(cat(&lib, pose), ("ポーズ".into(), None));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 名前変更の先に同名のカテゴリやfinderのフォルダがあればエラーにして何も変えない() {
+        let (_d, mut lib) = setup();
+        create(&mut lib, None, "Pose").unwrap();
+        create(&mut lib, None, "ポーズ").unwrap();
+        fs::create_dir(lib.root.join("服飾")).unwrap();
+        let other = create(&mut lib, None, "背景").unwrap();
+
+        for name in ["Pose", "POSE", "ホ\u{309a}ーズ", "服飾"] {
+            let e = rename(&mut lib, other, name).err().unwrap();
+            assert!(e.contains("同じ名前"), "{name:?} {e}");
+        }
+
+        assert_eq!(cat(&lib, other), ("背景".into(), None));
+        assert_eq!(
+            top(&lib),
+            [".kura", "Pose", "_未分類", "ポーズ", "服飾", "背景"]
+        );
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 使えない名前には変えられない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+
+        for name in ["", "a/b", "a:b", ".隠し", ".kura", "_未分類"] {
+            assert!(rename(&mut lib, pose, name).is_err(), "{name:?}");
+        }
+
+        assert_eq!(cat(&lib, pose), ("ポーズ".into(), None));
+        assert_eq!(top(&lib), [".kura", "_未分類", "ポーズ"]);
+    }
+
+    #[test]
+    fn フォルダがfinderで消されていたら名前を変えずにエラーにする() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        fs::remove_dir(lib.root.join("ポーズ")).unwrap();
+
+        assert!(rename(&mut lib, pose, "人物").is_err());
+
+        assert_eq!(cat(&lib, pose), ("ポーズ".into(), None));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn フォルダ名を変えられなければカテゴリ名も変えない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        // 書き込めない親フォルダの中では rename が失敗する
+        let parent = lib.root.join("ポーズ");
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let result = rename(&mut lib, sit, "しゃがみ");
+
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(files(&lib, "ポーズ"), ["座り"]);
+        assert_eq!(cat(&lib, sit), ("座り".into(), Some(pose)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn ないカテゴリの名前は変えられない() {
+        let (_d, mut lib) = setup();
+        assert!(rename(&mut lib, 999, "人物").is_err());
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn カテゴリを別のカテゴリの下へ移すとフォルダも移り配下の画像の行は変えない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let chair = create(&mut lib, Some(sit), "椅子").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        let a = put(&lib, Some(chair), "a.jpg", "A");
+
+        move_to(&mut lib, sit, Some(wear)).unwrap();
+
+        assert_eq!(files(&lib, "ポーズ"), Vec::<String>::new());
+        assert_eq!(read(&lib, "服飾/座り/椅子/a.jpg"), "A");
+        assert_eq!(cat(&lib, sit), ("座り".into(), Some(wear)));
+        assert_eq!(dir(&lib, Some(chair)).unwrap(), Path::new("服飾/座り/椅子"));
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(chair)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn カテゴリをルート直下へ移せる() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+
+        move_to(&mut lib, sit, None).unwrap();
+
+        assert_eq!(top(&lib), [".kura", "_未分類", "ポーズ", "座り"]);
+        assert_eq!(cat(&lib, sit), ("座り".into(), None));
+    }
+
+    #[test]
+    fn 今の親へ移しても何も変えない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+
+        move_to(&mut lib, sit, Some(pose)).unwrap();
+        move_to(&mut lib, pose, None).unwrap();
+
+        assert_eq!(cat(&lib, sit), ("座り".into(), Some(pose)));
+        assert_eq!(files(&lib, "ポーズ"), ["座り"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 移動先に同名のカテゴリやfinderのフォルダがあればエラーにして何も変えない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "Sit").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        create(&mut lib, Some(wear), "sit").unwrap();
+        fs::create_dir(lib.root.join("Sit")).unwrap();
+
+        for parent in [Some(wear), None] {
+            let e = move_to(&mut lib, sit, parent).err().unwrap();
+            assert!(e.contains("同じ名前"), "{parent:?} {e}");
+        }
+
+        assert_eq!(cat(&lib, sit), ("Sit".into(), Some(pose)));
+        assert_eq!(files(&lib, "ポーズ"), ["Sit"]);
+        assert_eq!(files(&lib, "服飾"), ["sit"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 自分自身や子孫の下へは移せない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let chair = create(&mut lib, Some(sit), "椅子").unwrap();
+        // 名前が前方一致するだけの別のカテゴリの下へは移せる
+        let poses = create(&mut lib, None, "ポーズ集").unwrap();
+
+        for parent in [pose, sit, chair] {
+            let e = move_to(&mut lib, pose, Some(parent)).err().unwrap();
+            assert!(e.contains("子孫"), "{parent} {e}");
+        }
+        assert_eq!(cat(&lib, pose), ("ポーズ".into(), None));
+        assert_eq!(files(&lib, "ポーズ/座り"), ["椅子"]);
+
+        move_to(&mut lib, sit, Some(poses)).unwrap();
+        assert_eq!(files(&lib, "ポーズ集"), ["座り"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn ないカテゴリやないカテゴリの下へは移せない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+
+        assert!(move_to(&mut lib, 999, None).is_err());
+        assert!(move_to(&mut lib, pose, Some(999)).is_err());
+
+        assert_eq!(cat(&lib, pose), ("ポーズ".into(), None));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn フォルダを移せなければカテゴリも移さない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        let parent = lib.root.join("ポーズ");
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let result = move_to(&mut lib, sit, Some(wear));
+
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(files(&lib, "ポーズ"), ["座り"]);
+        assert_eq!(files(&lib, "服飾"), Vec::<String>::new());
+        assert_eq!(cat(&lib, sit), ("座り".into(), Some(pose)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn フォルダを移したあとdbを更新する前に止まった移動は起動時にdbを移動先に合わせる() {
+        let (d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        // 予定の記録と rename までを済ませ、DB の更新の前に止まった状態を作る（移動と名前変更を同時に）
+        lib.conn
+            .execute(
+                "INSERT INTO pending_ops(kind, target_id, copy, src, dst)
+                 VALUES (?1, ?2, 0, 'ポーズ/座り', '服飾/しゃがみ')",
+                params![MOVE_CATEGORY, sit],
+            )
+            .unwrap();
+        fs::rename(lib.root.join("ポーズ/座り"), lib.root.join("服飾/しゃがみ")).unwrap();
+        drop(lib);
+
+        let lib = library::open(d.path()).unwrap();
+
+        assert_eq!(cat(&lib, sit), ("しゃがみ".into(), Some(wear)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn フォルダを移す前に止まった名前変更は起動時に予定だけ消す() {
+        let (d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        lib.conn
+            .execute(
+                "INSERT INTO pending_ops(kind, target_id, copy, src, dst)
+                 VALUES (?1, ?2, 0, 'ポーズ', '人物')",
+                params![MOVE_CATEGORY, pose],
+            )
+            .unwrap();
+        drop(lib);
+
+        let lib = library::open(d.path()).unwrap();
+
+        assert_eq!(cat(&lib, pose), ("ポーズ".into(), None));
+        assert_eq!(top(&lib), [".kura", "_未分類", "ポーズ"]);
+        assert_eq!(pending(&lib), 0);
     }
 }

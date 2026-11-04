@@ -141,6 +141,7 @@ fn apply_op(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
         // 差分検出（FR-104）が新しいファイルとして取り込みと同じ扱いで登録する
         "import" => Ok(()),
         crate::category::MOVE_IMAGE => crate::category::apply_move(tx, op),
+        crate::category::MOVE_CATEGORY => crate::category::apply_category(tx, op),
         _ => Err(format!("未知の操作の種類です（{}）", op.kind)),
     }
 }

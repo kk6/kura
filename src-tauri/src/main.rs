@@ -133,6 +133,37 @@ async fn set_category(
     .map_err(|e| e.to_string())?
 }
 
+/// フォルダの名前を変えたり移したりするので、set_category と同じく別のスレッドで行う
+#[tauri::command]
+async fn rename_category(app: AppHandle, id: i64, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let mut current = current.0.lock().unwrap();
+        category::rename(
+            current.as_mut().ok_or("ライブラリを開いていません")?,
+            id,
+            &name,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn move_category(app: AppHandle, id: i64, parent: Option<i64>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let mut current = current.0.lock().unwrap();
+        category::move_to(
+            current.as_mut().ok_or("ライブラリを開いていません")?,
+            id,
+            parent,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn image_tags(current: State<Current>, ids: Vec<i64>) -> Result<Vec<tag::Counted>, String> {
     let current = current.0.lock().unwrap();
@@ -210,6 +241,8 @@ fn main() {
             set_memo,
             set_rating,
             set_category,
+            rename_category,
+            move_category,
             image_tags,
             add_tag,
             remove_tag
