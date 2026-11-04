@@ -487,3 +487,49 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   ])
   expect(errors).toEqual([])
 })
+
+test('サイドバーでルート直下とカテゴリの下に新しいカテゴリを作る', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const item = (name: string) => categories.locator('.sidebar__item--category').getByText(name, { exact: true })
+  const branch = (name: string) =>
+    categories.getByRole('listitem').filter({ has: page.getByText(name, { exact: true }) }).first()
+  const input = sidebar.getByRole('textbox', { name: '新しいカテゴリ名' })
+
+  // 同名はエラーにして入力欄を残す
+  await sidebar.getByRole('button', { name: 'カテゴリを作る', exact: true }).click()
+  await input.fill('服飾')
+  await input.press('Enter')
+  await expect(input).toHaveAttribute('aria-invalid', 'true')
+  await expect(sidebar).toContainText('エラー：同じ名前のファイルかフォルダがあります（服飾）')
+  await input.fill('手')
+  await input.press('Enter')
+  await expect(input).toHaveCount(0)
+  await expect(item('手')).toBeVisible()
+
+  // カテゴリの行のボタンはマウスを乗せると出る
+  await item('座り').hover()
+  await sidebar.getByRole('button', { name: '座り の下にカテゴリを作る' }).click()
+  await input.fill('椅子')
+  await page.screenshot({ path: 'test-results/category-create.png' })
+  await input.press('Enter')
+  await expect(branch('座り')).toContainText('椅子')
+
+  // Escape では作らない
+  await sidebar.getByRole('button', { name: 'カテゴリを作る', exact: true }).click()
+  await input.fill('取り消す')
+  await input.press('Escape')
+  await expect(categories).not.toContainText('取り消す')
+
+  const saved = await page.evaluate(() =>
+    (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'),
+  )
+  expect((saved as { categories: unknown[] }).categories.slice(6)).toEqual([
+    { id: 7, name: '手', parent_id: null },
+    { id: 8, name: '椅子', parent_id: 2 },
+  ])
+  expect(errors).toEqual([])
+})

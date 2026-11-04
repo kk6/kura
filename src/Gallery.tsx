@@ -155,6 +155,11 @@ export default function Gallery({ root }: { root: string }) {
     setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, name: nfc } : c)) }))
   }
 
+  async function createCategory(parent: number | null, name: string) {
+    const id = await invoke<number>('create_category', { parent, name })
+    setData((d) => ({ ...d, categories: [...d.categories, { id, name: name.normalize('NFC'), parent_id: parent }] }))
+  }
+
   async function moveCategory(id: number, parent: number | null) {
     try {
       await invoke('move_category', { id, parent })
@@ -209,7 +214,7 @@ export default function Gallery({ root }: { root: string }) {
         </button>
       </header>
 
-      <Sidebar gallery={data} onRename={renameCategory} onMove={moveCategory} />
+      <Sidebar gallery={data} onRename={renameCategory} onCreate={createCategory} onMove={moveCategory} />
 
       <Masonry
         root={root}

@@ -133,6 +133,22 @@ async fn set_category(
     .map_err(|e| e.to_string())?
 }
 
+/// parent の下（None はルート直下）にカテゴリとフォルダを作る（FR-401）。返り値は新しいカテゴリの id
+#[tauri::command]
+async fn create_category(app: AppHandle, parent: Option<i64>, name: String) -> Result<i64, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let mut current = current.0.lock().unwrap();
+        category::create(
+            current.as_mut().ok_or("ライブラリを開いていません")?,
+            parent,
+            &name,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// フォルダの名前を変えたり移したりするので、set_category と同じく別のスレッドで行う
 #[tauri::command]
 async fn rename_category(app: AppHandle, id: i64, name: String) -> Result<(), String> {
@@ -241,6 +257,7 @@ fn main() {
             set_memo,
             set_rating,
             set_category,
+            create_category,
             rename_category,
             move_category,
             image_tags,

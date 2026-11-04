@@ -152,6 +152,16 @@ const categoryOf = (id: unknown) => {
   return c
 }
 
+const createCategory: Handler = (args) => {
+  const parent = (args?.parent as number | null) ?? null
+  if (parent !== null) categoryOf(parent)
+  const name = String(args?.name).normalize('NFC')
+  checkCategory(0, parent, name)
+  const id = Math.max(...GALLERY.categories.map((c) => c.id)) + 1
+  GALLERY.categories.push({ id, name, parent_id: parent })
+  return id
+}
+
 const renameCategory: Handler = (args) => {
   const c = categoryOf(args?.id)
   const name = String(args?.name).normalize('NFC')
@@ -210,6 +220,7 @@ const handlers: Record<string, Handler> = {
   set_memo: setMemo,
   set_rating: setRating,
   set_category: setCategory,
+  create_category: createCategory,
   rename_category: renameCategory,
   move_category: moveCategory,
   image_tags: countTags,

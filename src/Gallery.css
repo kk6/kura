@@ -72,6 +72,26 @@
   outline: var(--focus-ring);
 }
 
+/* アイコンだけのボタン。カテゴリの行のものは、マウスを乗せたときとキーボードで選んだときだけ出す */
+.sidebar__add {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+/* visibility: hidden だとキーボードで選べなくなるので、透明にして隠す */
+.sidebar__add--hover {
+  opacity: 0;
+}
+
+.sidebar__item--category:hover .sidebar__add--hover,
+.sidebar__add--hover:focus-visible {
+  opacity: 1;
+}
+
 .sidebar__edit {
   padding: 0 0 var(--space-1) calc(var(--space-3) + var(--space-4) * var(--depth));
 }
@@ -102,6 +122,9 @@
 }
 
 .sidebar__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: var(--space-4) 0 var(--space-1);
   padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
