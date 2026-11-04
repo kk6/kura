@@ -404,9 +404,12 @@ test('選んだ画像のカテゴリとタグをまとめて変え、入力中�
   await expect(category.locator('option:checked')).toHaveText('服飾 / 制服')
   await page.screenshot({ path: 'test-results/bulk-classify.png' })
 
+  // 付けていない入力中のタグは、選び直すと消える
+  await tagInput.fill('付けないタグ')
   await thumb(page, 3).click()
   await expect(category.locator('option:checked')).toHaveText('服飾 / 制服')
   await expect(chips).toHaveText(['あおり'])
+  await expect(tagInput).toHaveValue('')
 
   // 移せなかった画像はステータスバーに件数を出し、押すと一覧を開く（モックでは ref_00007 を移せない）
   await thumb(page, 7).click({ modifiers: ['Meta'] })

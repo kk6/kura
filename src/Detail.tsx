@@ -114,7 +114,8 @@ export default function Detail(props: Props) {
         <label htmlFor="detail-tag">タグ</label>
       </dt>
       <dd>
-        <TagEditor ids={ids} tags={tags} onCreated={onTagCreated} />
+        {/* key：選び直したら、付けていない入力中のタグを消す。前の選択に付いたのか見分けにくいため */}
+        <TagEditor key={ids.join(',')} ids={ids} tags={tags} onCreated={onTagCreated} />
       </dd>
     </>
   )
