@@ -2,7 +2,7 @@ import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored } from '../galleryTypes'
-import type { Report } from '../importTypes'
+import type { Report, ScanReport } from '../importTypes'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
 
@@ -322,6 +322,33 @@ const purgeImages: Handler = (args) => {
 
 const emptyTrash: Handler = () => ({ done: TRASH.splice(0).map((i) => i.id), failed: [] })
 
+// 見つからない画像（FR-104）。最初から2枚。差分検出の結果は、e2e で見た目を確かめるため毎回同じものを返す
+const MISSING: Image[] = [COUNT + 3, COUNT + 4].map((id, i) => ({
+  ...IMAGES[i + 2],
+  id,
+  file_name: `missing_${i + 1}.jpg`,
+  hash: `hash${id}`,
+  tags: [],
+  memo: '',
+}))
+const SCAN: ScanReport = {
+  added: 3,
+  moved: 1,
+  updated: 0,
+  missing: 2,
+  returned: 0,
+  categories_added: 1,
+  categories_removed: 0,
+  skipped: [{ path: '/Users/me/Pictures/Kura ライブラリ/_未分類/メモ.txt', kind: 'unsupported' }],
+}
+
+const forgetImages: Handler = (args) => {
+  const ids = new Set(args?.ids as number[])
+  const done = MISSING.filter((i) => ids.has(i.id)).map((i) => i.id)
+  MISSING.splice(0, MISSING.length, ...MISSING.filter((i) => !ids.has(i.id)))
+  return { done, failed: [] }
+}
+
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
 const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
@@ -351,6 +378,13 @@ const handlers: Record<string, Handler> = {
   restore_images: restoreImages,
   purge_images: purgeImages,
   empty_trash: emptyTrash,
+  // 新しく作ったライブラリは空なので、差分もない
+  load_missing: () => (created ? [] : structuredClone(MISSING)),
+  scan_library: () =>
+    created
+      ? { ...SCAN, added: 0, moved: 0, missing: 0, categories_added: 0, skipped: [] }
+      : structuredClone(SCAN),
+  forget_images: forgetImages,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

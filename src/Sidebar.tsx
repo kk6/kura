@@ -20,10 +20,14 @@ type Props = {
   onCreate: (parent: number | null, name: string) => Promise<void>
   onMove: (id: number, parent: number | null) => void
   onDelete: (id: number) => void
-  // ゴミ箱（FR-511）。開いている間は、カテゴリの選択を目立たせない
+  // ゴミ箱（FR-511）と見つからない画像（FR-104）。開いている間は、カテゴリの選択を目立たせない
   trashCount: number
-  inTrash: boolean
-  onTrash: () => void
+  missingCount: number
+  aside: 'trash' | 'missing' | null
+  onAside: (aside: 'trash' | 'missing') => void
+  // 差分検出（FR-104）。scanning の間はボタンを押せない
+  scanning: boolean
+  onScan: () => void
 }
 
 // ドロップ先の目印。ROOT は見出しに落としたとき（ルート直下へ移す）
@@ -39,7 +43,7 @@ type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
 export default function Sidebar(props: Props) {
   const { root, gallery, filter, counts, onFilter, onManageTags, onRename, onCreate, onMove, onDelete } = props
-  const current = props.inTrash ? null : filter.category
+  const current = props.aside ? null : filter.category
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
@@ -290,13 +294,26 @@ export default function Sidebar(props: Props) {
         <li>
           <button
             type="button"
-            className={`sidebar__item sidebar__button${props.inTrash ? ' sidebar__item--selected' : ''}`}
-            aria-current={props.inTrash}
-            onClick={props.onTrash}
+            className={`sidebar__item sidebar__button${props.aside === 'trash' ? ' sidebar__item--selected' : ''}`}
+            aria-current={props.aside === 'trash'}
+            onClick={() => props.onAside('trash')}
           >
             ゴミ箱<span className="sidebar__count">{props.trashCount}</span>
           </button>
         </li>
+        {/* 見つからない画像があるときだけ出す。開いている間は0枚になっても残す */}
+        {(props.missingCount > 0 || props.aside === 'missing') && (
+          <li>
+            <button
+              type="button"
+              className={`sidebar__item sidebar__button${props.aside === 'missing' ? ' sidebar__item--selected' : ''}`}
+              aria-current={props.aside === 'missing'}
+              onClick={() => props.onAside('missing')}
+            >
+              見つからない<span className="sidebar__count">{props.missingCount}</span>
+            </button>
+          </li>
+        )}
       </ul>
       <h2
         className={`sidebar__heading${over === ROOT ? ' sidebar__heading--drop' : ''}`}
@@ -320,6 +337,16 @@ export default function Sidebar(props: Props) {
             onClick={() => saveCollapsed(new Set([...children.keys()].filter((id) => id !== null)))}
           >
             <Icon d="M7 11l5-5 5 5M7 18l5-5 5 5" />
+          </button>
+          <button
+            type="button"
+            className="sidebar__add"
+            aria-label="差分を確認"
+            title="Finder で足した・移した・消した画像とフォルダを反映する"
+            disabled={props.scanning}
+            onClick={props.onScan}
+          >
+            <Icon d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
           </button>
         </span>
       </h2>

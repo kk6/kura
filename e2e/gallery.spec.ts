@@ -1029,3 +1029,47 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
   await expect(thumb(page, 1)).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('開いた後に差分を確認して結果を出し、見つからない画像を開いて確かめてからDBから外す', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const status = page.getByRole('contentinfo')
+  const missingItem = sidebar.getByRole('button', { name: /^見つからない/ })
+
+  // 開いた後の差分検出の結果は、変わったものだけをステータスバーに出す
+  await expect(status).toContainText('完了：差分を反映（登録 3枚、移動 1枚、カテゴリ追加 1件）')
+  await expect(status).toContainText('注意：見つからない画像 2枚')
+  await expect(missingItem).toContainText('2')
+  await status.getByRole('button', { name: /スキップ 1枚/ }).click()
+  await expect(page.getByRole('dialog', { name: '登録しなかったファイル（1件）' })).toContainText('メモ.txt')
+  await page.keyboard.press('Escape')
+  await page.screenshot({ path: 'test-results/scan.png' })
+
+  // 見つからない画像は一覧が変わり、拡大表示はしない
+  await missingItem.click()
+  await expect(missingItem).toHaveAttribute('aria-current', 'true')
+  await expect(thumbs(page)).toHaveCount(2)
+  await expect(status).toContainText('見つからない 2枚')
+  const panel = page.getByRole('complementary', { name: '見つからない画像' })
+  await expect(panel.getByRole('button', { name: 'DBから外す' })).toBeDisabled()
+  await page.getByRole('main', { name: '画像の一覧' }).getByAltText('missing_1.jpg').dblclick()
+  await expect(page.getByRole('region', { name: '拡大表示' })).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/missing.png' })
+
+  // 外すのは取り消せないので、枚数を見せて確かめる
+  await panel.getByRole('button', { name: 'DBから外す' }).click()
+  const dialog = page.getByRole('dialog', { name: '選んだ画像をDBから外す' })
+  await expect(dialog).toContainText('選んだ画像 1枚のタグ、メモ、評価を削除します。元に戻せません。')
+  await page.screenshot({ path: 'test-results/missing-confirm.png' })
+  await dialog.getByRole('button', { name: '外す' }).click()
+  await expect(status).toContainText('完了：DBから外した 1枚')
+  await expect(thumbs(page)).toHaveCount(1)
+  await expect(missingItem).toContainText('1')
+
+  // 手動の差分検出。押すと同じく結果を出す
+  await sidebar.getByRole('button', { name: '差分を確認' }).click()
+  await expect(status).toContainText('完了：差分を反映')
+  expect(errors).toEqual([])
+})

@@ -15,14 +15,22 @@ const split = (path: string) => {
 }
 
 // shortcut: 一覧から既存の画像へ移る操作（FR-204）はまだない。一覧と選択を作るタスク#6・#7 で足す
-export default function SkipDialog({ skipped, onClose }: { skipped: Skipped[]; onClose: () => void }) {
+export default function SkipDialog({
+  title = '取り込まなかったファイル',
+  skipped,
+  onClose,
+}: {
+  title?: string
+  skipped: Skipped[]
+  onClose: () => void
+}) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => ref.current?.showModal(), [])
 
   return (
     <dialog ref={ref} className="dialog" aria-labelledby="skip-title" onClose={onClose}>
       <h2 id="skip-title" className="dialog__title">
-        取り込まなかったファイル（{skipped.length}件）
+        {title}（{skipped.length}件）
       </h2>
       <ul className="skip__list">
         {skipped.map((s) => {

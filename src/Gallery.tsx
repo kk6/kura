@@ -13,9 +13,10 @@ import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
 import TagDialog from './TagDialog'
+import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
 import type { Assigned, Deleted, Detail as DetailData, Done, Gallery as GalleryData, Image, Restored, Tag } from './galleryTypes'
-import type { ImportProgress, Report } from './importTypes'
+import type { ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
@@ -24,12 +25,15 @@ import './Gallery.css'
 type Failed = { file_name: string; message: string }[]
 type Result =
   | { kind: 'report'; report: Report }
+  // 差分検出（FR-104）
+  | { kind: 'scan'; report: ScanReport }
   | { kind: 'error'; message: string; failed?: { file_name: string; message: string }[] }
   | { kind: 'deleted'; name: string; moved: number }
   | { kind: 'assigned'; moved: number; failed: Failed }
   // ゴミ箱（FR-511）。uncategorized は元のカテゴリがなく未分類へ戻した枚数
   | { kind: 'trashed'; count: number; failed: Failed }
   | { kind: 'emptied'; count: number; failed: Failed }
+  | { kind: 'forgotten'; count: number; failed: Failed }
   | { kind: 'restored'; count: number; uncategorized: number; failed: Failed }
 
 const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
@@ -54,7 +58,13 @@ export default function Gallery({ root }: { root: string }) {
   const busy = useRef(false)
   // ゴミ箱の画像と、ゴミ箱を開いているか（FR-511）
   const [trash, setTrash] = useState<Image[]>([])
-  const [inTrash, setInTrash] = useState(false)
+  // 見つからない画像（FR-104）
+  const [missing, setMissing] = useState<Image[]>([])
+  // 一覧の場所に出しているもの。null はギャラリー
+  const [aside, setAside] = useState<'trash' | 'missing' | null>(null)
+  const inTrash = aside === 'trash'
+  const inMissing = aside === 'missing'
+  const [scanning, setScanning] = useState(false)
 
   async function reload() {
     try {
@@ -71,9 +81,41 @@ export default function Gallery({ root }: { root: string }) {
       setLoadError(String(e))
     }
   }
+  async function reloadMissing() {
+    try {
+      setMissing(await invoke<Image[]>('load_missing'))
+    } catch (e) {
+      setLoadError(String(e))
+    }
+  }
+
+  // 差分検出（FR-104）。ライブラリを開いた後と、サイドバーのボタンで行う
+  async function scan() {
+    if (busy.current) return
+    busy.current = true
+    setScanning(true)
+    try {
+      setResult({ kind: 'scan', report: await invoke<ScanReport>('scan_library') })
+    } catch (e) {
+      setResult({ kind: 'error', message: `差分を確認できません（${e}）` })
+    }
+    busy.current = false
+    setScanning(false)
+    // 一覧が丸ごと変わりうるので、選択も外す
+    setSelection(EMPTY_SELECTION)
+    reload()
+    reloadTrash()
+    reloadMissing()
+  }
+
+  const scanRef = useRef(scan)
+  scanRef.current = scan
+  // 差分検出の前に、今の DB の一覧を先に出す
   useEffect(() => {
     reload()
     reloadTrash()
+    reloadMissing()
+    scanRef.current()
   }, [])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
@@ -87,8 +129,8 @@ export default function Gallery({ root }: { root: string }) {
   // 絞り込みを変えたら、見えなくなった画像の選択を外す。見えない画像までまとめて変えないため
   function changeFilter(next: Filter) {
     setFilter(next)
-    if (inTrash) {
-      setInTrash(false)
+    if (aside) {
+      setAside(null)
       setSelection(EMPTY_SELECTION)
       return
     }
@@ -105,13 +147,13 @@ export default function Gallery({ root }: { root: string }) {
     const targets = new Set(ids)
     setData((d) => ({ ...d, images: d.images.map((i) => (targets.has(i.id) ? edit(i) : i)) }))
   }
-  // ゴミ箱は削除した新しい順に出し、並べ替えと絞り込みはしない
-  const listed = inTrash ? trash : images
+  // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
+  const listed = inTrash ? trash : inMissing ? missing : images
   const order = useMemo(() => listed.map((i) => i.id), [listed])
   const ids = useMemo(() => [...selection.ids], [selection.ids])
-  const pool = inTrash ? trash : data.images
+  const pool = listed === images ? data.images : listed
   const selected = useMemo(() => pool.filter((i) => selection.ids.has(i.id)), [pool, selection.ids])
-  const only = !inTrash && ids.length === 1 ? ids[0] : null
+  const only = !aside && ids.length === 1 ? ids[0] : null
   const selectedImage = only === null ? null : (selected[0] ?? null)
   const shown = detail && detail.id === only ? detail : null
   // カテゴリを変えるとファイルの場所が変わるので、詳細（拡大表示で読む元の画像のパス）を読み直す
@@ -219,12 +261,26 @@ export default function Gallery({ root }: { root: string }) {
     reloadTrash()
   }
 
-  function openTrash() {
-    setInTrash(true)
+  function openAside(next: 'trash' | 'missing') {
+    setAside(next)
     setZoom(false)
     setSelection(EMPTY_SELECTION)
-    // タグの統合や削除はゴミ箱の画像にも効くので、開くたびに読み直す
-    reloadTrash()
+    // タグの統合や削除はゴミ箱と見つからない画像にも効くので、開くたびに読み直す
+    if (next === 'trash') reloadTrash()
+    else reloadMissing()
+  }
+
+  async function forget() {
+    let r: Done
+    try {
+      r = await invoke<Done>('forget_images', { ids })
+    } catch (e) {
+      setResult({ kind: 'error', message: `DBから外せません（${e}）` })
+      return
+    }
+    setSelection(EMPTY_SELECTION)
+    setResult({ kind: 'forgotten', count: r.done.length, failed: named(r.failed, missing) })
+    reloadMissing()
   }
 
   // 戻した画像はタグとメモも含めて一覧に戻るので、両方を読み直す
@@ -344,7 +400,7 @@ export default function Gallery({ root }: { root: string }) {
     dropTag(id, null)
   }
 
-  const skipped = result?.kind === 'report' ? result.report.skipped : []
+  const skipped = result?.kind === 'report' || result?.kind === 'scan' ? result.report.skipped : []
   const errors = skipped.filter((s) => s.kind === 'error').length
 
   return (
@@ -374,10 +430,10 @@ export default function Gallery({ root }: { root: string }) {
           value={thumbWidth}
           onChange={(e) => setThumbWidth(Number(e.target.value))}
         />
-        <button type="button" className="button" disabled={!!progress} onClick={() => pick(false)}>
+        <button type="button" className="button" disabled={!!progress || scanning} onClick={() => pick(false)}>
           画像を取り込む
         </button>
-        <button type="button" className="button" disabled={!!progress} onClick={() => pick(true)}>
+        <button type="button" className="button" disabled={!!progress || scanning} onClick={() => pick(true)}>
           フォルダを取り込む
         </button>
       </header>
@@ -394,8 +450,11 @@ export default function Gallery({ root }: { root: string }) {
         onMove={moveCategory}
         onDelete={deleteCategory}
         trashCount={trash.length}
-        inTrash={inTrash}
-        onTrash={openTrash}
+        missingCount={missing.length}
+        aside={aside}
+        onAside={openAside}
+        scanning={scanning || !!progress}
+        onScan={scan}
       />
 
       <Masonry
@@ -406,8 +465,8 @@ export default function Gallery({ root }: { root: string }) {
         onSelect={(id, e) =>
           setSelection((s) => (id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey })))
         }
-        // ゴミ箱の元の画像は画面から読めないので、拡大表示しない
-        onOpen={() => !inTrash && setZoom(true)}
+        // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
+        onOpen={() => !aside && setZoom(true)}
       />
 
       {zoomed && (
@@ -452,6 +511,8 @@ export default function Gallery({ root }: { root: string }) {
           onPurge={() => purge(ids)}
           onEmpty={() => purge()}
         />
+      ) : inMissing ? (
+        <MissingPanel selected={ids.length} onForget={forget} />
       ) : (
         <Detail
           root={root}
@@ -480,13 +541,17 @@ export default function Gallery({ root }: { root: string }) {
         <span>
           {inTrash
             ? `ゴミ箱 ${trash.length}枚`
-            : filtered
+            : inMissing
+              ? `見つからない ${missing.length}枚`
+              : filtered
               ? `${images.length} / ${data.images.length}枚`
               : `${data.images.length}枚`}
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <span className="statusbar__import" role="status">
-          {progress ? (
+          {scanning ? (
+            '差分を確認中…'
+          ) : progress ? (
             <>
               取り込み中 {progress.done} / {progress.total}枚
               <span
@@ -525,7 +590,29 @@ export default function Gallery({ root }: { root: string }) {
                 </button>
               )}
             </>
-          ) : result?.kind === 'trashed' || result?.kind === 'restored' || result?.kind === 'emptied' ? (
+          ) : result?.kind === 'scan' ? (
+            <>
+              <Status kind="success">{scanSummary(result.report)}</Status>
+              {result.report.missing > 0 && (
+                <button type="button" className="statusbar__link" onClick={() => openAside('missing')}>
+                  <Status kind="warning">見つからない画像 {result.report.missing}枚</Status>
+                </button>
+              )}
+              {skipped.length > errors && (
+                <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
+                  <Status kind="warning">スキップ {skipped.length - errors}枚</Status>
+                </button>
+              )}
+              {errors > 0 && (
+                <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
+                  <Status kind="error">登録できない {errors}件</Status>
+                </button>
+              )}
+            </>
+          ) : result?.kind === 'trashed' ||
+            result?.kind === 'restored' ||
+            result?.kind === 'emptied' ||
+            result?.kind === 'forgotten' ? (
             <>
               <Status kind="success">
                 {TRASH_DONE[result.kind]} {result.count}枚
@@ -536,7 +623,8 @@ export default function Gallery({ root }: { root: string }) {
               {result.failed.length > 0 && (
                 <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
                   <Status kind="error">
-                    {result.kind === 'emptied' ? '削除できない' : '移せない'} {result.failed.length}枚
+                    {result.kind === 'emptied' ? '削除できない' : result.kind === 'forgotten' ? '外せない' : '移せない'}{' '}
+                    {result.failed.length}枚
                   </Status>
                 </button>
               )}
@@ -574,20 +662,50 @@ export default function Gallery({ root }: { root: string }) {
       )}
 
       {showSkipped &&
-        (result && result.kind !== 'report' && result.kind !== 'deleted' ? (
+        (result && result.kind !== 'report' && result.kind !== 'scan' && result.kind !== 'deleted' ? (
           <MoveFailDialog
-            title={result.kind === 'emptied' ? '削除できなかった画像' : undefined}
+            title={
+              result.kind === 'emptied'
+                ? '削除できなかった画像'
+                : result.kind === 'forgotten'
+                  ? 'DBから外せなかった画像'
+                  : undefined
+            }
             failed={result.failed ?? []}
             onClose={() => setShowSkipped(false)}
           />
         ) : (
-          <SkipDialog skipped={skipped} onClose={() => setShowSkipped(false)} />
+          <SkipDialog
+            title={result?.kind === 'scan' ? '登録しなかったファイル' : undefined}
+            skipped={skipped}
+            onClose={() => setShowSkipped(false)}
+          />
         ))}
     </div>
   )
 }
 
-const TRASH_DONE = { trashed: 'ゴミ箱へ移した', restored: '元に戻した', emptied: 'ゴミ箱から削除した' }
+const TRASH_DONE = {
+  trashed: 'ゴミ箱へ移した',
+  restored: '元に戻した',
+  emptied: 'ゴミ箱から削除した',
+  forgotten: 'DBから外した',
+}
+
+// 差分検出の結果のうち、0でないものだけを並べる
+function scanSummary(r: ScanReport) {
+  const parts = [
+    ['登録', r.added, '枚'],
+    ['移動', r.moved, '枚'],
+    ['更新', r.updated, '枚'],
+    ['見つかった', r.returned, '枚'],
+    ['カテゴリ追加', r.categories_added, '件'],
+    ['カテゴリ削除', r.categories_removed, '件'],
+  ]
+    .filter(([, n]) => n)
+    .map(([label, n, unit]) => `${label} ${n}${unit}`)
+  return parts.length ? `差分を反映（${parts.join('、')}）` : 'Finder での変更はありません'
+}
 
 const sortTags = (tags: Tag[]) => tags.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
 
