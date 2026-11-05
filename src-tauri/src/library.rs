@@ -10,7 +10,7 @@ use crate::fileops::{self, PendingOp};
 
 pub const KURA_DIR: &str = ".kura";
 pub const UNCATEGORIZED_DIR: &str = "_未分類";
-/// 削除したカテゴリのフォルダに残った管理外のファイル（FR-404）と、削除した画像（FR-511）を置く
+/// 削除したカテゴリのフォルダに残った管理外のファイル（FR-404）と、削除した画像（FR-511、`<画像のid>.<拡張子>`）を置く
 pub const TRASH_DIR: &str = ".kura/trash";
 
 // 1つが1つの版。後のタスクでテーブルを足すときは末尾に足し、既存の要素は書き換えない
@@ -148,6 +148,8 @@ fn apply_op(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
         crate::category::MOVE_IMAGE => crate::category::apply_move(tx, op),
         crate::category::MOVE_CATEGORY => crate::category::apply_category(tx, op),
         crate::category::TRASH_CATEGORY => crate::category::apply_trash(tx, op),
+        crate::trash::TRASH_IMAGE => crate::trash::apply_trash(tx, op),
+        crate::trash::RESTORE_IMAGE => crate::trash::apply_restore(tx, op),
         _ => Err(format!("未知の操作の種類です（{}）", op.kind)),
     }
 }

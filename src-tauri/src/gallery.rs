@@ -52,42 +52,8 @@ pub struct Gallery {
 
 pub fn load(lib: &Library) -> Result<Gallery, String> {
     let conn = &lib.conn;
-    let mut tags_of: HashMap<i64, Vec<i64>> = HashMap::new();
-    let mut stmt = conn
-        .prepare("SELECT image_id, tag_id FROM image_tags ORDER BY image_id, tag_id")
-        .map_err(err)?;
-    let mut rows = stmt.query([]).map_err(err)?;
-    while let Some(r) = rows.next().map_err(err)? {
-        tags_of
-            .entry(r.get(0).map_err(err)?)
-            .or_default()
-            .push(r.get(1).map_err(err)?);
-    }
     // ゴミ箱の画像は一覧に出さない（FR-511）
-    let images = conn
-        .prepare(
-            "SELECT id, file_name, hash, width, height, color, category_id, rating, imported_at, memo
-             FROM images WHERE deleted_at IS NULL ORDER BY id",
-        )
-        .map_err(err)?
-        .query_map([], |r| {
-            Ok(Image {
-                id: r.get(0)?,
-                file_name: r.get(1)?,
-                hash: r.get(2)?,
-                width: r.get(3)?,
-                height: r.get(4)?,
-                color: r.get(5)?,
-                category_id: r.get(6)?,
-                rating: r.get(7)?,
-                imported_at: r.get(8)?,
-                memo: r.get(9)?,
-                tags: tags_of.remove(&r.get(0)?).unwrap_or_default(),
-            })
-        })
-        .map_err(err)?
-        .collect::<Result<_, _>>()
-        .map_err(err)?;
+    let images = images(lib, false)?;
     let categories = conn
         .prepare("SELECT id, name, parent_id FROM categories ORDER BY sort_order, name, id")
         .map_err(err)?
@@ -118,6 +84,55 @@ pub fn load(lib: &Library) -> Result<Gallery, String> {
         categories,
         tags,
     })
+}
+
+/// ゴミ箱の画像（FR-511）。削除した新しい順に並べる
+pub fn trash(lib: &Library) -> Result<Vec<Image>, String> {
+    images(lib, true)
+}
+
+fn images(lib: &Library, trashed: bool) -> Result<Vec<Image>, String> {
+    let conn = &lib.conn;
+    let mut tags_of: HashMap<i64, Vec<i64>> = HashMap::new();
+    let mut stmt = conn
+        .prepare("SELECT image_id, tag_id FROM image_tags ORDER BY image_id, tag_id")
+        .map_err(err)?;
+    let mut rows = stmt.query([]).map_err(err)?;
+    while let Some(r) = rows.next().map_err(err)? {
+        tags_of
+            .entry(r.get(0).map_err(err)?)
+            .or_default()
+            .push(r.get(1).map_err(err)?);
+    }
+    let filter = match trashed {
+        true => "deleted_at IS NOT NULL ORDER BY deleted_at DESC, id",
+        false => "deleted_at IS NULL ORDER BY id",
+    };
+    let images = conn
+        .prepare(&format!(
+            "SELECT id, file_name, hash, width, height, color, category_id, rating, imported_at, memo
+             FROM images WHERE {filter}"
+        ))
+        .map_err(err)?
+        .query_map([], |r| {
+            Ok(Image {
+                id: r.get(0)?,
+                file_name: r.get(1)?,
+                hash: r.get(2)?,
+                width: r.get(3)?,
+                height: r.get(4)?,
+                color: r.get(5)?,
+                category_id: r.get(6)?,
+                rating: r.get(7)?,
+                imported_at: r.get(8)?,
+                memo: r.get(9)?,
+                tags: tags_of.remove(&r.get(0)?).unwrap_or_default(),
+            })
+        })
+        .map_err(err)?
+        .collect::<Result<_, _>>()
+        .map_err(err)?;
+    Ok(images)
 }
 
 #[derive(Debug, PartialEq, Serialize)]

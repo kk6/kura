@@ -5,6 +5,7 @@ mod import;
 mod library;
 mod recent;
 mod tag;
+mod trash;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -259,6 +260,41 @@ fn delete_tag(current: State<Current>, id: i64) -> Result<(), String> {
     tag::delete(current.as_mut().ok_or("ライブラリを開いていません")?, id)
 }
 
+#[tauri::command]
+fn load_trash(current: State<Current>) -> Result<Vec<gallery::Image>, String> {
+    let current = current.0.lock().unwrap();
+    gallery::trash(current.as_ref().ok_or("ライブラリを開いていません")?)
+}
+
+/// 画像をゴミ箱へ移す・戻す・ゴミ箱を空にする（FR-511）。ファイルを動かすので別のスレッドで行う
+#[tauri::command]
+async fn trash_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Done, String> {
+    with_library(app, move |lib| trash::trash(lib, &ids)).await
+}
+
+#[tauri::command]
+async fn restore_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Restored, String> {
+    with_library(app, move |lib| trash::restore(lib, &ids)).await
+}
+
+#[tauri::command]
+async fn empty_trash(app: AppHandle) -> Result<trash::Done, String> {
+    with_library(app, trash::empty).await
+}
+
+async fn with_library<T: Send + 'static>(
+    app: AppHandle,
+    f: impl FnOnce(&mut Library) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let mut current = current.0.lock().unwrap();
+        f(current.as_mut().ok_or("ライブラリを開いていません")?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[derive(Clone, Serialize)]
 struct ImportProgress {
     done: usize,
@@ -320,7 +356,11 @@ fn main() {
             remove_tag,
             rename_tag,
             merge_tag,
-            delete_tag
+            delete_tag,
+            load_trash,
+            trash_images,
+            restore_images,
+            empty_trash
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

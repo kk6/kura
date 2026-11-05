@@ -74,7 +74,7 @@ pub fn rename_image(lib: &mut Library, id: i64, stem: &str) -> Result<String, St
 }
 
 /// ゴミ箱にない画像の、フォルダ（ライブラリからの相対パス）とファイル名
-fn locate(lib: &Library, id: i64) -> Result<(PathBuf, String), String> {
+pub(crate) fn locate(lib: &Library, id: i64) -> Result<(PathBuf, String), String> {
     let (file_name, category): (String, Option<i64>) = lib
         .conn
         .query_row(
@@ -425,7 +425,7 @@ fn prune(path: &Path) -> std::io::Result<bool> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
@@ -436,7 +436,7 @@ mod tests {
     use crate::library::{self, UNCATEGORIZED_DIR};
 
     // fileops のテストと同じく、KURA_TEST_DIR に exFAT などのボリュームを指定できる
-    fn setup() -> (TempDir, Library) {
+    pub(crate) fn setup() -> (TempDir, Library) {
         let dir = match std::env::var_os("KURA_TEST_DIR") {
             Some(base) => tempfile::tempdir_in(base).unwrap(),
             None => tempfile::tempdir().unwrap(),
@@ -447,7 +447,7 @@ mod tests {
 
     /// 書き込めないフォルダにして、失敗を起こす。exFAT と FAT32 は Unix の権限を持たず書き込めてしまうので、
     /// そのときは元に戻して false を返し、テストはそこで終える（失敗時の巻き戻しはファイルシステムに依らないため）
-    fn lock(dir: &Path) -> bool {
+    pub(crate) fn lock(dir: &Path) -> bool {
         fs::set_permissions(dir, fs::Permissions::from_mode(0o555)).unwrap();
         let probe = dir.join(".kura-probe");
         if fs::create_dir(&probe).is_err() {
@@ -459,7 +459,7 @@ mod tests {
         false
     }
 
-    fn unlock(dir: &Path) {
+    pub(crate) fn unlock(dir: &Path) {
         fs::set_permissions(dir, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
@@ -580,7 +580,7 @@ mod tests {
     }
 
     /// category のフォルダに中身 body のファイルを置き、画像として登録する
-    fn put(lib: &Library, category: Option<i64>, name: &str, body: &str) -> i64 {
+    pub(crate) fn put(lib: &Library, category: Option<i64>, name: &str, body: &str) -> i64 {
         fs::write(lib.root.join(dir(lib, category).unwrap()).join(name), body).unwrap();
         lib.conn
             .execute(
@@ -593,7 +593,7 @@ mod tests {
         lib.conn.last_insert_rowid()
     }
 
-    fn row(lib: &Library, id: i64) -> (String, Option<i64>) {
+    pub(crate) fn row(lib: &Library, id: i64) -> (String, Option<i64>) {
         lib.conn
             .query_row(
                 "SELECT file_name, category_id FROM images WHERE id = ?1",
@@ -603,17 +603,17 @@ mod tests {
             .unwrap()
     }
 
-    fn read(lib: &Library, rel: &str) -> String {
+    pub(crate) fn read(lib: &Library, rel: &str) -> String {
         fs::read_to_string(lib.root.join(rel)).unwrap()
     }
 
-    fn pending(lib: &Library) -> i64 {
+    pub(crate) fn pending(lib: &Library) -> i64 {
         lib.conn
             .query_row("SELECT count(*) FROM pending_ops", [], |r| r.get(0))
             .unwrap()
     }
 
-    fn files(lib: &Library, rel: &str) -> Vec<String> {
+    pub(crate) fn files(lib: &Library, rel: &str) -> Vec<String> {
         let mut names: Vec<_> = fs::read_dir(lib.root.join(rel))
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().nfc().collect())
