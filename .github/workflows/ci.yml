@@ -4,12 +4,102 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: read # paths-filter が pull_request で変更ファイルを読む
+
 jobs:
-  check:
+  # 変わったファイルで e2e・Rust・Python を流すか決める。lint と Vitest はいつも流す
+  changes:
+    # 検査はしない振り分けだけのジョブなので、起動の速い ubuntu で動かす
+    runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.filter.outputs.e2e }}
+      rust: ${{ steps.filter.outputs.rust }}
+      python: ${{ steps.filter.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # e2e と rust は「除外リスト以外が1つでも変われば流す」。知らないファイルが増えても流れる側に倒れる
+          predicate-quantifier: every
+          filters: |
+            e2e:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!scripts/**'
+              - '!spikes/**'
+              - '!ml/**'
+              - '!src-tauri/**'
+              - '!.claude/**'
+              - '!ruff.toml'
+              - '!lefthook.yml'
+              - '!.git-blame-ignore-revs'
+            rust:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!scripts/**'
+              - '!spikes/**'
+              - '!ml/**'
+              - '!e2e/**'
+              - '!src/**'
+              - '!.claude/**'
+              - '!ruff.toml'
+              - '!lefthook.yml'
+              - '!.git-blame-ignore-revs'
+              - '!eslint.config.js'
+              - '!playwright.config.ts'
+              - '!.prettierrc.json'
+              - '!.prettierignore'
+            python:
+              - '**/*.py'
+              - '**/pyproject.toml'
+              - '**/uv.lock'
+              - 'ruff.toml'
+              - '.github/workflows/ci.yml'
+
+  # lint は docs、CLAUDE.md、main.rs のコマンド名も調べるので、どの変更でも流す
+  web:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
 
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      # キャッシュに当たったときは何もしないで終わる
+      - run: npx playwright install webkit
+      - run: npm run test:e2e
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -20,14 +110,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - uses: astral-sh/setup-uv@v6
-
       - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npx playwright install webkit
-      - run: npm run test:e2e
-
       # tauri::generate_context! はビルド時に dist/ を読むので、先に画面をビルドする
       - run: npm run build
       - name: cargo fmt
@@ -40,6 +123,13 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
       - run: uv run --with pillow --with pytest pytest scripts/
       - run: uvx ruff@0.17.3 check
       - run: uvx ruff@0.17.3 format --check
