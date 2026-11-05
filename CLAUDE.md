@@ -43,10 +43,10 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`
 - 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
 - 整形（Rust）：`cargo fmt`（`src-tauri/` で実行）
-- 整形（Python）：`uvx ruff format`
+- 整形（Python）：`uvx ruff@0.17.3 format`
 - Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出）
 - Lint（Rust）：`cargo fmt --check` と `cargo clippy -- -D warnings`（`src-tauri/` で実行）
-- Lint（Python）：`uvx ruff check` と `uvx ruff format --check`（`spikes/` は対象外）
+- Lint（Python）：`uvx ruff@0.17.3 check` と `uvx ruff@0.17.3 format --check`（`spikes/` は対象外）
 - CI：`.github/workflows/ci.yml`。push と pull request で、上のテストと Lint を macOS で流す（`ml/` の pytest は `ml/` ができてから足す）
 
 ## 設計上の決まり

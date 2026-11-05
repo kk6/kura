@@ -1,3 +1,5 @@
 # spikes/ は使い捨てのプロトタイプなので検査しない。lefthook がファイルを名指ししても除く
 extend-exclude = ["spikes"]
 force-exclude = true
+# uvx ruff はキャッシュの古い版で動くことがあり、版ごとに検査の結果が変わるため、CI・lefthook・CLAUDE.md の版と合わせる
+required-version = "==0.17.3"

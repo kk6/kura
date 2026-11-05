@@ -2,9 +2,8 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from PIL import Image
-
 from gen_dev_library import EMPTY_FOLDER, generate
+from PIL import Image
 
 IMAGE_EXTS = {".jpg", ".png", ".webp", ".gif"}
 
