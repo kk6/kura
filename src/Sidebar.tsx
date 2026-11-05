@@ -7,8 +7,6 @@ import type { countImages, Filter } from './filter'
 import type { Category, Gallery } from './galleryTypes'
 
 type Props = {
-  // 開いているライブラリ。カテゴリの開閉の状態をライブラリごとに覚えるのに使う
-  root: string
   gallery: Gallery
   // 絞り込み（FR-504）。カテゴリとタグを押すと変える
   filter: Filter
@@ -20,6 +18,11 @@ type Props = {
   onCreate: (parent: number | null, name: string) => Promise<void>
   onMove: (id: number, parent: number | null) => void
   onDelete: (id: number) => void
+  // カテゴリを閉じる・開く。閉じた状態はライブラリの DB に残る
+  onCollapse: (ids: number[], collapsed: boolean) => void
+  // カテゴリを移すときに確認する（アプリの設定）。確認で「今後は確認しない」を選ぶと onSkipConfirm を呼ぶ
+  confirmMove: boolean
+  onSkipConfirm: () => void
   // ゴミ箱（FR-511）と見つからない画像（FR-104）。開いている間は、カテゴリの選択を目立たせない
   trashCount: number
   missingCount: number
@@ -34,15 +37,12 @@ type Props = {
 const ROOT = 'root'
 // ドラッグとみなす動きの距離（px）
 const DRAG_START = 4
-// 移動の確認ダイアログで「今後は確認しない」を選んだ印。
-// shortcut: このウェブビューに保存するだけで、戻す画面がない。設定ダイアログ（タスク#18）でアプリの設定に移し、戻せるようにする
-export const SKIP_CONFIRM = 'kura.skipCategoryMoveConfirm'
 
 // ドラッグ中のポインターの下。none は落とせる先の外、self は自分か子孫、same は今の親、target は移せる先
 type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
 export default function Sidebar(props: Props) {
-  const { root, gallery, filter, counts, onFilter, onManageTags, onRename, onCreate, onMove, onDelete } = props
+  const { gallery, filter, counts, onFilter, onManageTags, onRename, onCreate, onMove, onDelete, onCollapse } = props
   const current = props.aside ? null : filter.category
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
@@ -51,20 +51,8 @@ export default function Sidebar(props: Props) {
   const toggleTag = (id: number) =>
     onFilter({ ...filter, tags: filter.tags.includes(id) ? filter.tags.filter((t) => t !== id) : [...filter.tags, id] })
 
-  // 閉じているカテゴリ。shortcut: このウェブビューに保存する。設定ダイアログ（タスク#18）でアプリの設定にまとめるなら移す
-  const collapsedKey = `kura.collapsedCategories:${root}`
-  const [collapsed, setCollapsed] = useState(
-    () => new Set<number>(JSON.parse(localStorage.getItem(collapsedKey) ?? '[]') as number[]),
-  )
-  const saveCollapsed = (next: Set<number>) => {
-    setCollapsed(next)
-    localStorage.setItem(collapsedKey, JSON.stringify([...next]))
-  }
-  const toggle = (id: number) => {
-    const next = new Set(collapsed)
-    if (!next.delete(id)) next.add(id)
-    saveCollapsed(next)
-  }
+  const collapsed = new Set(gallery.categories.filter((c) => c.collapsed).map((c) => c.id))
+  const toggle = (id: number) => onCollapse([id], !collapsed.has(id))
 
   // 名前を入力中のカテゴリ。rename は既存の名前の変更、create は parent の下（null はルート直下）への作成
   const [editing, setEditing] = useState<
@@ -104,7 +92,7 @@ export default function Sidebar(props: Props) {
     const onUp = (e: PointerEvent) => {
       const hit = moved(e) ? hitAt(e) : 'none'
       if (typeof hit === 'object') {
-        if (localStorage.getItem(SKIP_CONFIRM) === '1') onMove(press.id, hit.target)
+        if (!props.confirmMove) onMove(press.id, hit.target)
         else setPending({ id: press.id, parent: hit.target })
       }
       end()
@@ -334,7 +322,12 @@ export default function Sidebar(props: Props) {
             type="button"
             className="sidebar__add"
             aria-label="すべて閉じる"
-            onClick={() => saveCollapsed(new Set([...children.keys()].filter((id) => id !== null)))}
+            onClick={() =>
+              onCollapse(
+                [...children.keys()].filter((id) => id !== null && !collapsed.has(id)) as number[],
+                true,
+              )
+            }
           >
             <Icon d="M7 11l5-5 5 5M7 18l5-5 5 5" />
           </button>
@@ -417,7 +410,7 @@ export default function Sidebar(props: Props) {
           name={nameOf(pending.id) ?? ''}
           to={place(pending.parent)}
           onConfirm={(skip) => {
-            if (skip) localStorage.setItem(SKIP_CONFIRM, '1')
+            if (skip) props.onSkipConfirm()
             onMove(pending.id, pending.parent)
             setPending(null)
           }}

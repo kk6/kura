@@ -15,7 +15,17 @@ import Status from './Status'
 import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
-import type { Assigned, Deleted, Detail as DetailData, Done, Gallery as GalleryData, Image, Restored, Tag } from './galleryTypes'
+import type {
+  Assigned,
+  Deleted,
+  Detail as DetailData,
+  Done,
+  Gallery as GalleryData,
+  Image,
+  Restored,
+  Settings,
+  Tag,
+} from './galleryTypes'
 import type { ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
@@ -42,11 +52,17 @@ const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
 const THUMB_MIN = 100
 const THUMB_MAX = 320
 
-export default function Gallery({ root }: { root: string }) {
+type Props = {
+  root: string
+  // アプリ全体の設定。onSettings は保存に失敗したら理由の文字列で reject する
+  settings: Settings
+  onSettings: (settings: Settings) => Promise<void>
+}
+
+export default function Gallery({ root, settings, onSettings }: Props) {
   const [data, setData] = useState(EMPTY)
   const [sort, setSort] = useState<SortKey>('imported')
   const [filter, setFilter] = useState(NO_FILTER)
-  const [thumbWidth, setThumbWidth] = useState(200)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
@@ -66,6 +82,11 @@ export default function Gallery({ root }: { root: string }) {
   const inMissing = aside === 'missing'
   // 差分検出の進み具合。total が0の間は、中身を読むファイルを数えている
   const [scanning, setScanning] = useState<ImportProgress | null>(null)
+
+  const thumbWidth = Math.min(THUMB_MAX, Math.max(THUMB_MIN, settings.thumb_width))
+  function changeSettings(next: Partial<Settings>) {
+    onSettings({ ...settings, ...next }).catch((e) => setResult({ kind: 'error', message: String(e) }))
+  }
 
   // 読み直した画像を返す。読めなければ空
   async function reload() {
@@ -349,7 +370,7 @@ export default function Gallery({ root }: { root: string }) {
 
   async function createCategory(parent: number | null, name: string) {
     const id = await invoke<number>('create_category', { parent, name })
-    setData((d) => ({ ...d, categories: [...d.categories, { id, name: name.normalize('NFC'), parent_id: parent }] }))
+    setData((d) => ({ ...d, categories: [...d.categories, { id, name: name.normalize('NFC'), parent_id: parent, collapsed: false }] }))
   }
 
   async function moveCategory(id: number, parent: number | null) {
@@ -359,6 +380,15 @@ export default function Gallery({ root }: { root: string }) {
     } catch (e) {
       setResult({ kind: 'error', message: `カテゴリを移せません（${e}）` })
     }
+  }
+
+  async function collapseCategories(ids: number[], collapsed: boolean) {
+    const set = new Set(ids)
+    setData((d) => ({ ...d, categories: d.categories.map((c) => (set.has(c.id) ? { ...c, collapsed } : c)) }))
+    // 開閉を覚えられなくても操作は続けられるので、知らせるだけにする
+    await invoke('set_categories_collapsed', { ids, collapsed }).catch((e) =>
+      setResult({ kind: 'error', message: `カテゴリの開閉を保存できません（${e}）` }),
+    )
   }
 
   async function deleteCategory(id: number) {
@@ -441,7 +471,7 @@ export default function Gallery({ root }: { root: string }) {
           max={THUMB_MAX}
           step={10}
           value={thumbWidth}
-          onChange={(e) => setThumbWidth(Number(e.target.value))}
+          onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
         />
         {/* 取り込みと差分検出の間は、押せないボタンを残さず処理中であることを出す。押せない理由がわからないと壊れたと思われるため。
             ボタンは見えないまま場所を取り、ヘッダーの幅が変わらないようにする */}
@@ -464,7 +494,6 @@ export default function Gallery({ root }: { root: string }) {
       </header>
 
       <Sidebar
-        root={root}
         gallery={data}
         filter={filter}
         counts={counts}
@@ -474,6 +503,9 @@ export default function Gallery({ root }: { root: string }) {
         onCreate={createCategory}
         onMove={moveCategory}
         onDelete={deleteCategory}
+        onCollapse={collapseCategories}
+        confirmMove={settings.confirm_category_move}
+        onSkipConfirm={() => changeSettings({ confirm_category_move: false })}
         trashCount={trash.length}
         missingCount={missing.length}
         aside={aside}

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { useEffect, useState } from 'react'
 import Gallery from './Gallery'
+import type { Settings } from './galleryTypes'
 import LibrarySelect, { type OpenCommand } from './LibrarySelect'
 
 type Screen = { kind: 'loading' } | { kind: 'select'; error?: string } | { kind: 'gallery'; path: string }
@@ -8,6 +9,13 @@ type Screen = { kind: 'loading' } | { kind: 'select'; error?: string } | { kind:
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' })
   const [recent, setRecent] = useState<string[]>([])
+  // アプリ全体の設定。読み終わるまで画面を出さない（サムネイルの大きさが途中で変わらないように）
+  const [settings, setSettings] = useState<Settings | null>(null)
+
+  async function saveSettings(next: Settings) {
+    setSettings(next)
+    await invoke('save_settings', { settings: next })
+  }
 
   async function openLibrary(command: OpenCommand, path: string) {
     try {
@@ -20,6 +28,7 @@ export default function App() {
 
   // 起動時は前回のライブラリを開く。見つからなければ選択画面にその旨を出す（NFR-13）
   useEffect(() => {
+    invoke<Settings>('load_settings').then(setSettings)
     invoke<string[]>('list_recent_libraries').then((list) => {
       setRecent(list)
       if (list[0]) openLibrary('open_library', list[0])
@@ -27,7 +36,7 @@ export default function App() {
     })
   }, [])
 
-  if (screen.kind === 'loading') return null
-  if (screen.kind === 'gallery') return <Gallery root={screen.path} />
+  if (screen.kind === 'loading' || !settings) return null
+  if (screen.kind === 'gallery') return <Gallery root={screen.path} settings={settings} onSettings={saveSettings} />
   return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} />
 }

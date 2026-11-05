@@ -162,7 +162,7 @@ test('一番下までスクロールしても、表示範囲のサムネイル�
   await page.screenshot({ path: 'test-results/gallery-bottom.png' })
 })
 
-test('スライダーでサムネイルを小さくすると列が増える', async ({ page }) => {
+test('スライダーでサムネイルを小さくすると列が増え、大きさは開き直しても残る', async ({ page }) => {
   await openGallery(page)
   const before = await columnCount(page)
 
@@ -170,6 +170,11 @@ test('スライダーでサムネイルを小さくすると列が増える', as
 
   await expect.poll(() => columnCount(page)).toBeGreaterThan(before)
   await page.screenshot({ path: 'test-results/gallery-small.png' })
+  const small = await columnCount(page)
+
+  await openGallery(page)
+  await expect(page.getByRole('slider', { name: 'サムネイルの大きさ' })).toHaveValue('100')
+  await expect.poll(() => columnCount(page)).toBe(small)
 })
 
 test('並べ替えを変えると並び順が変わる', async ({ page }) => {
@@ -560,12 +565,12 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
     (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'),
   )
   expect((saved as { categories: unknown[] }).categories).toEqual([
-    { id: 1, name: 'ポーズ', parent_id: null },
-    { id: 2, name: '制服', parent_id: null },
-    { id: 3, name: '振り返り', parent_id: 4 },
-    { id: 4, name: '服飾', parent_id: null },
-    { id: 5, name: '制服', parent_id: 4 },
-    { id: 6, name: '風景', parent_id: null },
+    { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+    { id: 2, name: '制服', parent_id: null, collapsed: false },
+    { id: 3, name: '振り返り', parent_id: 4, collapsed: false },
+    { id: 4, name: '服飾', parent_id: null, collapsed: false },
+    { id: 5, name: '制服', parent_id: 4, collapsed: false },
+    { id: 6, name: '風景', parent_id: null, collapsed: false },
   ])
   expect(errors).toEqual([])
 })
@@ -610,8 +615,8 @@ test('サイドバーでルート直下とカテゴリの下に新しいカテ�
     (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'),
   )
   expect((saved as { categories: unknown[] }).categories.slice(6)).toEqual([
-    { id: 7, name: '手', parent_id: null },
-    { id: 8, name: '椅子', parent_id: 2 },
+    { id: 7, name: '手', parent_id: null, collapsed: false },
+    { id: 8, name: '椅子', parent_id: 2, collapsed: false },
   ])
   expect(errors).toEqual([])
 })

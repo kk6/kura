@@ -16,13 +16,7 @@ pub fn push(file: &Path, library: &Path) -> std::io::Result<Vec<PathBuf>> {
     list.retain(|p| p != library);
     list.insert(0, library.to_path_buf());
     list.truncate(MAX);
-    if let Some(dir) = file.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    // 書き込みの途中で止まっても前の一覧が壊れないよう、別名に書いてから置き換える
-    let tmp = file.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_vec(&list)?)?;
-    fs::rename(&tmp, file)?;
+    crate::settings::write_json(file, &list)?;
     Ok(list)
 }
 

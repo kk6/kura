@@ -236,6 +236,19 @@ pub fn create(lib: &mut Library, parent: Option<i64>, name: &str) -> Result<i64,
 /// カテゴリのフォルダの名前を変える・移す操作の、pending_ops の種類
 pub const MOVE_CATEGORY: &str = "move_category";
 
+/// サイドバーでカテゴリを閉じる・開く（FR-503）。ファイルは動かさない
+pub fn set_collapsed(lib: &Library, ids: &[i64], collapsed: bool) -> Result<(), String> {
+    let mut stmt = lib
+        .conn
+        .prepare("UPDATE categories SET collapsed = ?1 WHERE id = ?2")
+        .map_err(|e| e.to_string())?;
+    for id in ids {
+        stmt.execute(rusqlite::params![collapsed, id])
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// カテゴリ名を変え、フォルダ名も変える（FR-403）。同じ場所に同名があればエラーにする
 pub fn rename(lib: &mut Library, id: i64, name: &str) -> Result<(), String> {
     let name: String = name.nfc().collect();
@@ -467,6 +480,32 @@ pub(crate) mod tests {
         lib.conn
             .query_row("SELECT count(*) FROM categories", [], |r| r.get(0))
             .unwrap()
+    }
+
+    #[test]
+    fn 閉じたカテゴリは開き直しても閉じたまま() {
+        let (d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let dress = create(&mut lib, None, "服飾").unwrap();
+        let bg = create(&mut lib, None, "背景").unwrap();
+
+        set_collapsed(&lib, &[pose, dress], true).unwrap();
+        set_collapsed(&lib, &[dress], false).unwrap();
+        drop(lib);
+        let lib = library::open(d.path()).unwrap();
+
+        let collapsed = |id| {
+            crate::gallery::load(&lib)
+                .unwrap()
+                .categories
+                .into_iter()
+                .find(|c| c.id == id)
+                .unwrap()
+                .collapsed
+        };
+        assert!(collapsed(pose));
+        assert!(!collapsed(dress));
+        assert!(!collapsed(bg));
     }
 
     #[test]

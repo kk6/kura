@@ -29,10 +29,10 @@ describe('candidates', () => {
 describe('categoryOptions', () => {
   it('ツリーの順に、親からの道筋を名前にする', () => {
     const options = categoryOptions([
-      { id: 1, name: 'ポーズ', parent_id: null },
-      { id: 4, name: '服飾', parent_id: null },
-      { id: 2, name: '座り', parent_id: 1 },
-      { id: 3, name: '椅子', parent_id: 2 },
+      { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+      { id: 4, name: '服飾', parent_id: null, collapsed: false },
+      { id: 2, name: '座り', parent_id: 1, collapsed: false },
+      { id: 3, name: '椅子', parent_id: 2, collapsed: false },
     ])
     expect(options).toEqual([
       { id: 1, label: 'ポーズ' },
@@ -45,9 +45,9 @@ describe('categoryOptions', () => {
 
 describe('filterCandidates', () => {
   const categories = [
-    { id: 1, name: 'ポーズ', parent_id: null },
-    { id: 2, name: '座り', parent_id: 1 },
-    { id: 3, name: '服飾', parent_id: null },
+    { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+    { id: 2, name: '座り', parent_id: 1, collapsed: false },
+    { id: 3, name: '服飾', parent_id: null, collapsed: false },
   ]
   const tags = [
     { id: 10, name: '座り込み' },

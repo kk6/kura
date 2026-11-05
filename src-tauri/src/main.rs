@@ -4,6 +4,7 @@ mod gallery;
 mod import;
 mod library;
 mod recent;
+mod settings;
 mod sync;
 mod tag;
 mod trash;
@@ -19,12 +20,16 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 #[derive(Default)]
 struct Current(Mutex<Option<Library>>);
 
-fn recent_file(app: &AppHandle) -> Result<PathBuf, String> {
+fn app_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("recent-libraries.json"))
+        .join(name))
+}
+
+fn recent_file(app: &AppHandle) -> Result<PathBuf, String> {
+    app_file(app, "recent-libraries.json")
 }
 
 /// 画面が直接読めるのは開いたライブラリの画像とサムネイルだけにし、DB とゴミ箱は読めないようにする
@@ -61,6 +66,17 @@ fn activate(
 #[tauri::command]
 fn list_recent_libraries(app: AppHandle) -> Result<Vec<PathBuf>, String> {
     Ok(recent::load(&recent_file(&app)?))
+}
+
+#[tauri::command]
+fn load_settings(app: AppHandle) -> Result<settings::Settings, String> {
+    Ok(settings::load(&app_file(&app, "settings.json")?))
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(), String> {
+    settings::save(&app_file(&app, "settings.json")?, &settings)
+        .map_err(|e| format!("設定を保存できません（{e}）"))
 }
 
 #[tauri::command]
@@ -207,6 +223,20 @@ async fn delete_category(app: AppHandle, id: i64) -> Result<category::Deleted, S
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn set_categories_collapsed(
+    current: State<Current>,
+    ids: Vec<i64>,
+    collapsed: bool,
+) -> Result<(), String> {
+    let current = current.0.lock().unwrap();
+    category::set_collapsed(
+        current.as_ref().ok_or("ライブラリを開いていません")?,
+        &ids,
+        collapsed,
+    )
 }
 
 #[tauri::command]
@@ -380,6 +410,8 @@ fn main() {
         .manage(Current::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
+            load_settings,
+            save_settings,
             location_warning,
             create_library,
             open_library,
@@ -394,6 +426,7 @@ fn main() {
             rename_category,
             move_category,
             delete_category,
+            set_categories_collapsed,
             image_tags,
             add_tag,
             remove_tag,

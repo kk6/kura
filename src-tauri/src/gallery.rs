@@ -34,6 +34,7 @@ pub struct Category {
     pub id: i64,
     pub name: String,
     pub parent_id: Option<i64>,
+    pub collapsed: bool,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -55,13 +56,16 @@ pub fn load(lib: &Library) -> Result<Gallery, String> {
     // ゴミ箱の画像（FR-511）と見つからない画像（FR-104）は一覧に出さない
     let images = images(lib, "deleted_at IS NULL AND missing_at IS NULL ORDER BY id")?;
     let categories = conn
-        .prepare("SELECT id, name, parent_id FROM categories ORDER BY sort_order, name, id")
+        .prepare(
+            "SELECT id, name, parent_id, collapsed FROM categories ORDER BY sort_order, name, id",
+        )
         .map_err(err)?
         .query_map([], |r| {
             Ok(Category {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 parent_id: r.get(2)?,
+                collapsed: r.get(3)?,
             })
         })
         .map_err(err)?
@@ -281,12 +285,14 @@ mod tests {
                 Category {
                     id: pose,
                     name: "ポーズ".into(),
-                    parent_id: None
+                    parent_id: None,
+                    collapsed: false,
                 },
                 Category {
                     id: sit,
                     name: "座り".into(),
-                    parent_id: Some(pose)
+                    parent_id: Some(pose),
+                    collapsed: false,
                 },
             ]
         );

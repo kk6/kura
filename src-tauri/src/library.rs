@@ -70,6 +70,8 @@ const MIGRATIONS: &[&str] = &[
     // カテゴリの削除（FR-404）で、ゴミ箱の画像の元のカテゴリが消えた印。category_id は外部キーなので空にする。
     // 復元（FR-511）で未分類に戻したことを利用者に知らせるのに使う
     "ALTER TABLE images ADD COLUMN category_deleted INTEGER NOT NULL DEFAULT 0",
+    // サイドバーで閉じたカテゴリ（FR-503）。カテゴリと一緒に消え、ライブラリを移しても DB のバックアップ（NFR-07）でも残る
+    "ALTER TABLE categories ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0",
 ];
 
 pub struct Library {

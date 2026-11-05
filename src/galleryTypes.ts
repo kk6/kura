@@ -14,7 +14,8 @@ export type Image = {
   tags: number[]
 }
 
-export type Category = { id: number; name: string; parent_id: number | null }
+// collapsed：サイドバーで閉じている（ライブラリの DB に残る）
+export type Category = { id: number; name: string; parent_id: number | null; collapsed: boolean }
 
 export type Tag = { id: number; name: string }
 
@@ -44,3 +45,6 @@ export type Done = { done: number[]; failed: { id: number; message: string }[] }
 
 // src-tauri/src/trash.rs の Restored（restore_images コマンドの返り値）。uncategorized は元のカテゴリがなく未分類へ戻した画像
 export type Restored = Assigned & { uncategorized: number[] }
+
+// src-tauri/src/settings.rs の Settings（アプリ全体の設定。load_settings と save_settings）
+export type Settings = { confirm_category_move: boolean; thumb_width: number }

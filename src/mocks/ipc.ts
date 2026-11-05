@@ -1,7 +1,7 @@
 import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
-import type { Assigned, Done, Gallery, Image, Restored } from '../galleryTypes'
+import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
 import type { Report, ScanReport } from '../importTypes'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
@@ -60,12 +60,12 @@ const IMAGES: Image[] = Array.from({ length: COUNT }, (_, i) => {
 const GALLERY: Gallery = {
   images: IMAGES,
   categories: [
-    { id: 1, name: 'ポーズ', parent_id: null },
-    { id: 2, name: '座り', parent_id: 1 },
-    { id: 3, name: '振り返り', parent_id: 1 },
-    { id: 4, name: '服飾', parent_id: null },
-    { id: 5, name: '制服', parent_id: 4 },
-    { id: 6, name: '背景', parent_id: null },
+    { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+    { id: 2, name: '座り', parent_id: 1, collapsed: false },
+    { id: 3, name: '振り返り', parent_id: 1, collapsed: false },
+    { id: 4, name: '服飾', parent_id: null, collapsed: false },
+    { id: 5, name: '制服', parent_id: 4, collapsed: false },
+    { id: 6, name: '背景', parent_id: null, collapsed: false },
   ],
   tags: [
     { id: 1, name: 'あおり' },
@@ -163,7 +163,7 @@ const createCategory: Handler = (args) => {
   const name = String(args?.name).normalize('NFC')
   checkCategory(0, parent, name)
   const id = Math.max(...GALLERY.categories.map((c) => c.id)) + 1
-  GALLERY.categories.push({ id, name, parent_id: parent })
+  GALLERY.categories.push({ id, name, parent_id: parent, collapsed: false })
   return id
 }
 
@@ -359,15 +359,37 @@ const forgetImages: Handler = (args) => {
   return { done, failed: [] }
 }
 
+// 本物は設定を settings.json に、カテゴリの開閉を DB に残す。開き直し（page.goto）でも残るよう sessionStorage に置く
+const stored = <T>(key: string, init: T): T => JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? init
+const store = (key: string, value: unknown) => sessionStorage.setItem(key, JSON.stringify(value))
+const DEFAULT_SETTINGS: Settings = { confirm_category_move: true, thumb_width: 200 }
+
+const loadGallery: Handler = () => {
+  if (created) return { images: [], categories: [], tags: [] }
+  const collapsed = new Set(stored<number[]>('mock.collapsed', []))
+  // 本物の IPC と同じく複製を返す。画面の state とモックの値を同じ配列にしないため
+  const g = structuredClone(GALLERY)
+  g.categories.forEach((c) => (c.collapsed = collapsed.has(c.id)))
+  return g
+}
+
+const setCollapsed: Handler = (args) => {
+  const ids = args?.ids as number[]
+  const set = new Set(stored<number[]>('mock.collapsed', []))
+  ids.forEach((id) => (args?.collapsed ? set.add(id) : set.delete(id)))
+  store('mock.collapsed', [...set])
+}
+
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
 const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
+  load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
+  save_settings: (args) => store('mock.settings', args?.settings),
   location_warning: () => null,
   open_library: openLibrary,
   create_library: createLibrary,
   import_paths: importPaths,
-  // 本物の IPC と同じく複製を返す。画面の state とモックの値を同じ配列にしないため
-  load_gallery: () => (created ? { images: [], categories: [], tags: [] } : structuredClone(GALLERY)),
+  load_gallery: loadGallery,
   image_detail: imageDetail,
   set_memo: setMemo,
   set_rating: setRating,
@@ -377,6 +399,7 @@ const handlers: Record<string, Handler> = {
   rename_category: renameCategory,
   move_category: moveCategory,
   delete_category: deleteCategory,
+  set_categories_collapsed: setCollapsed,
   image_tags: countTags,
   add_tag: addTag,
   remove_tag: removeTag,

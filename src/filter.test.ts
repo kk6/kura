@@ -19,10 +19,10 @@ const image = (id: number, fields: Partial<Image> = {}): Image => ({
 
 // ポーズ（1）の下に座り（2）、座りの下に椅子（3）。服飾（4）は別の枝
 const categories = [
-  { id: 3, name: '椅子', parent_id: 2 },
-  { id: 1, name: 'ポーズ', parent_id: null },
-  { id: 2, name: '座り', parent_id: 1 },
-  { id: 4, name: '服飾', parent_id: null },
+  { id: 3, name: '椅子', parent_id: 2, collapsed: false },
+  { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+  { id: 2, name: '座り', parent_id: 1, collapsed: false },
+  { id: 4, name: '服飾', parent_id: null, collapsed: false },
 ]
 
 const tags = [
