@@ -37,6 +37,8 @@
   align-items: center;
   gap: var(--space-1);
   color: var(--color-text-sub);
+  /* 初期のチェックの青を使わず、黒にする */
+  accent-color: var(--color-text);
 }
 
 .skip__list {
@@ -63,4 +65,11 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-faint);
   overflow-wrap: anywhere;
+}
+
+/* 設定ダイアログの区切りの見出し */
+.dialog__section {
+  margin: var(--space-5) 0 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
 }

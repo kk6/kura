@@ -1092,3 +1092,40 @@ test('開いた後に差分を確認して結果を出し、見つからない�
   await expect(status).toContainText('完了：差分を反映')
   expect(errors).toEqual([])
 })
+
+test('設定ダイアログでカテゴリの移動の確認を戻し、管理情報を書き出す', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const item = (name: string) =>
+    sidebar.getByRole('list', { name: 'カテゴリ' }).locator('.sidebar__item--category').getByText(name, { exact: true })
+  const heading = sidebar.getByRole('heading', { name: 'カテゴリ' })
+  const moveDialog = page.getByRole('dialog', { name: 'カテゴリを移す' })
+  const settings = page.getByRole('dialog', { name: '設定' })
+  const confirm = settings.getByRole('checkbox', { name: 'サイドバーでカテゴリを移すときに確認する' })
+
+  await page.getByRole('button', { name: '設定' }).click()
+  await expect(confirm).toBeChecked()
+  await confirm.uncheck()
+  await settings.getByRole('button', { name: '閉じる' }).click()
+  await expect(settings).toHaveCount(0)
+
+  // 確認しない設定は開き直しても残り、確認せずに移す
+  await openGallery(page)
+  await item('座り').dragTo(heading)
+  await expect(moveDialog).toHaveCount(0)
+  await expect(item('座り')).toBeVisible()
+
+  await page.getByRole('button', { name: '設定' }).click()
+  await expect(confirm).not.toBeChecked()
+  await confirm.check()
+  await settings.getByRole('button', { name: '管理情報を書き出す…' }).click()
+  await expect(settings).toContainText('完了：/Users/me/Documents/Kura ライブラリ-')
+  await page.screenshot({ path: 'test-results/settings.png' })
+  await settings.getByRole('button', { name: '閉じる' }).click()
+
+  await item('振り返り').dragTo(heading)
+  await expect(moveDialog).toBeVisible()
+  expect(errors).toEqual([])
+})

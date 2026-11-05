@@ -415,6 +415,9 @@ const handlers: Record<string, Handler> = {
   load_missing: () => (created ? [] : structuredClone(MISSING)),
   scan_library: scanLibrary,
   forget_images: forgetImages,
+  backup_library: () => null,
+  'plugin:dialog|save': (args) =>
+    `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

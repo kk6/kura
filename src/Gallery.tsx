@@ -9,6 +9,7 @@ import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
 import SearchBox from './SearchBox'
+import SettingsDialog from './SettingsDialog'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
@@ -69,6 +70,7 @@ export default function Gallery({ root, settings, onSettings }: Props) {
   const [showSkipped, setShowSkipped] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   // 読み込んだ詳細。id は、別の画像に移った直後に前の画像の詳細を使わないため
   const [detail, setDetail] = useState<{ id: number; detail?: DetailData; error?: string } | null>(null)
   const busy = useRef(false)
@@ -491,6 +493,9 @@ export default function Gallery({ root, settings, onSettings }: Props) {
             </span>
           )}
         </span>
+        <button type="button" className="button" onClick={() => setSettingsOpen(true)}>
+          設定
+        </button>
       </header>
 
       <Sidebar
@@ -700,6 +705,14 @@ export default function Gallery({ root, settings, onSettings }: Props) {
         </span>
       </footer>
 
+      {settingsOpen && (
+        <SettingsDialog
+          root={root}
+          settings={settings}
+          onSettings={changeSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {managingTags && (
         <TagDialog
           tags={data.tags}

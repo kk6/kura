@@ -349,6 +349,17 @@ async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// DB を利用者が選んだファイルに書き出す（NFR-07）
+#[tauri::command]
+async fn backup_library(app: AppHandle, path: PathBuf) -> Result<(), String> {
+    with_library(app, move |lib| {
+        library::backup(lib, &path)?;
+        log::info!("DB を書き出しました：{}", path.display());
+        Ok(())
+    })
+    .await
+}
+
 /// 見つからない画像を DB から外す（FR-104）
 #[tauri::command]
 async fn forget_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Done, String> {
@@ -440,7 +451,8 @@ fn main() {
             empty_trash,
             load_missing,
             scan_library,
-            forget_images
+            forget_images,
+            backup_library
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

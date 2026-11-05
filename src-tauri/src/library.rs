@@ -177,6 +177,30 @@ fn migrate(conn: &mut Connection, migrations: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+/// DB を dst に書き出す（NFR-07）。SQLite のバックアップ機能を使うので、開いたままでも整った写しになる。
+/// 別名に書いてから置き換え、途中で失敗しても dst にあった前のファイルを壊さない
+pub fn backup(lib: &Library, dst: &Path) -> Result<(), String> {
+    let mut name = dst
+        .file_name()
+        .ok_or("保存先のファイル名がありません")?
+        .to_owned();
+    name.push(".tmp");
+    let tmp = dst.with_file_name(name);
+    let result = lib
+        .conn
+        .backup(
+            rusqlite::MAIN_DB,
+            &tmp,
+            None::<fn(rusqlite::backup::Progress)>,
+        )
+        .map_err(err)
+        .and_then(|()| fs::rename(&tmp, dst).map_err(err));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.map_err(|e| format!("バックアップを書き出せません（{e}）"))
+}
+
 pub fn location_warning(path: &Path) -> Option<String> {
     let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     // shortcut: パスだけで判定するので、iCloud の「デスクトップと書類」の同期は見分けられない。問題が出たら NSURL の ubiquitous 属性で判定する
@@ -216,6 +240,61 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    // バックアップの保存先。ライブラリと同じく KURA_TEST_DIR のボリュームに作る
+    fn out_dir() -> tempfile::TempDir {
+        match std::env::var_os("KURA_TEST_DIR") {
+            Some(base) => tempfile::tempdir_in(base).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        }
+    }
+
+    #[test]
+    fn 書き出したdbに置き換えると同じライブラリを開ける() {
+        let (d, mut lib) = crate::category::tests::setup();
+        let pose = crate::category::create(&mut lib, None, "ポーズ").unwrap();
+        crate::category::set_collapsed(&lib, &[pose], true).unwrap();
+        let out = out_dir();
+        let file = out.path().join("kura-backup.db");
+
+        backup(&lib, &file).unwrap();
+        // 書き出した後の変更はバックアップに入らない
+        crate::category::create(&mut lib, None, "服飾").unwrap();
+        drop(lib);
+        for name in ["kura.db", "kura.db-wal", "kura.db-shm"] {
+            let _ = fs::remove_file(d.path().join(KURA_DIR).join(name));
+        }
+        fs::copy(&file, d.path().join(KURA_DIR).join("kura.db")).unwrap();
+        let lib = open(d.path()).unwrap();
+
+        let g = crate::gallery::load(&lib).unwrap();
+        assert_eq!(
+            g.categories
+                .iter()
+                .map(|c| (c.name.as_str(), c.collapsed))
+                .collect::<Vec<_>>(),
+            [("ポーズ", true)]
+        );
+        assert_eq!(entries(out.path()), ["kura-backup.db"]);
+    }
+
+    #[test]
+    fn 書き出しに失敗したら保存先の前のファイルは元のまま() {
+        let (_d, lib) = crate::category::tests::setup();
+        let out = out_dir();
+        let file = out.path().join("kura-backup.db");
+        fs::write(&file, "前のバックアップ").unwrap();
+        if !crate::category::tests::lock(out.path()) {
+            return;
+        }
+
+        let r = backup(&lib, &file);
+        crate::category::tests::unlock(out.path());
+
+        assert!(r.is_err());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "前のバックアップ");
+        assert_eq!(entries(out.path()), ["kura-backup.db"]);
     }
 
     #[test]
