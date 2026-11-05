@@ -48,7 +48,8 @@ export default function TrashPanel({
           }}
           onClose={() => setConfirming(null)}
         >
-          {confirming === 'purge' ? `選んだ画像 ${selected}枚` : `ゴミ箱の画像 ${count}枚`}を完全に削除します。元に戻せません。
+          {confirming === 'purge' ? `選んだ画像 ${selected}枚` : `ゴミ箱の画像 ${count}枚`}
+          を完全に削除します。元に戻せません。
         </ConfirmDialog>
       )}
     </aside>

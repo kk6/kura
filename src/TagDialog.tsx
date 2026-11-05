@@ -108,7 +108,8 @@ export default function TagDialog({
           </label>
           {a.into !== null && (
             <p className="tags__note">
-              「{nameOf(a.id)}」の {count(a.id)}枚に「{nameOf(a.into)}」を付け、「{nameOf(a.id)}」を削除します。両方が付いている画像は「
+              「{nameOf(a.id)}」の {count(a.id)}枚に「{nameOf(a.into)}」を付け、「{nameOf(a.id)}
+              」を削除します。両方が付いている画像は「
               {nameOf(a.into)}」1つになります。
             </p>
           )}

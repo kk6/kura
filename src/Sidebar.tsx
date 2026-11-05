@@ -77,7 +77,8 @@ export default function Sidebar(props: Props) {
       if (!el) return 'none'
       const target = el.dataset.drop === ROOT ? null : Number(el.dataset.drop)
       // 自分自身と子孫の下へは移せない（FR-412）。祖先をたどって押したカテゴリに当たるかを見る
-      for (let id: number | null = target; id !== null; id = parentOf.get(id) ?? null) if (id === press.id) return 'self'
+      for (let id: number | null = target; id !== null; id = parentOf.get(id) ?? null)
+        if (id === press.id) return 'self'
       return target === parentOf.get(press.id) ? 'same' : { target }
     }
     // state の更新を待たずに判定できるよう、押した位置からの距離で決める
@@ -178,79 +179,79 @@ export default function Sidebar(props: Props) {
           {editing?.kind === 'rename' && editing.id === c.id ? (
             field(depth)
           ) : (
-          <span
-            className={`sidebar__item sidebar__item--category${current === c.id ? ' sidebar__item--selected' : ''}${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
-            style={{ '--depth': depth } as CSSProperties}
-            data-drop={c.id}
-            title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
-            onDoubleClick={() => setEditing({ kind: 'rename', id: c.id, name: c.name })}
-            onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
-            // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない。
-            // 既定の動きを止めるとフォーカスも移らず、入力中のカテゴリ名が blur で取り消されないので、自分で外す
-            onMouseDown={(e) => {
-              e.preventDefault()
-              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-            }}
-          >
-            {children.has(c.id) ? (
-              <button
-                type="button"
-                className="sidebar__toggle"
-                aria-label={`${c.name} を${collapsed.has(c.id) ? '開く' : '閉じる'}`}
-                aria-expanded={!collapsed.has(c.id)}
-                onPointerDown={(e) => e.stopPropagation()}
-                onDoubleClick={(e) => e.stopPropagation()}
-                onClick={() => toggle(c.id)}
-              >
-                <Icon d={collapsed.has(c.id) ? 'M9 6l6 6-6 6' : 'M6 9l6 6 6-6'} />
-              </button>
-            ) : (
-              <span className="sidebar__toggle" />
-            )}
-            <button
-              type="button"
-              className="sidebar__name"
-              aria-current={current === c.id}
-              onClick={() => scope(c.id)}
-            >
-              {c.name}
-            </button>
-            <button
-              type="button"
-              className="sidebar__add sidebar__add--hover"
-              aria-label={`${c.name} の下にカテゴリを作る`}
-              // 押してもドラッグや名前の変更を始めない
-              onPointerDown={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onClick={() => {
-                // 作る場所が見えるよう、閉じていれば開く
-                if (collapsed.has(c.id)) toggle(c.id)
-                setEditing({ kind: 'create', parent: c.id, name: '' })
+            <span
+              className={`sidebar__item sidebar__item--category${current === c.id ? ' sidebar__item--selected' : ''}${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
+              style={{ '--depth': depth } as CSSProperties}
+              data-drop={c.id}
+              title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
+              onDoubleClick={() => setEditing({ kind: 'rename', id: c.id, name: c.name })}
+              onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
+              // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない。
+              // 既定の動きを止めるとフォーカスも移らず、入力中のカテゴリ名が blur で取り消されないので、自分で外す
+              onMouseDown={(e) => {
+                e.preventDefault()
+                if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
               }}
             >
-              <Icon d="M12 5v14M5 12h14" />
-            </button>
-            <button
-              type="button"
-              className="sidebar__add sidebar__add--hover"
-              aria-label={`${c.name} を削除する`}
-              onPointerDown={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => e.stopPropagation()}
-              onClick={() => setDeleting(c.id)}
-            >
-              <Icon d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-            </button>
-            {/* 件数は行の右端に置き、タグの件数と縦にそろえる */}
-            <span className="sidebar__count">{counts.categories.get(c.id) ?? 0}</span>
-          </span>
-        )}
-        {((children.has(c.id) && !collapsed.has(c.id)) || creatingIn(c.id)) && (
-          // 子の並びの左に、親の開閉ボタンから下ろす線を引く（階層の深さを見分けるため）
-          <ul className="sidebar__list sidebar__list--nested" style={{ '--depth': depth } as CSSProperties}>
-            {tree(c.id, depth + 1)}
-          </ul>
-        )}
-      </li>
+              {children.has(c.id) ? (
+                <button
+                  type="button"
+                  className="sidebar__toggle"
+                  aria-label={`${c.name} を${collapsed.has(c.id) ? '開く' : '閉じる'}`}
+                  aria-expanded={!collapsed.has(c.id)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onClick={() => toggle(c.id)}
+                >
+                  <Icon d={collapsed.has(c.id) ? 'M9 6l6 6-6 6' : 'M6 9l6 6 6-6'} />
+                </button>
+              ) : (
+                <span className="sidebar__toggle" />
+              )}
+              <button
+                type="button"
+                className="sidebar__name"
+                aria-current={current === c.id}
+                onClick={() => scope(c.id)}
+              >
+                {c.name}
+              </button>
+              <button
+                type="button"
+                className="sidebar__add sidebar__add--hover"
+                aria-label={`${c.name} の下にカテゴリを作る`}
+                // 押してもドラッグや名前の変更を始めない
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={() => {
+                  // 作る場所が見えるよう、閉じていれば開く
+                  if (collapsed.has(c.id)) toggle(c.id)
+                  setEditing({ kind: 'create', parent: c.id, name: '' })
+                }}
+              >
+                <Icon d="M12 5v14M5 12h14" />
+              </button>
+              <button
+                type="button"
+                className="sidebar__add sidebar__add--hover"
+                aria-label={`${c.name} を削除する`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={() => setDeleting(c.id)}
+              >
+                <Icon d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+              </button>
+              {/* 件数は行の右端に置き、タグの件数と縦にそろえる */}
+              <span className="sidebar__count">{counts.categories.get(c.id) ?? 0}</span>
+            </span>
+          )}
+          {((children.has(c.id) && !collapsed.has(c.id)) || creatingIn(c.id)) && (
+            // 子の並びの左に、親の開閉ボタンから下ろす線を引く（階層の深さを見分けるため）
+            <ul className="sidebar__list sidebar__list--nested" style={{ '--depth': depth } as CSSProperties}>
+              {tree(c.id, depth + 1)}
+            </ul>
+          )}
+        </li>
       ))}
       {creatingIn(parent) && <li>{field(depth)}</li>}
     </>
@@ -323,10 +324,7 @@ export default function Sidebar(props: Props) {
             className="sidebar__add"
             aria-label="すべて閉じる"
             onClick={() =>
-              onCollapse(
-                [...children.keys()].filter((id) => id !== null && !collapsed.has(id)) as number[],
-                true,
-              )
+              onCollapse([...children.keys()].filter((id) => id !== null && !collapsed.has(id)) as number[], true)
             }
           >
             <Icon d="M7 11l5-5 5 5M7 18l5-5 5 5" />
@@ -401,7 +399,8 @@ export default function Sidebar(props: Props) {
               }}
               onClose={() => setDeleting(null)}
             >
-              「{nameOf(deleting)}」{ids.size > 1 && `と子カテゴリ ${ids.size - 1}個`}を削除します。中の画像 {images}枚は未分類へ移ります。画像は削除しません。
+              「{nameOf(deleting)}」{ids.size > 1 && `と子カテゴリ ${ids.size - 1}個`}を削除します。中の画像 {images}
+              枚は未分類へ移ります。画像は削除しません。
             </ConfirmDialog>
           )
         })()}

@@ -40,7 +40,12 @@ describe('layout', () => {
 
 describe('visible', () => {
   // 1列に高さ 100 の画像を10枚、間隔 10 で並べる。i 番目は y = 110i から 110i + 100
-  const l = layout(Array.from({ length: 10 }, () => size(100, 100)), 100, 100, 10)
+  const l = layout(
+    Array.from({ length: 10 }, () => size(100, 100)),
+    100,
+    100,
+    10,
+  )
 
   test('範囲に一部でもかかる画像だけを返す', () => {
     expect(visible(l, 250, 450)).toEqual([2, 3, 4])

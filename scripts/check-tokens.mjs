@@ -15,9 +15,11 @@ function* files(dir) {
 
 const problems = []
 for (const path of files('src')) {
-  readFileSync(path, 'utf8').split('\n').forEach((line, i) => {
-    for (const [value] of line.matchAll(RAW_VALUE)) problems.push(`${path}:${i + 1}: ${value}`)
-  })
+  readFileSync(path, 'utf8')
+    .split('\n')
+    .forEach((line, i) => {
+      for (const [value] of line.matchAll(RAW_VALUE)) problems.push(`${path}:${i + 1}: ${value}`)
+    })
 }
 
 if (problems.length) {

@@ -8,7 +8,9 @@ test('起動時に前回のライブラリが見つからなければ、選択�
   await page.goto('/')
 
   const screen = page.getByRole('main', { name: 'ライブラリ選択' })
-  await expect(screen.getByRole('alert')).toHaveText('エラー：ライブラリが見つかりません（/Volumes/外付けSSD/参考資料）')
+  await expect(screen.getByRole('alert')).toHaveText(
+    'エラー：ライブラリが見つかりません（/Volumes/外付けSSD/参考資料）',
+  )
   await expect(screen.getByRole('button', { name: /参考資料/ })).toBeVisible()
   await expect(screen.getByRole('button', { name: /Kura ライブラリ/ })).toBeVisible()
   expect(errors).toEqual([])
@@ -108,7 +110,8 @@ test('ドロップしたファイルを取り込む', async ({ page }) => {
   await expect(page.getByRole('contentinfo')).toContainText('完了：取り込み 477枚')
 })
 
-const thumbs = (page: import('@playwright/test').Page) => page.getByRole('main', { name: '画像の一覧' }).getByRole('img')
+const thumbs = (page: import('@playwright/test').Page) =>
+  page.getByRole('main', { name: '画像の一覧' }).getByRole('img')
 
 // 描いているサムネイルの列の数（transform の x の種類の数）
 const columnCount = (page: import('@playwright/test').Page) =>
@@ -135,7 +138,11 @@ test('一覧は2000枚のうち表示範囲の近くだけを描き、サムネ�
   await expect(sidebar.getByRole('listitem').filter({ hasText: '未分類' })).toContainText('500')
   const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
   await expect(categories.getByRole('listitem').filter({ hasText: 'ポーズ' })).toContainText('座り')
-  await expect(sidebar.getByRole('list', { name: 'タグ' }).locator('.sidebar__name')).toHaveText(['あおり', '座り', '振り返り'])
+  await expect(sidebar.getByRole('list', { name: 'タグ' }).locator('.sidebar__name')).toHaveText([
+    'あおり',
+    '座り',
+    '振り返り',
+  ])
   expect(errors).toEqual([])
 
   await page.screenshot({ path: 'test-results/gallery-list.png' })
@@ -299,7 +306,10 @@ test('ダブルクリックで拡大し、左右キーで前後の画像に移�
   await thumb(page, 2).dblclick()
 
   // サムネイルではなく元の画像を読む
-  await expect(zoom.getByRole('img', { name: 'ref_00002.jpg' })).toHaveAttribute('src', /#\/Users\/me\/Pictures\/Kura ライブラリ\/_未分類\/ref_00002\.jpg$/)
+  await expect(zoom.getByRole('img', { name: 'ref_00002.jpg' })).toHaveAttribute(
+    'src',
+    /#\/Users\/me\/Pictures\/Kura ライブラリ\/_未分類\/ref_00002\.jpg$/,
+  )
   await page.screenshot({ path: 'test-results/zoom.png' })
 
   await page.keyboard.press('ArrowRight')
@@ -329,7 +339,9 @@ test('詳細パネルで入力したメモと評価を保存する', async ({ pa
   await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
   const detail = page.getByRole('complementary', { name: '詳細' })
   const pressed = () =>
-    detail.getByRole('button', { name: /^評価/ }).evaluateAll((bs) => bs.filter((b) => b.getAttribute('aria-pressed') === 'true').length)
+    detail
+      .getByRole('button', { name: /^評価/ })
+      .evaluateAll((bs) => bs.filter((b) => b.getAttribute('aria-pressed') === 'true').length)
   const memo = detail.getByRole('textbox', { name: 'メモ' })
 
   // ref_00002 の評価は1
@@ -436,7 +448,12 @@ test('選んだ画像のカテゴリとタグをまとめて変え、入力中�
   await tagInput.fill('立ち')
   await tagInput.press('Enter')
   await expect(chips).toHaveText(['あおり', '立ち'])
-  await expect(page.getByRole('list', { name: 'タグ' }).locator('.sidebar__name')).toHaveText(['あおり', '座り', '振り返り', '立ち'])
+  await expect(page.getByRole('list', { name: 'タグ' }).locator('.sidebar__name')).toHaveText([
+    'あおり',
+    '座り',
+    '振り返り',
+    '立ち',
+  ])
 
   // 一部の画像にだけ付いているタグは枚数を出す。外すと選んだ画像のすべてから外れる
   await thumb(page, 1).click({ modifiers: ['Meta'] })
@@ -476,7 +493,10 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
   const item = (name: string) => categories.locator('.sidebar__item--category').getByText(name, { exact: true })
   const branch = (name: string) =>
-    categories.getByRole('listitem').filter({ has: page.getByText(name, { exact: true }) }).first()
+    categories
+      .getByRole('listitem')
+      .filter({ has: page.getByText(name, { exact: true }) })
+      .first()
   const input = sidebar.getByRole('textbox', { name: 'カテゴリ名' })
   const status = page.getByRole('contentinfo')
 
@@ -561,9 +581,7 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   await expect(status).toContainText('エラー：カテゴリを移せません（同じ名前のファイルかフォルダがあります（制服））')
   await page.screenshot({ path: 'test-results/category-move.png' })
 
-  const saved = await page.evaluate(() =>
-    (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'),
-  )
+  const saved = await page.evaluate(() => (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'))
   expect((saved as { categories: unknown[] }).categories).toEqual([
     { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
     { id: 2, name: '制服', parent_id: null, collapsed: false },
@@ -583,7 +601,10 @@ test('サイドバーでルート直下とカテゴリの下に新しいカテ�
   const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
   const item = (name: string) => categories.locator('.sidebar__item--category').getByText(name, { exact: true })
   const branch = (name: string) =>
-    categories.getByRole('listitem').filter({ has: page.getByText(name, { exact: true }) }).first()
+    categories
+      .getByRole('listitem')
+      .filter({ has: page.getByText(name, { exact: true }) })
+      .first()
   const input = sidebar.getByRole('textbox', { name: '新しいカテゴリ名' })
 
   // 同名はエラーにして入力欄を残す
@@ -611,9 +632,7 @@ test('サイドバーでルート直下とカテゴリの下に新しいカテ�
   await input.press('Escape')
   await expect(categories).not.toContainText('取り消す')
 
-  const saved = await page.evaluate(() =>
-    (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'),
-  )
+  const saved = await page.evaluate(() => (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'))
   expect((saved as { categories: unknown[] }).categories.slice(6)).toEqual([
     { id: 7, name: '手', parent_id: null, collapsed: false },
     { id: 8, name: '椅子', parent_id: 2, collapsed: false },
@@ -706,14 +725,17 @@ test('カテゴリを子カテゴリごと削除し、件数を確かめてか�
   await expect(page.getByRole('dialog', { name: '移せなかった画像（1枚）' })).toContainText('ref_00007.jpg')
 })
 
-test('サイドバーのカテゴリとタグを押し、検索バーに入れると絞り込み、件数は子カテゴリを含めて数える', async ({ page }) => {
+test('サイドバーのカテゴリとタグを押し、検索バーに入れると絞り込み、件数は子カテゴリを含めて数える', async ({
+  page,
+}) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await openGallery(page)
   const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
   const status = page.getByRole('contentinfo')
   const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
-  const row = (name: string) => categories.locator('.sidebar__item').filter({ has: page.getByRole('button', { name, exact: true }) })
+  const row = (name: string) =>
+    categories.locator('.sidebar__item').filter({ has: page.getByRole('button', { name, exact: true }) })
 
   // ポーズ（id 1）は 300枚、子の座り・振り返りは 300枚ずつ。ポーズの件数は子を含めて 900枚
   await expect(row('ポーズ').locator('.sidebar__count')).toHaveText('900')
@@ -796,7 +818,9 @@ test('2万枚でも、タグ・カテゴリ・文字の絞り込みの結果が0
         set.call(input, act.slice(7))
         input.dispatchEvent(new Event('input', { bubbles: true }))
       } else {
-        Array.from(document.querySelectorAll<HTMLButtonElement>('nav button')).find((b) => b.textContent!.startsWith(act))!.click()
+        Array.from(document.querySelectorAll<HTMLButtonElement>('nav button'))
+          .find((b) => b.textContent!.startsWith(act))!
+          .click()
       }
       while (bar.textContent === before) await new Promise((r) => requestAnimationFrame(r))
       await new Promise((r) => requestAnimationFrame(r))
@@ -875,7 +899,9 @@ test('タグ管理ダイアログで名前を変え、統合すると両方が�
   expect(errors).toEqual([])
 })
 
-test('カテゴリ名の入力中に別のカテゴリを押すと、名前は変えずに入力をやめ、押したカテゴリで絞り込む', async ({ page }) => {
+test('カテゴリ名の入力中に別のカテゴリを押すと、名前は変えずに入力をやめ、押したカテゴリで絞り込む', async ({
+  page,
+}) => {
   await openGallery(page)
   const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
   const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
@@ -997,7 +1023,10 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
   await page.screenshot({ path: 'test-results/trash.png' })
 
   // 元のカテゴリが消えた画像は未分類に戻して知らせる
-  await page.getByRole('main', { name: '画像の一覧' }).getByAltText('deleted_1.jpg').click({ modifiers: ['Meta'] })
+  await page
+    .getByRole('main', { name: '画像の一覧' })
+    .getByAltText('deleted_1.jpg')
+    .click({ modifiers: ['Meta'] })
   await expect(panel).toContainText('2枚を選んでいます')
   await panel.getByRole('button', { name: '元に戻す' }).click()
   await expect(status).toContainText('完了：元に戻した 2枚')

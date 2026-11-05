@@ -403,7 +403,10 @@ export default function Gallery({ root, settings, onSettings }: Props) {
 
   async function createCategory(parent: number | null, name: string) {
     const id = await invoke<number>('create_category', { parent, name })
-    setData((d) => ({ ...d, categories: [...d.categories, { id, name: name.normalize('NFC'), parent_id: parent, collapsed: false }] }))
+    setData((d) => ({
+      ...d,
+      categories: [...d.categories, { id, name: name.normalize('NFC'), parent_id: parent, collapsed: false }],
+    }))
   }
 
   async function moveCategory(id: number, parent: number | null) {
@@ -457,9 +460,7 @@ export default function Gallery({ root, settings, onSettings }: Props) {
   // from のタグを画像と絞り込みの条件から外す。into があれば代わりに付ける
   function dropTag(from: number, into: number | null) {
     const swap = (tags: number[]) =>
-      tags.includes(from)
-        ? [...new Set(tags.flatMap((t) => (t === from ? (into === null ? [] : [into]) : [t])))]
-        : tags
+      tags.includes(from) ? [...new Set(tags.flatMap((t) => (t === from ? (into === null ? [] : [into]) : [t])))] : tags
     setData((d) => ({
       ...d,
       tags: d.tags.filter((t) => t.id !== from),
@@ -556,7 +557,9 @@ export default function Gallery({ root, settings, onSettings }: Props) {
         thumbWidth={thumbWidth}
         selected={selection.ids}
         onSelect={(id, e) =>
-          setSelection((s) => (id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey })))
+          setSelection((s) =>
+            id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey }),
+          )
         }
         // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
         onOpen={() => !aside && setZoom(true)}
@@ -640,8 +643,8 @@ export default function Gallery({ root, settings, onSettings }: Props) {
             : inMissing
               ? `見つからない ${missing.length}枚`
               : filtered
-              ? `${images.length} / ${data.images.length}枚`
-              : `${data.images.length}枚`}
+                ? `${images.length} / ${data.images.length}枚`
+                : `${data.images.length}枚`}
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <span className="statusbar__import" role="status">
@@ -721,9 +724,7 @@ export default function Gallery({ root, settings, onSettings }: Props) {
           ) : result ? (
             <>
               <Status kind="success">取り込み {result.report.added}枚</Status>
-              {result.report.moved > 0 && (
-                <Status kind="success">未分類から移した {result.report.moved}枚</Status>
-              )}
+              {result.report.moved > 0 && <Status kind="success">未分類から移した {result.report.moved}枚</Status>}
               {skipped.length > errors && (
                 <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
                   <Status kind="warning">スキップ {skipped.length - errors}枚</Status>

@@ -239,7 +239,12 @@ export default function Detail(props: Props) {
             </dt>
             {/* key：別の画像に移ったら入力欄を作り直し、その画像のメモで始める */}
             <dd>
-              <Memo key={image.id} id={image.id} initial={image.memo} onSaved={(memo) => props.onMemo(image.id, memo)} />
+              <Memo
+                key={image.id}
+                id={image.id}
+                initial={image.memo}
+                onSaved={(memo) => props.onMemo(image.id, memo)}
+              />
             </dd>
           </dl>
           {trash}

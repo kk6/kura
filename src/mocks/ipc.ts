@@ -107,7 +107,9 @@ const imageDetail: Handler = (args) => {
   return {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
-    source: first ? { image_url: 'https://example.com/images/ref_00001.jpg', page_url: 'https://example.com/gallery/pose' } : null,
+    source: first
+      ? { image_url: 'https://example.com/images/ref_00001.jpg', page_url: 'https://example.com/gallery/pose' }
+      : null,
   }
 }
 
@@ -126,7 +128,8 @@ const setRating: Handler = (args) => {
 // e2e で失敗の表示を確かめるため、ref_00007 は移せない
 const setCategory: Handler = (args) => {
   const category = args?.category as number | null
-  if (category !== null && !GALLERY.categories.some((c) => c.id === category)) throw `カテゴリが見つかりません（${category}）`
+  if (category !== null && !GALLERY.categories.some((c) => c.id === category))
+    throw `カテゴリが見つかりません（${category}）`
   const out: Assigned = { moved: [], failed: [] }
   for (const id of args?.ids as number[]) {
     const image = IMAGES.find((i) => i.id === id)!
@@ -416,8 +419,7 @@ const handlers: Record<string, Handler> = {
   scan_library: scanLibrary,
   forget_images: forgetImages,
   backup_library: () => null,
-  'plugin:dialog|save': (args) =>
-    `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
+  'plugin:dialog|save': (args) => `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

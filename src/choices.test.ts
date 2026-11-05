@@ -80,7 +80,9 @@ describe('moveActive', () => {
   const move = (key: string, active: number, shift = false) => moveActive(key, shift, active, 3)
 
   test('上下キーは入力した文字と候補を巡る', () => {
-    expect([move('ArrowDown', -1), move('ArrowDown', 2), move('ArrowUp', -1), move('ArrowUp', 0)]).toEqual([0, -1, 2, -1])
+    expect([move('ArrowDown', -1), move('ArrowDown', 2), move('ArrowUp', -1), move('ArrowUp', 0)]).toEqual([
+      0, -1, 2, -1,
+    ])
   })
 
   test('Tab は次の候補、Shift+Tab は前の候補へ移り、端を越えるときは候補の操作に使わない', () => {
