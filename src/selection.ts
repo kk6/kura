@@ -22,3 +22,10 @@ export function select(
   }
   return { ids: new Set([id]), anchor: id }
 }
+
+// alive にない画像を選択から外す。変わらなければ s をそのまま返す
+export function keepOnly(s: Selection, alive: ReadonlySet<number>): Selection {
+  const ids = new Set([...s.ids].filter((id) => alive.has(id)))
+  if (ids.size === s.ids.size) return s
+  return { ids, anchor: s.anchor !== null && ids.has(s.anchor) ? s.anchor : null }
+}

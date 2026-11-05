@@ -28,7 +28,7 @@ import type {
   Tag,
 } from './galleryTypes'
 import type { ImportProgress, Report, ScanReport } from './importTypes'
-import { EMPTY_SELECTION, select } from './selection'
+import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
 
@@ -138,11 +138,7 @@ export default function Gallery({ root, settings, onSettings }: Props) {
     // 差分検出の間も操作できるので、選択は外さず、なくなった画像だけを外す
     const lists = await Promise.all([reload(), reloadTrash(), reloadMissing()])
     const alive = new Set(lists.flat().map((i) => i.id))
-    setSelection((s) => {
-      const ids = new Set([...s.ids].filter((id) => alive.has(id)))
-      if (ids.size === s.ids.size) return s
-      return { ids, anchor: s.anchor !== null && ids.has(s.anchor) ? s.anchor : null }
-    })
+    setSelection((s) => keepOnly(s, alive))
   }
 
   const scanRef = useRef(scan)
@@ -169,11 +165,7 @@ export default function Gallery({ root, settings, onSettings }: Props) {
       return
     }
     const visible = new Set(filterImages(data.images, data.categories, data.tags, next).map((i) => i.id))
-    setSelection((s) => {
-      const ids = new Set([...s.ids].filter((id) => visible.has(id)))
-      if (ids.size === s.ids.size) return s
-      return { ids, anchor: s.anchor !== null && ids.has(s.anchor) ? s.anchor : null }
-    })
+    setSelection((s) => keepOnly(s, visible))
   }
 
   // タグの付け外しとメモを手元の値に反映する。絞り込みと件数は手元の値で数えるため

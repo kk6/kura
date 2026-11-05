@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { EMPTY_SELECTION, select } from './selection'
+import { EMPTY_SELECTION, keepOnly, select } from './selection'
 
 const order = [10, 20, 30, 40, 50]
 const plain = { shift: false, meta: false }
@@ -35,5 +35,18 @@ describe('select', () => {
     expect(ids(select(EMPTY_SELECTION, order, 30, shift))).toEqual([30])
     const gone = select(EMPTY_SELECTION, [99], 99, plain)
     expect(ids(select(gone, order, 30, shift))).toEqual([30])
+  })
+})
+
+describe('keepOnly', () => {
+  test('残る画像だけを選択に残し、起点が消えたら起点をなくす', () => {
+    const s = { ids: new Set([10, 20, 30]), anchor: 20 }
+    expect(keepOnly(s, new Set([10, 30]))).toEqual({ ids: new Set([10, 30]), anchor: null })
+    expect(keepOnly(s, new Set([20, 30]))).toEqual({ ids: new Set([20, 30]), anchor: 20 })
+  })
+
+  test('選択が変わらなければ同じ値を返し、再描画を起こさない', () => {
+    const s = { ids: new Set([10, 20]), anchor: 10 }
+    expect(keepOnly(s, new Set([10, 20, 30]))).toBe(s)
   })
 })
