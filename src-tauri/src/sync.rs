@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::SystemTime;
 
 use rusqlite::{params, OptionalExtension};
@@ -11,7 +10,7 @@ use serde::Serialize;
 use crate::category::{self, Failed, SUBTREE};
 use crate::fileops::{self, nfc};
 use crate::import::{self, millis, Reason, Skipped};
-use crate::library::{self, err, Library, UNCATEGORIZED_DIR};
+use crate::library::{self, err, Access, Library, UNCATEGORIZED_DIR};
 use crate::trash::{self, Done};
 
 /// 差分検出（FR-104）の結果
@@ -126,21 +125,6 @@ impl Walk {
                 });
             }
         }
-    }
-}
-
-/// ライブラリを使う手段。差分検出は1枚ごとにロックを外すので、開いているライブラリ（Mutex）を受け取る
-pub trait Access {
-    fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String>;
-}
-
-impl Access for Mutex<Option<Library>> {
-    fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
-        f(self
-            .lock()
-            .unwrap()
-            .as_mut()
-            .ok_or("ライブラリを開いていません")?)
     }
 }
 

@@ -12,7 +12,7 @@ mod trash;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use library::Library;
+use library::{Access, Library};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -100,34 +100,22 @@ fn open_library(app: AppHandle, current: State<Current>, path: PathBuf) -> Resul
 
 #[tauri::command]
 fn load_gallery(current: State<Current>) -> Result<gallery::Gallery, String> {
-    let current = current.0.lock().unwrap();
-    gallery::load(current.as_ref().ok_or("ライブラリを開いていません")?)
+    current.0.with(|lib| gallery::load(lib))
 }
 
 #[tauri::command]
 fn image_detail(current: State<Current>, id: i64) -> Result<gallery::Detail, String> {
-    let current = current.0.lock().unwrap();
-    gallery::detail(current.as_ref().ok_or("ライブラリを開いていません")?, id)
+    current.0.with(|lib| gallery::detail(lib, id))
 }
 
 #[tauri::command]
 fn set_memo(current: State<Current>, id: i64, memo: String) -> Result<(), String> {
-    let current = current.0.lock().unwrap();
-    gallery::set_memo(
-        current.as_ref().ok_or("ライブラリを開いていません")?,
-        id,
-        &memo,
-    )
+    current.0.with(|lib| gallery::set_memo(lib, id, &memo))
 }
 
 #[tauri::command]
 fn set_rating(current: State<Current>, id: i64, rating: i64) -> Result<(), String> {
-    let current = current.0.lock().unwrap();
-    gallery::set_rating(
-        current.as_ref().ok_or("ライブラリを開いていません")?,
-        id,
-        rating,
-    )
+    current.0.with(|lib| gallery::set_rating(lib, id, rating))
 }
 
 /// 画像を移すので、取り込みと同じく別のスレッドで行う（同期のコマンドは画面のスレッドを止める）
@@ -137,10 +125,7 @@ async fn set_category(
     ids: Vec<i64>,
     category: Option<i64>,
 ) -> Result<category::Assigned, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let current = app.state::<Current>();
-        let mut current = current.0.lock().unwrap();
-        let lib = current.as_mut().ok_or("ライブラリを開いていません")?;
+    with_library(app, move |lib| {
         let result = category::assign(lib, &ids, category)?;
         for f in &result.failed {
             log::warn!("画像 {} のカテゴリを変えられません：{}", f.id, f.message);
@@ -148,81 +133,34 @@ async fn set_category(
         Ok(result)
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// parent の下（None はルート直下）にカテゴリとフォルダを作る（FR-401）。返り値は新しいカテゴリの id
 #[tauri::command]
 async fn create_category(app: AppHandle, parent: Option<i64>, name: String) -> Result<i64, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let current = app.state::<Current>();
-        let mut current = current.0.lock().unwrap();
-        category::create(
-            current.as_mut().ok_or("ライブラリを開いていません")?,
-            parent,
-            &name,
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_library(app, move |lib| category::create(lib, parent, &name)).await
 }
 
 /// 画像のファイル名を変える（FR-410）。stem は拡張子より前の部分。返り値は変えた後のファイル名
 #[tauri::command]
 async fn rename_image(app: AppHandle, id: i64, stem: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let current = app.state::<Current>();
-        let mut current = current.0.lock().unwrap();
-        category::rename_image(
-            current.as_mut().ok_or("ライブラリを開いていません")?,
-            id,
-            &stem,
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_library(app, move |lib| category::rename_image(lib, id, &stem)).await
 }
 
 /// フォルダの名前を変えたり移したりするので、set_category と同じく別のスレッドで行う
 #[tauri::command]
 async fn rename_category(app: AppHandle, id: i64, name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let current = app.state::<Current>();
-        let mut current = current.0.lock().unwrap();
-        category::rename(
-            current.as_mut().ok_or("ライブラリを開いていません")?,
-            id,
-            &name,
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_library(app, move |lib| category::rename(lib, id, &name)).await
 }
 
 #[tauri::command]
 async fn move_category(app: AppHandle, id: i64, parent: Option<i64>) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let current = app.state::<Current>();
-        let mut current = current.0.lock().unwrap();
-        category::move_to(
-            current.as_mut().ok_or("ライブラリを開いていません")?,
-            id,
-            parent,
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_library(app, move |lib| category::move_to(lib, id, parent)).await
 }
 
 #[tauri::command]
 async fn delete_category(app: AppHandle, id: i64) -> Result<category::Deleted, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let current = app.state::<Current>();
-        let mut current = current.0.lock().unwrap();
-        category::delete(current.as_mut().ok_or("ライブラリを開いていません")?, id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_library(app, move |lib| category::delete(lib, id)).await
 }
 
 #[tauri::command]
@@ -231,70 +169,44 @@ fn set_categories_collapsed(
     ids: Vec<i64>,
     collapsed: bool,
 ) -> Result<(), String> {
-    let current = current.0.lock().unwrap();
-    category::set_collapsed(
-        current.as_ref().ok_or("ライブラリを開いていません")?,
-        &ids,
-        collapsed,
-    )
+    current
+        .0
+        .with(|lib| category::set_collapsed(lib, &ids, collapsed))
 }
 
 #[tauri::command]
 fn image_tags(current: State<Current>, ids: Vec<i64>) -> Result<Vec<tag::Counted>, String> {
-    let current = current.0.lock().unwrap();
-    tag::of(current.as_ref().ok_or("ライブラリを開いていません")?, &ids)
+    current.0.with(|lib| tag::of(lib, &ids))
 }
 
 #[tauri::command]
 fn add_tag(current: State<Current>, ids: Vec<i64>, name: String) -> Result<gallery::Tag, String> {
-    let mut current = current.0.lock().unwrap();
-    tag::add(
-        current.as_mut().ok_or("ライブラリを開いていません")?,
-        &ids,
-        &name,
-    )
+    current.0.with(|lib| tag::add(lib, &ids, &name))
 }
 
 #[tauri::command]
 fn remove_tag(current: State<Current>, ids: Vec<i64>, tag_id: i64) -> Result<(), String> {
-    let current = current.0.lock().unwrap();
-    tag::remove(
-        current.as_ref().ok_or("ライブラリを開いていません")?,
-        &ids,
-        tag_id,
-    )
+    current.0.with(|lib| tag::remove(lib, &ids, tag_id))
 }
 
 #[tauri::command]
 fn rename_tag(current: State<Current>, id: i64, name: String) -> Result<gallery::Tag, String> {
-    let current = current.0.lock().unwrap();
-    tag::rename(
-        current.as_ref().ok_or("ライブラリを開いていません")?,
-        id,
-        &name,
-    )
+    current.0.with(|lib| tag::rename(lib, id, &name))
 }
 
 #[tauri::command]
 fn merge_tag(current: State<Current>, from: i64, into: i64) -> Result<(), String> {
-    let mut current = current.0.lock().unwrap();
-    tag::merge(
-        current.as_mut().ok_or("ライブラリを開いていません")?,
-        from,
-        into,
-    )
+    current.0.with(|lib| tag::merge(lib, from, into))
 }
 
 #[tauri::command]
 fn delete_tag(current: State<Current>, id: i64) -> Result<(), String> {
-    let mut current = current.0.lock().unwrap();
-    tag::delete(current.as_mut().ok_or("ライブラリを開いていません")?, id)
+    current.0.with(|lib| tag::delete(lib, id))
 }
 
 #[tauri::command]
 fn load_trash(current: State<Current>) -> Result<Vec<gallery::Image>, String> {
-    let current = current.0.lock().unwrap();
-    gallery::trash(current.as_ref().ok_or("ライブラリを開いていません")?)
+    current.0.with(|lib| gallery::trash(lib))
 }
 
 /// 画像をゴミ箱へ移す・戻す・ゴミ箱を空にする（FR-511）。ファイルを動かすので別のスレッドで行う
@@ -320,8 +232,7 @@ async fn empty_trash(app: AppHandle) -> Result<trash::Done, String> {
 
 #[tauri::command]
 fn load_missing(current: State<Current>) -> Result<Vec<gallery::Image>, String> {
-    let current = current.0.lock().unwrap();
-    gallery::missing(current.as_ref().ok_or("ライブラリを開いていません")?)
+    current.0.with(|lib| gallery::missing(lib))
 }
 
 /// 差分検出（FR-104）。画面がライブラリを開いた後と、利用者がボタンを押したときに呼ぶ。
@@ -370,13 +281,9 @@ async fn with_library<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&mut Library) -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let current = app.state::<Current>();
-        let mut current = current.0.lock().unwrap();
-        f(current.as_mut().ok_or("ライブラリを開いていません")?)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || app.state::<Current>().0.with(f))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[derive(Clone, Serialize)]

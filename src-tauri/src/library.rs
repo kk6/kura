@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use rusqlite::{Connection, Transaction};
 
@@ -239,6 +240,21 @@ pub fn location_warning(path: &Path) -> Option<String> {
         return Some("ネットワークドライブの中のフォルダです。ネットワークドライブに置いたライブラリは動作を保証しません".into());
     }
     None
+}
+
+/// 開いているライブラリを使う手段。取り込みと差分検出は1枚ごとにロックを外すので、関数ではなく Mutex を受け取る
+pub trait Access {
+    fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String>;
+}
+
+impl Access for Mutex<Option<Library>> {
+    fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
+        f(self
+            .lock()
+            .unwrap()
+            .as_mut()
+            .ok_or("ライブラリを開いていません")?)
+    }
 }
 
 #[cfg(test)]

@@ -2,7 +2,6 @@ use std::cell::Cell;
 use std::fs;
 use std::io::{BufWriter, Cursor};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use image::codecs::jpeg::JpegEncoder;
@@ -13,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::category;
 use crate::fileops::{self, OnConflict, Request};
-use crate::library::{self, err, Library};
+use crate::library::{self, err, Access, Library};
 
 const THUMB_WIDTH: u32 = 320;
 
@@ -260,8 +259,6 @@ pub struct Report {
     pub skipped: Vec<Skipped>,
 }
 
-const CLOSED: &str = "ライブラリが開かれていません";
-
 /// parent の下にある、name と同名（正規化と大文字・小文字の違いは無視）のカテゴリ。なければ作る
 fn category_for(lib: &mut Library, parent: Option<i64>, name: &str) -> Result<i64, String> {
     let siblings = lib
@@ -331,24 +328,21 @@ fn collect(
 /// ファイルとフォルダをまとめて取り込む（FR-201）。parent（None はルート直下と未分類）の下に取り込む。
 /// progress には (取り込み終えた数, 全体の数) を渡す。1枚ごとにロックを外すので、取り込み中も他のコマンドは DB を使える
 pub fn import_paths(
-    current: &Mutex<Option<Library>>,
+    current: &impl Access,
     paths: &[PathBuf],
     parent: Option<i64>,
     mut progress: impl FnMut(usize, usize),
 ) -> Result<Report, String> {
     let mut report = Report::default();
     let mut files = vec![];
-    {
-        let mut guard = current.lock().unwrap();
-        let lib = guard.as_mut().ok_or(CLOSED)?;
+    current.with(|lib| {
         collect(lib, paths, parent, &mut files, &mut report.skipped);
-    }
+        Ok(())
+    })?;
     progress(0, files.len());
     for (i, (src, category)) in files.iter().enumerate() {
-        let outcome = {
-            let mut guard = current.lock().unwrap();
-            import(guard.as_mut().ok_or(CLOSED)?, src, *category)
-        };
+        // 閉じたライブラリは取り込み全体のエラー、1枚の取り込みのエラーはその画像のスキップにする
+        let outcome = current.with(|lib| Ok(import(lib, src, *category)))?;
         let reason = match outcome {
             Ok(Outcome::Added(_)) => {
                 report.added += 1;
