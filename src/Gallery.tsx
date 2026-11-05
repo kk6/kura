@@ -544,6 +544,9 @@ export default function Gallery({ root }: { root: string }) {
           ) : result ? (
             <>
               <Status kind="success">取り込み {result.report.added}枚</Status>
+              {result.report.moved > 0 && (
+                <Status kind="success">未分類から移した {result.report.moved}枚</Status>
+              )}
               {skipped.length > errors && (
                 <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
                   <Status kind="warning">スキップ {skipped.length - errors}枚</Status>

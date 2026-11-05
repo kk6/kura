@@ -76,6 +76,7 @@ const GALLERY: Gallery = {
 
 const REPORT: Report = {
   added: 477,
+  moved: 3,
   skipped: [
     { path: '/Users/me/Downloads/資料/ポーズ/座り/ref_00012.jpg', kind: 'duplicate', existing: 3 },
     { path: '/Users/me/Downloads/資料/_重複/ref_00012 のコピー.jpg', kind: 'duplicate', existing: 3 },

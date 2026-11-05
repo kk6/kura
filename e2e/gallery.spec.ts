@@ -74,6 +74,7 @@ test('フォルダを取り込むと、ステータスバーに進み具合と�
   await page.screenshot({ path: 'test-results/import-progress.png' })
 
   await expect(status).toContainText('完了：取り込み 477枚')
+  await expect(status).toContainText('完了：未分類から移した 3枚')
   await expect(status.getByRole('button', { name: '注意：スキップ 3枚' })).toBeVisible()
   await status.getByRole('button', { name: 'エラー：取り込めない 1件' }).click()
 

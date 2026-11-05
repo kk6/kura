@@ -67,10 +67,13 @@ pub enum Outcome {
     Added(i64),
     /// 同じ中身の画像（ゴミ箱を含む）の id
     Duplicate(i64),
+    /// 同じ中身の画像が未分類にあったので、取り込み先のカテゴリへ移した。その画像の id
+    Moved(i64),
     Unsupported,
 }
 
-/// ライブラリの外の画像1枚を、category（None は未分類）のフォルダへコピーして登録する
+/// ライブラリの外の画像1枚を、category（None は未分類）のフォルダへコピーして登録する。
+/// 同じ中身の画像が未分類にあり category が指定されていれば、コピーせずにその画像を category へ移す（FR-204 の例外）
 pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Outcome, String> {
     let bytes = fs::read(src).map_err(|e| format!("{} を読めません（{e}）", src.display()))?;
     // 拡張子ではなく中身で判定する。拡張子と中身が食い違うファイルもブラウザやビューアーでは開けるため
@@ -83,15 +86,25 @@ pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Ou
         .map(|b| format!("{b:02x}"))
         .collect();
     // deleted_at を見ないので、ゴミ箱の画像とも重複を判定する
-    if let Some(id) = lib
+    if let Some((id, current, trashed)) = lib
         .conn
-        .query_row("SELECT id FROM images WHERE hash = ?1", [&hash], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT id, category_id, deleted_at IS NOT NULL FROM images WHERE hash = ?1",
+            [&hash],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<i64>>(1)?, r.get(2)?)),
+        )
         .optional()
         .map_err(err)?
     {
-        return Ok(Outcome::Duplicate(id));
+        // 未分類にある画像だけを移す。別のカテゴリとゴミ箱の画像は、利用者が置いた場所を変えないようスキップする
+        if category.is_none() || current.is_some() || trashed {
+            return Ok(Outcome::Duplicate(id));
+        }
+        let r = category::assign(lib, &[id], category)?;
+        return match r.failed.into_iter().next() {
+            Some(f) => Err(f.message),
+            None => Ok(Outcome::Moved(id)),
+        };
     }
 
     let unreadable = |e: image::ImageError| format!("画像を読めません（{}、{e}）", src.display());
@@ -188,6 +201,8 @@ pub struct Skipped {
 #[derive(Debug, Default, Serialize)]
 pub struct Report {
     pub added: usize,
+    /// 未分類から取り込み先のカテゴリへ移した枚数
+    pub moved: usize,
     pub skipped: Vec<Skipped>,
 }
 
@@ -281,17 +296,23 @@ pub fn import_paths(
             import(guard.as_mut().ok_or(CLOSED)?, src, *category)
         };
         let reason = match outcome {
-            Ok(Outcome::Added(_)) => None,
+            Ok(Outcome::Added(_)) => {
+                report.added += 1;
+                None
+            }
+            Ok(Outcome::Moved(_)) => {
+                report.moved += 1;
+                None
+            }
             Ok(Outcome::Duplicate(existing)) => Some(Reason::Duplicate { existing }),
             Ok(Outcome::Unsupported) => Some(Reason::Unsupported),
             Err(message) => Some(Reason::Error { message }),
         };
-        match reason {
-            None => report.added += 1,
-            Some(reason) => report.skipped.push(Skipped {
+        if let Some(reason) = reason {
+            report.skipped.push(Skipped {
                 path: src.clone(),
                 reason,
-            }),
+            });
         }
         progress(i + 1, files.len());
     }
@@ -619,6 +640,59 @@ mod tests {
     }
 
     #[test]
+    fn 同じ中身の画像が未分類にあればカテゴリへの取り込みではその画像をカテゴリへ移す() {
+        let mut env = setup();
+        let pose = category::create(&mut env.lib, None, "ポーズ").unwrap();
+        let a = make(&env, "a.png", 4, 4, [1, 2, 3, 255], ImageFormat::Png);
+        let first = added(import(&mut env.lib, &a, None).unwrap());
+        env.lib
+            .conn
+            .execute_batch(&format!(
+                "INSERT INTO tags(name) VALUES ('座り'); INSERT INTO image_tags VALUES ({first}, 1);"
+            ))
+            .unwrap();
+
+        assert_eq!(
+            import(&mut env.lib, &a, Some(pose)).unwrap(),
+            Outcome::Moved(first)
+        );
+
+        assert_eq!(count(&env.lib), 1);
+        assert_eq!(row(&env.lib, first).category_id, Some(pose));
+        assert_eq!(files(&env.lib.root.join("ポーズ")), ["a.png"]);
+        assert_eq!(files(&env.lib.root.join("_未分類")), Vec::<String>::new());
+        let tags: i64 = env
+            .lib
+            .conn
+            .query_row("SELECT count(*) FROM image_tags", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tags, 1);
+    }
+
+    #[test]
+    fn 同じ中身の画像が別のカテゴリかゴミ箱にあれば移さずに重複とする() {
+        let mut env = setup();
+        let pose = category::create(&mut env.lib, None, "ポーズ").unwrap();
+        let hand = category::create(&mut env.lib, None, "手").unwrap();
+        let a = make(&env, "a.png", 4, 4, [1, 1, 1, 255], ImageFormat::Png);
+        let b = make(&env, "b.png", 4, 4, [2, 2, 2, 255], ImageFormat::Png);
+        let in_hand = added(import(&mut env.lib, &a, Some(hand)).unwrap());
+        let trashed = added(import(&mut env.lib, &b, None).unwrap());
+        crate::trash::trash(&mut env.lib, &[trashed]).unwrap();
+
+        assert_eq!(
+            import(&mut env.lib, &a, Some(pose)).unwrap(),
+            Outcome::Duplicate(in_hand)
+        );
+        assert_eq!(
+            import(&mut env.lib, &b, Some(pose)).unwrap(),
+            Outcome::Duplicate(trashed)
+        );
+        assert_eq!(row(&env.lib, in_hand).category_id, Some(hand));
+        assert_eq!(files(&env.lib.root.join("ポーズ")), Vec::<String>::new());
+    }
+
+    #[test]
     fn 同名の別の画像があれば連番を付けて取り込む() {
         let mut env = setup();
         let a = make(&env, "a.png", 4, 4, [1, 1, 1, 255], ImageFormat::Png);
@@ -851,6 +925,60 @@ mod tests {
         assert_eq!(report.added, 0);
         assert!(matches!(report.skipped[0].reason, Reason::Duplicate { .. }));
         assert_eq!(categories(&lib), ["資料", "資料/手"]);
+    }
+
+    #[test]
+    fn カテゴリを削除して未分類へ移した画像はフォルダを取り込み直すと元のカテゴリへ戻る() {
+        let env = setup();
+        tree(&env, &["資料/手/a.png", "資料/b.png"]);
+        let src = env.outside.path().join("資料");
+        let (mut lib, _) = run(env.lib, std::slice::from_ref(&src), None);
+        let top: i64 = lib
+            .conn
+            .query_row(
+                "SELECT id FROM categories WHERE parent_id IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(category::delete(&mut lib, top).unwrap().error.is_none());
+
+        let (lib, report) = run(lib, &[src], None);
+
+        assert_eq!((report.added, report.moved), (0, 2));
+        assert!(report.skipped.is_empty());
+        assert_eq!(in_category(&lib, "資料/手"), ["a.png"]);
+        assert_eq!(in_category(&lib, "資料"), ["b.png"]);
+        assert_eq!(files(&lib.root.join("_未分類")), Vec::<String>::new());
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 未分類の画像を移せなければエラーにして残りは続ける() {
+        let env = setup();
+        tree(&env, &["資料/a.png", "資料/b.png"]);
+        let a = env.outside.path().join("資料/a.png");
+        let (lib, _) = run(env.lib, &[a], None);
+        let uncategorized = lib.root.join("_未分類");
+        if !crate::category::tests::lock(&uncategorized) {
+            return;
+        }
+
+        let (lib, report) = run(lib, &[env.outside.path().join("資料")], None);
+
+        crate::category::tests::unlock(&uncategorized);
+        assert_eq!((report.added, report.moved), (1, 0));
+        assert_eq!(
+            reasons(&report),
+            [(
+                "a.png".into(),
+                Reason::Error {
+                    message: String::new()
+                }
+            )]
+        );
+        assert_eq!(files(&uncategorized), ["a.png"]);
+        assert_eq!(in_category(&lib, "資料"), ["b.png"]);
     }
 
     #[test]

@@ -5,6 +5,7 @@ export type Skipped = { path: string } & (
   | { kind: 'error'; message: string }
 )
 
-export type Report = { added: number; skipped: Skipped[] }
+// moved は、同じ画像が未分類にあったので取り込み先のカテゴリへ移した枚数（FR-204 の例外）
+export type Report = { added: number; moved: number; skipped: Skipped[] }
 
 export type ImportProgress = { done: number; total: number }
