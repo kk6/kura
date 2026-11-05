@@ -64,13 +64,21 @@ fn activate(
 }
 
 #[tauri::command]
-fn list_recent_libraries(app: AppHandle) -> Result<Vec<PathBuf>, String> {
-    Ok(recent::load(&recent_file(&app)?))
+fn list_recent_libraries(app: AppHandle) -> Vec<PathBuf> {
+    // 起動時に画面が最初に呼ぶので、失敗を返すと画面が何も出せない。壊れた一覧のファイルと同じく空として扱う
+    recent_file(&app)
+        .inspect_err(|e| log::error!("最近使ったライブラリを読めません：{e}"))
+        .map(|file| recent::load(&file))
+        .unwrap_or_default()
 }
 
 #[tauri::command]
-fn load_settings(app: AppHandle) -> Result<settings::Settings, String> {
-    Ok(settings::load(&app_file(&app, "settings.json")?))
+fn load_settings(app: AppHandle) -> settings::Settings {
+    // list_recent_libraries と同じく、失敗は壊れた設定のファイルと同じく初期値として扱う
+    app_file(&app, "settings.json")
+        .inspect_err(|e| log::error!("設定を読めません：{e}"))
+        .map(|file| settings::load(&file))
+        .unwrap_or_default()
 }
 
 #[tauri::command]
