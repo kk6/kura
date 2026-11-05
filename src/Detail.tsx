@@ -25,6 +25,8 @@ type Props = {
   onTagged: (tag: number, ids: number[]) => void
   onUntagged: (tag: number, ids: number[]) => void
   onMemo: (id: number, memo: string) => void
+  // 選んだ画像をゴミ箱へ移す（FR-511）
+  onTrash: (ids: number[]) => void
 }
 
 function fileSize(bytes: number): string {
@@ -185,6 +187,12 @@ export default function Detail(props: Props) {
       </dd>
     </>
   )
+  // 元に戻せるので確認は出さない
+  const trash = (
+    <button type="button" className="button detail__trash" onClick={() => props.onTrash(ids)}>
+      ゴミ箱へ移す
+    </button>
+  )
   return (
     <aside className="gallery__detail" aria-label="詳細">
       {!selected.length ? (
@@ -193,6 +201,7 @@ export default function Detail(props: Props) {
         <>
           <h2 className="detail__name">{selected.length}枚を選んでいます</h2>
           <dl className="detail__fields">{classify}</dl>
+          {trash}
         </>
       ) : (
         <>
@@ -233,6 +242,7 @@ export default function Detail(props: Props) {
               <Memo key={image.id} id={image.id} initial={image.memo} onSaved={(memo) => props.onMemo(image.id, memo)} />
             </dd>
           </dl>
+          {trash}
         </>
       )}
     </aside>

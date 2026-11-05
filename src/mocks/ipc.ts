@@ -1,7 +1,7 @@
 import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
-import type { Assigned, Gallery, Image } from '../galleryTypes'
+import type { Assigned, Done, Gallery, Image, Restored } from '../galleryTypes'
 import type { Report } from '../importTypes'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
@@ -269,6 +269,51 @@ const deleteTag: Handler = (args) => {
   GALLERY.tags = GALLERY.tags.filter((t) => t.id !== id)
 }
 
+// ゴミ箱（FR-511）。最初から2枚入れておく。1枚目は元のカテゴリ（id 99）が削除済みで、戻すと未分類になる
+const TRASH: Image[] = [COUNT + 1, COUNT + 2].map((id, i) => ({
+  ...IMAGES[i],
+  id,
+  file_name: `deleted_${i + 1}.jpg`,
+  hash: `hash${id}`,
+  category_id: i === 0 ? null : 4,
+  tags: [],
+  memo: '',
+}))
+const CATEGORY_GONE = new Set([COUNT + 1])
+
+// e2e で失敗の表示を確かめるため、setCategory と同じく ref_00007 は移せない
+const trashImages: Handler = (args) => {
+  const out: Done = { done: [], failed: [] }
+  for (const id of args?.ids as number[]) {
+    const at = IMAGES.findIndex((i) => i.id === id)
+    if (id === 7 || at < 0) {
+      out.failed.push({ id, message: `移動元が見つかりません（${id}）` })
+      continue
+    }
+    TRASH.unshift(...IMAGES.splice(at, 1))
+    out.done.push(id)
+  }
+  return out
+}
+
+const restoreImages: Handler = (args) => {
+  const out: Restored = { moved: [], failed: [], uncategorized: [] }
+  for (const id of args?.ids as number[]) {
+    const at = TRASH.findIndex((i) => i.id === id)
+    if (at < 0) {
+      out.failed.push({ id, message: `ゴミ箱に画像が見つかりません（${id}）` })
+      continue
+    }
+    const [image] = TRASH.splice(at, 1)
+    if (CATEGORY_GONE.delete(id)) out.uncategorized.push(id)
+    IMAGES.push(image)
+    out.moved.push({ id, file_name: image.file_name })
+  }
+  return out
+}
+
+const emptyTrash: Handler = () => ({ done: TRASH.splice(0).map((i) => i.id), failed: [] })
+
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
 const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
@@ -293,6 +338,10 @@ const handlers: Record<string, Handler> = {
   rename_tag: renameTag,
   merge_tag: mergeTag,
   delete_tag: deleteTag,
+  load_trash: () => structuredClone(TRASH),
+  trash_images: trashImages,
+  restore_images: restoreImages,
+  empty_trash: emptyTrash,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

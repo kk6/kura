@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { subtree } from './categoryTree'
-import DeleteCategoryDialog from './DeleteCategoryDialog'
+import ConfirmDialog from './ConfirmDialog'
 import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import type { countImages, Filter } from './filter'
@@ -20,6 +20,10 @@ type Props = {
   onCreate: (parent: number | null, name: string) => Promise<void>
   onMove: (id: number, parent: number | null) => void
   onDelete: (id: number) => void
+  // ゴミ箱（FR-511）。開いている間は、カテゴリの選択を目立たせない
+  trashCount: number
+  inTrash: boolean
+  onTrash: () => void
 }
 
 // ドロップ先の目印。ROOT は見出しに落としたとき（ルート直下へ移す）
@@ -33,7 +37,9 @@ export const SKIP_CONFIRM = 'kura.skipCategoryMoveConfirm'
 // ドラッグ中のポインターの下。none は落とせる先の外、self は自分か子孫、same は今の親、target は移せる先
 type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
-export default function Sidebar({ root, gallery, filter, counts, onFilter, onManageTags, onRename, onCreate, onMove, onDelete }: Props) {
+export default function Sidebar(props: Props) {
+  const { root, gallery, filter, counts, onFilter, onManageTags, onRename, onCreate, onMove, onDelete } = props
+  const current = props.inTrash ? null : filter.category
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
@@ -181,7 +187,7 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onMan
             field(depth)
           ) : (
           <span
-            className={`sidebar__item sidebar__item--category${filter.category === c.id ? ' sidebar__item--selected' : ''}${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
+            className={`sidebar__item sidebar__item--category${current === c.id ? ' sidebar__item--selected' : ''}${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
             style={{ '--depth': depth } as CSSProperties}
             data-drop={c.id}
             title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
@@ -212,7 +218,7 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onMan
             <button
               type="button"
               className="sidebar__name"
-              aria-current={filter.category === c.id}
+              aria-current={current === c.id}
               onClick={() => scope(c.id)}
             >
               {c.name}
@@ -264,8 +270,8 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onMan
         <li>
           <button
             type="button"
-            className={`sidebar__item sidebar__button${filter.category === 'all' ? ' sidebar__item--selected' : ''}`}
-            aria-current={filter.category === 'all'}
+            className={`sidebar__item sidebar__button${current === 'all' ? ' sidebar__item--selected' : ''}`}
+            aria-current={current === 'all'}
             onClick={() => scope('all')}
           >
             すべての画像<span className="sidebar__count">{gallery.images.length}</span>
@@ -274,11 +280,21 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onMan
         <li>
           <button
             type="button"
-            className={`sidebar__item sidebar__button${filter.category === 'uncategorized' ? ' sidebar__item--selected' : ''}`}
-            aria-current={filter.category === 'uncategorized'}
+            className={`sidebar__item sidebar__button${current === 'uncategorized' ? ' sidebar__item--selected' : ''}`}
+            aria-current={current === 'uncategorized'}
             onClick={() => scope('uncategorized')}
           >
             未分類<span className="sidebar__count">{counts.uncategorized}</span>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className={`sidebar__item sidebar__button${props.inTrash ? ' sidebar__item--selected' : ''}`}
+            aria-current={props.inTrash}
+            onClick={props.onTrash}
+          >
+            ゴミ箱<span className="sidebar__count">{props.trashCount}</span>
           </button>
         </li>
       </ul>
@@ -354,17 +370,19 @@ export default function Sidebar({ root, gallery, filter, counts, onFilter, onMan
       {deleting !== null &&
         (() => {
           const ids = subtree(gallery.categories, deleting)
+          const images = gallery.images.filter((i) => i.category_id !== null && ids.has(i.category_id)).length
           return (
-            <DeleteCategoryDialog
-              name={nameOf(deleting) ?? ''}
-              categories={ids.size}
-              images={gallery.images.filter((i) => i.category_id !== null && ids.has(i.category_id)).length}
+            <ConfirmDialog
+              title="カテゴリを削除する"
+              confirm="削除する"
               onConfirm={() => {
                 onDelete(deleting)
                 setDeleting(null)
               }}
               onClose={() => setDeleting(null)}
-            />
+            >
+              「{nameOf(deleting)}」{ids.size > 1 && `と子カテゴリ ${ids.size - 1}個`}を削除します。中の画像 {images}枚は未分類へ移ります。画像は削除しません。
+            </ConfirmDialog>
           )
         })()}
       {pending && (

@@ -13,18 +13,24 @@ import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
 import TagDialog from './TagDialog'
-import type { Assigned, Deleted, Detail as DetailData, Gallery as GalleryData, Image, Tag } from './galleryTypes'
+import TrashPanel from './TrashPanel'
+import type { Assigned, Deleted, Detail as DetailData, Done, Gallery as GalleryData, Image, Restored, Tag } from './galleryTypes'
 import type { ImportProgress, Report } from './importTypes'
 import { EMPTY_SELECTION, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
 
 // ステータスバーに出す一括操作の結果
+type Failed = { file_name: string; message: string }[]
 type Result =
   | { kind: 'report'; report: Report }
   | { kind: 'error'; message: string; failed?: { file_name: string; message: string }[] }
   | { kind: 'deleted'; name: string; moved: number }
-  | { kind: 'assigned'; moved: number; failed: { file_name: string; message: string }[] }
+  | { kind: 'assigned'; moved: number; failed: Failed }
+  // ゴミ箱（FR-511）。uncategorized は元のカテゴリがなく未分類へ戻した枚数
+  | { kind: 'trashed'; count: number; failed: Failed }
+  | { kind: 'emptied'; count: number; failed: Failed }
+  | { kind: 'restored'; count: number; uncategorized: number; failed: Failed }
 
 const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
 
@@ -46,6 +52,9 @@ export default function Gallery({ root }: { root: string }) {
   // 読み込んだ詳細。id は、別の画像に移った直後に前の画像の詳細を使わないため
   const [detail, setDetail] = useState<{ id: number; detail?: DetailData; error?: string } | null>(null)
   const busy = useRef(false)
+  // ゴミ箱の画像と、ゴミ箱を開いているか（FR-511）
+  const [trash, setTrash] = useState<Image[]>([])
+  const [inTrash, setInTrash] = useState(false)
 
   async function reload() {
     try {
@@ -55,7 +64,17 @@ export default function Gallery({ root }: { root: string }) {
       setLoadError(String(e))
     }
   }
-  useEffect(() => void reload(), [])
+  async function reloadTrash() {
+    try {
+      setTrash(await invoke<Image[]>('load_trash'))
+    } catch (e) {
+      setLoadError(String(e))
+    }
+  }
+  useEffect(() => {
+    reload()
+    reloadTrash()
+  }, [])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
   const images = useMemo(
@@ -68,6 +87,11 @@ export default function Gallery({ root }: { root: string }) {
   // 絞り込みを変えたら、見えなくなった画像の選択を外す。見えない画像までまとめて変えないため
   function changeFilter(next: Filter) {
     setFilter(next)
+    if (inTrash) {
+      setInTrash(false)
+      setSelection(EMPTY_SELECTION)
+      return
+    }
     const visible = new Set(filterImages(data.images, data.categories, data.tags, next).map((i) => i.id))
     setSelection((s) => {
       const ids = new Set([...s.ids].filter((id) => visible.has(id)))
@@ -81,10 +105,13 @@ export default function Gallery({ root }: { root: string }) {
     const targets = new Set(ids)
     setData((d) => ({ ...d, images: d.images.map((i) => (targets.has(i.id) ? edit(i) : i)) }))
   }
-  const order = useMemo(() => images.map((i) => i.id), [images])
+  // ゴミ箱は削除した新しい順に出し、並べ替えと絞り込みはしない
+  const listed = inTrash ? trash : images
+  const order = useMemo(() => listed.map((i) => i.id), [listed])
   const ids = useMemo(() => [...selection.ids], [selection.ids])
-  const selected = useMemo(() => data.images.filter((i) => selection.ids.has(i.id)), [data.images, selection.ids])
-  const only = ids.length === 1 ? ids[0] : null
+  const pool = inTrash ? trash : data.images
+  const selected = useMemo(() => pool.filter((i) => selection.ids.has(i.id)), [pool, selection.ids])
+  const only = !inTrash && ids.length === 1 ? ids[0] : null
   const selectedImage = only === null ? null : (selected[0] ?? null)
   const shown = detail && detail.id === only ? detail : null
   // カテゴリを変えるとファイルの場所が変わるので、詳細（拡大表示で読む元の画像のパス）を読み直す
@@ -163,6 +190,9 @@ export default function Gallery({ root }: { root: string }) {
     if (paths) start(paths)
   }
 
+  const named = (failed: Assigned['failed'], list: Image[]): Failed =>
+    failed.map((f) => ({ file_name: list.find((i) => i.id === f.id)?.file_name ?? String(f.id), message: f.message }))
+
   // 移した画像のカテゴリとファイル名を手元の値に反映し、移せなかった画像をファイル名で返す
   function applyMoved(r: Assigned, category: number | null) {
     const names = new Map(r.moved.map((m) => [m.id, m.file_name]))
@@ -170,10 +200,64 @@ export default function Gallery({ root }: { root: string }) {
       ...d,
       images: d.images.map((i) => (names.has(i.id) ? { ...i, category_id: category, file_name: names.get(i.id)! } : i)),
     }))
-    return r.failed.map((f) => ({
-      file_name: data.images.find((i) => i.id === f.id)?.file_name ?? String(f.id),
-      message: f.message,
-    }))
+    return named(r.failed, data.images)
+  }
+
+  // ゴミ箱（FR-511）。移した画像は手元の一覧から外し、ゴミ箱は読み直す
+  async function trashImages(targets: number[]) {
+    let r: Done
+    try {
+      r = await invoke<Done>('trash_images', { ids: targets })
+    } catch (e) {
+      setResult({ kind: 'error', message: `ゴミ箱へ移せません（${e}）` })
+      return
+    }
+    const gone = new Set(r.done)
+    setData((d) => ({ ...d, images: d.images.filter((i) => !gone.has(i.id)) }))
+    setSelection((s) => ({ ids: new Set([...s.ids].filter((id) => !gone.has(id))), anchor: null }))
+    setResult({ kind: 'trashed', count: r.done.length, failed: named(r.failed, data.images) })
+    reloadTrash()
+  }
+
+  function openTrash() {
+    setInTrash(true)
+    setZoom(false)
+    setSelection(EMPTY_SELECTION)
+    // タグの統合や削除はゴミ箱の画像にも効くので、開くたびに読み直す
+    reloadTrash()
+  }
+
+  // 戻した画像はタグとメモも含めて一覧に戻るので、両方を読み直す
+  async function restoreImages() {
+    let r: Restored
+    try {
+      r = await invoke<Restored>('restore_images', { ids })
+    } catch (e) {
+      setResult({ kind: 'error', message: `元に戻せません（${e}）` })
+      return
+    }
+    setSelection(EMPTY_SELECTION)
+    setResult({
+      kind: 'restored',
+      count: r.moved.length,
+      uncategorized: r.uncategorized.length,
+      failed: named(r.failed, trash),
+    })
+    reload()
+    reloadTrash()
+  }
+
+  async function emptyTrash() {
+    let r: Done
+    try {
+      r = await invoke<Done>('empty_trash')
+    } catch (e) {
+      setResult({ kind: 'error', message: `ゴミ箱を空にできません（${e}）` })
+      return
+    }
+    setSelection(EMPTY_SELECTION)
+    setResult({ kind: 'emptied', count: r.done.length, failed: named(r.failed, trash) })
+    reloadTrash()
   }
 
   async function assign(targets: number[], category: number | null) {
@@ -308,17 +392,21 @@ export default function Gallery({ root }: { root: string }) {
         onCreate={createCategory}
         onMove={moveCategory}
         onDelete={deleteCategory}
+        trashCount={trash.length}
+        inTrash={inTrash}
+        onTrash={openTrash}
       />
 
       <Masonry
         root={root}
-        images={images}
+        images={listed}
         thumbWidth={thumbWidth}
         selected={selection.ids}
         onSelect={(id, e) =>
           setSelection((s) => (id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey })))
         }
-        onOpen={() => setZoom(true)}
+        // ゴミ箱の元の画像は画面から読めないので、拡大表示しない
+        onOpen={() => !inTrash && setZoom(true)}
       />
 
       {zoomed && (
@@ -355,29 +443,40 @@ export default function Gallery({ root }: { root: string }) {
         </section>
       )}
 
-      <Detail
-        root={root}
-        categories={data.categories}
-        tags={data.tags}
-        ids={ids}
-        selected={selected}
-        image={selectedImage}
-        detail={shown?.detail ?? null}
-        error={shown?.error ?? null}
-        onRate={async (id, rating) => {
-          await invoke('set_rating', { id, rating })
-          setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
-        }}
-        onAssign={assign}
-        onRename={renameImage}
-        onTagCreated={addTag}
-        onTagged={(tag, ids) => editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))}
-        onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
-        onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
-      />
+      {inTrash ? (
+        <TrashPanel count={trash.length} selected={ids.length} onRestore={restoreImages} onEmpty={emptyTrash} />
+      ) : (
+        <Detail
+          root={root}
+          categories={data.categories}
+          tags={data.tags}
+          ids={ids}
+          selected={selected}
+          image={selectedImage}
+          detail={shown?.detail ?? null}
+          error={shown?.error ?? null}
+          onRate={async (id, rating) => {
+            await invoke('set_rating', { id, rating })
+            setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
+          }}
+          onAssign={assign}
+          onRename={renameImage}
+          onTagCreated={addTag}
+          onTagged={(tag, ids) => editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))}
+          onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
+          onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
+          onTrash={trashImages}
+        />
+      )}
 
       <footer className="gallery__statusbar">
-        <span>{filtered ? `${images.length} / ${data.images.length}枚` : `${data.images.length}枚`}</span>
+        <span>
+          {inTrash
+            ? `ゴミ箱 ${trash.length}枚`
+            : filtered
+              ? `${images.length} / ${data.images.length}枚`
+              : `${data.images.length}枚`}
+        </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <span className="statusbar__import" role="status">
           {progress ? (
@@ -419,6 +518,22 @@ export default function Gallery({ root }: { root: string }) {
                 </button>
               )}
             </>
+          ) : result?.kind === 'trashed' || result?.kind === 'restored' || result?.kind === 'emptied' ? (
+            <>
+              <Status kind="success">
+                {TRASH_DONE[result.kind]} {result.count}枚
+              </Status>
+              {result.kind === 'restored' && result.uncategorized > 0 && (
+                <Status kind="info">元のカテゴリがないため未分類に戻した {result.uncategorized}枚</Status>
+              )}
+              {result.failed.length > 0 && (
+                <button type="button" className="statusbar__link" onClick={() => setShowSkipped(true)}>
+                  <Status kind="error">
+                    {result.kind === 'emptied' ? '削除できない' : '移せない'} {result.failed.length}枚
+                  </Status>
+                </button>
+              )}
+            </>
           ) : result ? (
             <>
               <Status kind="success">取り込み {result.report.added}枚</Status>
@@ -449,14 +564,20 @@ export default function Gallery({ root }: { root: string }) {
       )}
 
       {showSkipped &&
-        (result?.kind === 'assigned' || result?.kind === 'error' ? (
-          <MoveFailDialog failed={result.failed ?? []} onClose={() => setShowSkipped(false)} />
+        (result && result.kind !== 'report' && result.kind !== 'deleted' ? (
+          <MoveFailDialog
+            title={result.kind === 'emptied' ? '削除できなかった画像' : undefined}
+            failed={result.failed ?? []}
+            onClose={() => setShowSkipped(false)}
+          />
         ) : (
           <SkipDialog skipped={skipped} onClose={() => setShowSkipped(false)} />
         ))}
     </div>
   )
 }
+
+const TRASH_DONE = { trashed: 'ゴミ箱へ移した', restored: '元に戻した', emptied: 'ゴミ箱から削除した' }
 
 const sortTags = (tags: Tag[]) => tags.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
 

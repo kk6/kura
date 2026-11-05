@@ -600,3 +600,18 @@ body.is-dragging * {
   font-size: var(--font-size-sm);
   color: var(--color-text-faint);
 }
+
+.detail__trash {
+  margin-top: var(--space-5);
+}
+
+.detail__note {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-sub);
+}
+
+.detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}

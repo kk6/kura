@@ -38,3 +38,9 @@ export type Assigned = {
 
 // src-tauri/src/category.rs の Deleted（delete_category コマンドの返り値）。error が null ならカテゴリは子カテゴリごと消えた
 export type Deleted = Assigned & { error: string | null }
+
+// src-tauri/src/trash.rs の Done（trash_images と empty_trash コマンドの返り値）
+export type Done = { done: number[]; failed: { id: number; message: string }[] }
+
+// src-tauri/src/trash.rs の Restored（restore_images コマンドの返り値）。uncategorized は元のカテゴリがなく未分類へ戻した画像
+export type Restored = Assigned & { uncategorized: number[] }

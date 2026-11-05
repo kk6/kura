@@ -2,11 +2,13 @@ import { useEffect, useRef } from 'react'
 import Status from './Status'
 import './SkipDialog.css'
 
-// カテゴリを変えたときに移せなかった画像の一覧（FR-407）。見た目は取り込みのスキップの一覧に合わせる
+// カテゴリを変えたときやゴミ箱の操作で移せなかった画像の一覧（FR-407、FR-511）。見た目は取り込みのスキップの一覧に合わせる
 export default function MoveFailDialog({
+  title = '移せなかった画像',
   failed,
   onClose,
 }: {
+  title?: string
   failed: { file_name: string; message: string }[]
   onClose: () => void
 }) {
@@ -16,7 +18,7 @@ export default function MoveFailDialog({
   return (
     <dialog ref={ref} className="dialog" aria-labelledby="move-fail-title" onClose={onClose}>
       <h2 id="move-fail-title" className="dialog__title">
-        移せなかった画像（{failed.length}枚）
+        {title}（{failed.length}枚）
       </h2>
       <ul className="skip__list">
         {failed.map((f, i) => (

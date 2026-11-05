@@ -947,3 +947,72 @@ test('検索バーに入れると名前の合うカテゴリとタグを候補�
   await expect(search).toHaveValue('')
   expect(errors).toEqual([])
 })
+
+test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確かめてから空にする', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const trashItem = sidebar.getByRole('button', { name: /^ゴミ箱/ })
+  const status = page.getByRole('contentinfo')
+  const all = sidebar.getByRole('button', { name: /^すべての画像/ })
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  await expect(trashItem).toContainText('2')
+
+  // 確認は出さずに移す。移せない画像（モックの ref_00007）は件数を出し、押すと一覧を開く
+  await thumb(page, 1).click()
+  await thumb(page, 2).click({ modifiers: ['Meta'] })
+  await thumb(page, 7).click({ modifiers: ['Meta'] })
+  await page.getByRole('complementary', { name: '詳細' }).getByRole('button', { name: 'ゴミ箱へ移す' }).click()
+  await expect(status).toContainText('完了：ゴミ箱へ移した 2枚')
+  await expect(status).toContainText('1998枚')
+  await expect(thumb(page, 1)).toHaveCount(0)
+  await expect(trashItem).toContainText('4')
+  await expect(all).toContainText('1998')
+  await status.getByRole('button', { name: /移せない 1枚/ }).click()
+  await expect(page.getByRole('dialog', { name: '移せなかった画像（1枚）' })).toContainText('ref_00007.jpg')
+  await page.keyboard.press('Escape')
+
+  // ゴミ箱を開くと一覧がゴミ箱の画像になり、拡大表示はしない
+  await trashItem.click()
+  await expect(trashItem).toHaveAttribute('aria-current', 'true')
+  await expect(all).toHaveAttribute('aria-current', 'false')
+  await expect(thumbs(page)).toHaveCount(4)
+  await expect(status).toContainText('ゴミ箱 4枚')
+  const panel = page.getByRole('complementary', { name: 'ゴミ箱' })
+  await expect(panel.getByRole('button', { name: '元に戻す' })).toBeDisabled()
+  await thumb(page, 1).dblclick()
+  await expect(page.getByRole('region', { name: '拡大表示' })).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/trash.png' })
+
+  // 元のカテゴリが消えた画像は未分類に戻して知らせる
+  await page.getByRole('main', { name: '画像の一覧' }).getByAltText('deleted_1.jpg').click({ modifiers: ['Meta'] })
+  await expect(panel).toContainText('2枚を選んでいます')
+  await panel.getByRole('button', { name: '元に戻す' }).click()
+  await expect(status).toContainText('完了：元に戻した 2枚')
+  await expect(status).toContainText('お知らせ：元のカテゴリがないため未分類に戻した 1枚')
+  await expect(thumbs(page)).toHaveCount(2)
+  await expect(trashItem).toContainText('2')
+  await expect(all).toContainText('2000')
+  await page.screenshot({ path: 'test-results/trash-restored.png' })
+
+  // 空にするのは取り消せないので、枚数を見せて確かめる。Enter だけでは空にしない
+  await panel.getByRole('button', { name: 'ゴミ箱を空にする' }).click()
+  const dialog = page.getByRole('dialog', { name: 'ゴミ箱を空にする' })
+  await expect(dialog).toContainText('ゴミ箱の画像 2枚を完全に削除します。元に戻せません。')
+  await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeFocused()
+  await page.screenshot({ path: 'test-results/trash-empty-confirm.png' })
+  await page.keyboard.press('Enter')
+  await expect(thumbs(page)).toHaveCount(2)
+  await panel.getByRole('button', { name: 'ゴミ箱を空にする' }).click()
+  await dialog.getByRole('button', { name: '空にする' }).click()
+  await expect(status).toContainText('完了：ゴミ箱から削除した 2枚')
+  await expect(thumbs(page)).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'ゴミ箱を空にする' })).toBeDisabled()
+
+  // ほかの場所を押すとゴミ箱を閉じる
+  await all.click()
+  await expect(page.getByRole('complementary', { name: '詳細' })).toBeVisible()
+  await expect(thumb(page, 1)).toBeVisible()
+  expect(errors).toEqual([])
+})
