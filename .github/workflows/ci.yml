@@ -54,12 +54,9 @@ jobs:
               - '!playwright.config.ts'
               - '!.prettierrc.json'
               - '!.prettierignore'
+            # predicate-quantifier: every はここにもかかるので、どれか1つに当たればよい条件は1つのパターンにまとめる
             python:
-              - '**/*.py'
-              - '**/pyproject.toml'
-              - '**/uv.lock'
-              - 'ruff.toml'
-              - '.github/workflows/ci.yml'
+              - '{**/*.py,**/pyproject.toml,**/uv.lock,ruff.toml,.github/workflows/ci.yml}'
 
   # lint は docs、CLAUDE.md、main.rs のコマンド名も調べるので、どの変更でも流す
   web:
