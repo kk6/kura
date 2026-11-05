@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use rusqlite::{params, OptionalExtension};
@@ -138,27 +139,111 @@ impl Walk {
     }
 }
 
-struct Row {
-    id: i64,
-    path: PathBuf,
-    hash: String,
-    size: i64,
-    mtime: i64,
-    missing: bool,
+/// ライブラリを使う手段。差分検出は1枚ごとにロックを外すので、開いているライブラリ（Mutex）を受け取る
+pub trait Access {
+    fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String>;
+}
+
+impl Access for Mutex<Option<Library>> {
+    fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
+        f(self
+            .lock()
+            .unwrap()
+            .as_mut()
+            .ok_or("ライブラリを開いていません")?)
+    }
+}
+
+/// 中身を確かめる必要があるファイル
+enum Work {
+    /// DB の行と同じ場所にあるが、サイズか更新日時が違う
+    Changed {
+        id: i64,
+        hash: String,
+        missing: bool,
+    },
+    /// どの行にも当たらない。移動か新しい画像。category は置かれたフォルダのカテゴリ
+    New { category: Option<i64> },
+}
+
+/// 1. のロックの中で決めたこと
+struct Plan {
+    work: Vec<(Found, Work)>,
+    /// 実ファイルが見つからなかった行（ハッシュ → id）。ハッシュで移動先を探す
+    gone: HashMap<String, i64>,
+    /// 対応するフォルダがなかったカテゴリ
+    unmatched: Vec<i64>,
 }
 
 /// DB と実際のファイルの差分を検出して反映する（FR-104）。ファイルは動かさず、DB とサムネイルだけを書き換える。
-/// 途中で止まっても、もう一度流せば続きから同じ状態にそろう
-// shortcut: 終わるまでライブラリのロックを持つので、新しいファイルが多いと他の操作を待たせる。困ったら取り込みと同じく1枚ごとにロックを外す
-pub fn scan(lib: &mut Library) -> Result<Report, String> {
+/// 途中で止まっても、もう一度流せば続きから同じ状態にそろう。
+/// 中身を読む必要があるファイルは1枚ごとにロックを外し、progress に (終えた数, 全体の数) を渡す。
+/// 差分検出の間も、画面が一覧を読んだり他の操作をしたりできるようにするため
+pub fn scan(lib: &impl Access, mut progress: impl FnMut(usize, usize)) -> Result<Report, String> {
+    let root = lib.with(|l| Ok(l.root.clone()))?;
     let mut walk = Walk::default();
-    walk.visit(&lib.root, Path::new(""), true);
+    walk.visit(&root, Path::new(""), true);
     if walk.unreadable.iter().any(|u| u.as_os_str().is_empty()) {
         return Err(errors_of(&walk));
     }
     let mut report = Report::default();
+    let Plan {
+        work,
+        mut gone,
+        unmatched,
+    } = lib.with(|l| plan(l, &mut walk, &mut report))?;
 
-    // 1. フォルダをカテゴリに対応させ、新しいフォルダを登録する
+    // 2. 中身を読むのとサムネイルを作るのはロックの外で行い、DB を変えるときだけロックを取る
+    let total = work.len();
+    progress(0, total);
+    for (i, (f, w)) in work.into_iter().enumerate() {
+        let path = f.path.clone();
+        if let Err(message) = apply(lib, &root, f, w, &mut gone, &mut walk, &mut report) {
+            walk.fail(path, message);
+        }
+        progress(i + 1, total);
+    }
+
+    // 3. 残った行を見つからないにし、フォルダがなくなったカテゴリを消す
+    lib.with(|l| {
+        // タグやメモを失わないよう、行は消さない
+        let now = millis(SystemTime::now())?;
+        for id in gone.values() {
+            report.missing += l
+                .conn
+                .execute(
+                    "UPDATE images SET missing_at = ?1 WHERE id = ?2 AND missing_at IS NULL",
+                    params![now, id],
+                )
+                .map_err(err)?;
+        }
+        // A：NotFound のときだけ子孫ごと消し、読めないだけのフォルダは残す
+        for id in unmatched {
+            let Ok(dir) = category::dir(l, Some(id)) else {
+                continue; // 親と一緒に消えた
+            };
+            if walk.under_unreadable(&dir) {
+                continue;
+            }
+            match fs::symlink_metadata(l.root.join(&dir)) {
+                Err(e) if e.kind() == ErrorKind::NotFound => {
+                    report.categories_removed += remove_category(l, id)?;
+                }
+                _ => walk.fail(
+                    l.root.join(&dir),
+                    "カテゴリのフォルダを確かめられません".into(),
+                ),
+            }
+        }
+        Ok(())
+    })?;
+    report.skipped = walk.skipped;
+    Ok(report)
+}
+
+/// フォルダをカテゴリに対応させて新しいフォルダを登録し、画像の行と実際のファイルをパスで突き合わせる。
+/// サイズと更新日時が DB と同じファイルは、中身を読まずにここで済ませる
+fn plan(lib: &mut Library, walk: &mut Walk, report: &mut Report) -> Result<Plan, String> {
     let mut cats: Vec<(i64, String, Option<i64>)> = lib
         .conn
         .prepare("SELECT id, name, parent_id FROM categories ORDER BY id")
@@ -167,11 +252,11 @@ pub fn scan(lib: &mut Library) -> Result<Report, String> {
         .map_err(err)?
         .collect::<Result<_, _>>()
         .map_err(err)?;
-    let mut by_dir: HashMap<PathBuf, i64> = HashMap::new();
+    let mut by_dir: HashMap<PathBuf, Option<i64>> = HashMap::new();
     let mut matched: HashSet<i64> = HashSet::new();
     for dir in &walk.dirs {
         let parent = match dir.parent() {
-            Some(p) if !p.as_os_str().is_empty() => Some(by_dir[p]),
+            Some(p) if !p.as_os_str().is_empty() => by_dir[p],
             _ => None,
         };
         let name = dir.file_name().unwrap().to_string_lossy().into_owned();
@@ -214,17 +299,15 @@ pub fn scan(lib: &mut Library) -> Result<Report, String> {
             }
         };
         matched.insert(id);
-        by_dir.insert(dir.clone(), id);
+        by_dir.insert(dir.clone(), Some(id));
     }
-    by_dir.insert(PathBuf::from(UNCATEGORIZED_DIR), -1);
-    let category_of = |dir: &Path| Some(by_dir[dir]).filter(|&id| id >= 0);
+    by_dir.insert(PathBuf::from(UNCATEGORIZED_DIR), None);
 
-    // 2. 画像の行と実際のファイルを、パスで突き合わせる
     let mut dirs: HashMap<Option<i64>, PathBuf> = HashMap::new();
     for c in std::iter::once(None).chain(cats.iter().map(|c| Some(c.0))) {
         dirs.insert(c, category::dir(lib, c)?);
     }
-    let rows: Vec<Row> = lib
+    let rows: Vec<(i64, PathBuf, String, i64, i64, bool)> = lib
         .conn
         .prepare(
             "SELECT id, category_id, file_name, hash, file_size, file_mtime, missing_at IS NOT NULL
@@ -232,27 +315,17 @@ pub fn scan(lib: &mut Library) -> Result<Report, String> {
         )
         .map_err(err)?
         .query_map([], |r| {
+            let category: Option<i64> = r.get(1)?;
             Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, Option<i64>>(1)?,
-                r.get::<_, String>(2)?,
-                Row {
-                    id: r.get(0)?,
-                    path: PathBuf::new(),
-                    hash: r.get(3)?,
-                    size: r.get(4)?,
-                    mtime: r.get(5)?,
-                    missing: r.get(6)?,
-                },
+                r.get(0)?,
+                dirs[&category].join(r.get::<_, String>(2)?),
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
             ))
         })
         .map_err(err)?
-        .map(|r| {
-            r.map(|(_, category, name, mut row)| {
-                row.path = dirs[&category].join(name);
-                row
-            })
-        })
         .collect::<Result<_, _>>()
         .map_err(err)?;
     let mut files: HashMap<PathBuf, Found> = walk
@@ -260,152 +333,123 @@ pub fn scan(lib: &mut Library) -> Result<Report, String> {
         .drain(..)
         .map(|f| (f.dir.join(&f.name), f))
         .collect();
-    // 実ファイルが見つからなかった行。ハッシュで移動先を探す
-    let mut gone: HashMap<String, &Row> = HashMap::new();
-    for row in &rows {
-        let Some(f) = files.remove(&row.path) else {
-            if !walk.under_unreadable(&row.path) {
-                gone.insert(row.hash.clone(), row);
+    let mut work = vec![];
+    let mut gone = HashMap::new();
+    for (id, path, hash, size, mtime, missing) in rows {
+        let Some(f) = files.remove(&path) else {
+            if !walk.under_unreadable(&path) {
+                gone.insert(hash, id);
             }
             continue;
         };
         // 更新日時は同じボリュームで読んだ値どうしなので、exFAT や FAT32 の粗い刻みでも変わらなければ一致する
-        if f.size == row.size && f.mtime == row.mtime {
-            if row.missing {
-                set_found(lib, row.id, &f, None)?;
+        if f.size == size && f.mtime == mtime {
+            if missing {
+                set_found(lib, id, &f, None)?;
                 report.returned += 1;
             }
             continue;
         }
-        let bytes = match fs::read(&f.path) {
-            Ok(b) => b,
-            Err(e) => {
-                walk.fail(
-                    f.path.clone(),
-                    format!("{} を読めません（{e}）", f.path.display()),
-                );
-                continue;
+        work.push((f, Work::Changed { id, hash, missing }));
+    }
+    let mut news: Vec<Found> = files.into_values().collect();
+    news.sort_by(|a, b| a.path.cmp(&b.path));
+    work.extend(news.into_iter().map(|f| {
+        let category = by_dir[&f.dir];
+        (f, Work::New { category })
+    }));
+    let unmatched = cats
+        .iter()
+        .map(|c| c.0)
+        .filter(|id| !matched.contains(id))
+        .collect();
+    Ok(Plan {
+        work,
+        gone,
+        unmatched,
+    })
+}
+
+/// ファイル1つの中身を確かめて反映する。ロックは DB を読み書きするときだけ取る
+fn apply(
+    lib: &impl Access,
+    root: &Path,
+    f: Found,
+    w: Work,
+    gone: &mut HashMap<String, i64>,
+    walk: &mut Walk,
+    report: &mut Report,
+) -> Result<(), String> {
+    let bytes =
+        fs::read(&f.path).map_err(|e| format!("{} を読めません（{e}）", f.path.display()))?;
+    let hash = import::sha256(&bytes);
+    let skip = |walk: &mut Walk, reason| {
+        walk.skipped.push(Skipped {
+            path: f.path.clone(),
+            reason,
+        })
+    };
+    match w {
+        Work::Changed {
+            id,
+            hash: old,
+            missing,
+        } => {
+            if hash == old {
+                lib.with(|l| set_found(l, id, &f, None))?;
+                report.returned += missing as usize;
+                return Ok(());
             }
-        };
-        let hash = import::sha256(&bytes);
-        if hash == row.hash {
-            set_found(lib, row.id, &f, None)?;
-            report.returned += row.missing as usize;
-            continue;
-        }
-        // 同じ場所で中身が変わった（B）。別の画像と同じ中身なら更新せず、古い行を見つからないにする
-        if let Some(existing) = owner(lib, &hash)? {
-            gone.insert(row.hash.clone(), row);
-            walk.skipped.push(Skipped {
-                path: f.path,
-                reason: Reason::Duplicate { existing },
-            });
-            continue;
-        }
-        let Some(format) = import::supported(&bytes) else {
-            gone.insert(row.hash.clone(), row);
-            walk.skipped.push(Skipped {
-                path: f.path,
-                reason: Reason::Unsupported,
-            });
-            continue;
-        };
-        match import::render(&lib.root, &bytes, format, &hash, &f.path) {
-            Ok(r) => {
-                lib.conn
+            // 同じ場所で中身が変わった（B）。別の画像と同じ中身なら更新せず、古い行を見つからないにする
+            if let Some(existing) = lib.with(|l| owner(l, &hash))? {
+                gone.insert(old, id);
+                skip(walk, Reason::Duplicate { existing });
+                return Ok(());
+            }
+            let Some(format) = import::supported(&bytes) else {
+                gone.insert(old, id);
+                skip(walk, Reason::Unsupported);
+                return Ok(());
+            };
+            let r = import::render(root, &bytes, format, &hash, &f.path)?;
+            lib.with(|l| {
+                l.conn
                     .execute(
                         "UPDATE images SET hash = ?1, width = ?2, height = ?3, color = ?4,
                                 file_size = ?5, file_mtime = ?6, missing_at = NULL WHERE id = ?7",
-                        params![hash, r.width, r.height, r.color, f.size, f.mtime, row.id],
+                        params![hash, r.width, r.height, r.color, f.size, f.mtime, id],
                     )
-                    .map_err(err)?;
-                remove_thumb(&lib.root, &row.hash);
-                report.updated += 1;
+                    .map_err(err)
+            })?;
+            remove_thumb(root, &old);
+            report.updated += 1;
+        }
+        Work::New { category } => {
+            let Some(format) = import::supported(&bytes) else {
+                skip(walk, Reason::Unsupported);
+                return Ok(());
+            };
+            if let Some(id) = gone.remove(&hash) {
+                lib.with(|l| set_found(l, id, &f, Some(category)))?;
+                report.moved += 1;
+                return Ok(());
             }
-            Err(message) => walk.fail(f.path, message),
-        }
-    }
-
-    // 3. どの行にも当たらなかったファイル。移動か、新しい画像
-    let mut news: Vec<Found> = files.into_values().collect();
-    news.sort_by(|a, b| a.path.cmp(&b.path));
-    for f in news {
-        let bytes = match fs::read(&f.path) {
-            Ok(b) => b,
-            Err(e) => {
-                walk.fail(
-                    f.path.clone(),
-                    format!("{} を読めません（{e}）", f.path.display()),
-                );
-                continue;
+            if let Some(existing) = lib.with(|l| owner(l, &hash))? {
+                skip(walk, Reason::Duplicate { existing });
+                return Ok(());
             }
-        };
-        let Some(format) = import::supported(&bytes) else {
-            walk.skipped.push(Skipped {
-                path: f.path,
-                reason: Reason::Unsupported,
-            });
-            continue;
-        };
-        let hash = import::sha256(&bytes);
-        let category = category_of(&f.dir);
-        if let Some(row) = gone.remove(&hash) {
-            set_found(lib, row.id, &f, Some(category))?;
-            report.moved += 1;
-            continue;
-        }
-        if let Some(existing) = owner(lib, &hash)? {
-            walk.skipped.push(Skipped {
-                path: f.path,
-                reason: Reason::Duplicate { existing },
-            });
-            continue;
-        }
-        let added = import::render(&lib.root, &bytes, format, &hash, &f.path).and_then(|r| {
-            // 取り込み日時は、ローカルから取り込んだ画像と同じく元ファイルの更新日時
-            import::insert(
-                &lib.conn, &f.name, &hash, &r, f.size, f.mtime, category, f.mtime,
-            )
-        });
-        match added {
-            Ok(_) => report.added += 1,
-            Err(message) => walk.fail(f.path, message),
+            let r = import::render(root, &bytes, format, &hash, &f.path)?;
+            // 取り込み日時は、ローカルから取り込んだ画像と同じく元ファイルの更新日時。
+            // ロックを外していた間に同じ画像が取り込まれていれば、hash の一意制約で失敗してエラーとして知らせる
+            lib.with(|l| {
+                import::insert(
+                    &l.conn, &f.name, &hash, &r, f.size, f.mtime, category, f.mtime,
+                )
+            })?;
+            report.added += 1;
         }
     }
-
-    // 4. 残った行を見つからないにする。タグやメモを失わないよう、行は消さない
-    let now = millis(SystemTime::now())?;
-    for row in gone.values() {
-        report.missing += lib
-            .conn
-            .execute(
-                "UPDATE images SET missing_at = ?1 WHERE id = ?2 AND missing_at IS NULL",
-                params![now, row.id],
-            )
-            .map_err(err)?;
-    }
-
-    // 5. フォルダがなくなったカテゴリ（A）を子孫ごと消す。NotFound のときだけ消し、読めないだけのフォルダは残す
-    for (id, _, _) in cats.iter().filter(|c| !matched.contains(&c.0)) {
-        let Ok(dir) = category::dir(lib, Some(*id)) else {
-            continue; // 親と一緒に消えた
-        };
-        if walk.under_unreadable(&dir) {
-            continue;
-        }
-        match fs::symlink_metadata(lib.root.join(&dir)) {
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                report.categories_removed += remove_category(lib, *id)?;
-            }
-            _ => walk.fail(
-                lib.root.join(&dir),
-                "カテゴリのフォルダを確かめられません".into(),
-            ),
-        }
-    }
-
-    report.skipped = walk.skipped;
-    Ok(report)
+    Ok(())
 }
 
 fn errors_of(walk: &Walk) -> String {
@@ -526,6 +570,16 @@ mod tests {
     use crate::import::Reason;
     use crate::library::KURA_DIR;
     use crate::{category, gallery};
+
+    impl Access for std::cell::RefCell<&mut Library> {
+        fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
+            f(&mut self.borrow_mut())
+        }
+    }
+
+    fn scan(lib: &mut Library) -> Result<Report, String> {
+        super::scan(&std::cell::RefCell::new(lib), |_, _| {})
+    }
 
     /// ライブラリの rel に、shade の色の 4x4 の PNG を Finder で置いたかのように書く
     fn png(lib: &Library, rel: &str, shade: u8) {
@@ -677,6 +731,23 @@ mod tests {
             .categories
             .iter()
             .any(|c| c.id == pose));
+    }
+
+    #[test]
+    fn 中身を読むファイルごとに進み具合を知らせ変化のないファイルは数えない() {
+        let (_d, mut lib) = setup();
+        png(&lib, "_未分類/a.png", 10);
+        scan(&mut lib).unwrap();
+        png(&lib, "_未分類/b.png", 20);
+        png(&lib, "ポーズ/c.png", 30);
+        let mut seen = vec![];
+
+        super::scan(&std::cell::RefCell::new(&mut lib), |done, total| {
+            seen.push((done, total))
+        })
+        .unwrap();
+
+        assert_eq!(seen, [(0, 2), (1, 2), (2, 2)]);
     }
 
     #[test]

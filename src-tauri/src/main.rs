@@ -294,11 +294,17 @@ fn load_missing(current: State<Current>) -> Result<Vec<gallery::Image>, String> 
     gallery::missing(current.as_ref().ok_or("ライブラリを開いていません")?)
 }
 
-/// 差分検出（FR-104）。画面がライブラリを開いた後と、利用者がボタンを押したときに呼ぶ
+/// 差分検出（FR-104）。画面がライブラリを開いた後と、利用者がボタンを押したときに呼ぶ。
+/// 進み具合を scan-progress イベントで知らせる。1枚ごとにロックを外すので、その間も他のコマンドを使える
 #[tauri::command]
 async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
-    with_library(app, |lib| {
-        let r = sync::scan(lib)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let current = app.state::<Current>();
+        let r = sync::scan(&current.0, |done, total| {
+            if let Err(e) = app.emit("scan-progress", ImportProgress { done, total }) {
+                log::warn!("差分検出の進み具合を送れません：{e}");
+            }
+        })?;
         log::info!(
             "差分を反映しました：登録 {}、移動 {}、更新 {}、見つからない {}、スキップ {}件",
             r.added,
@@ -310,6 +316,7 @@ async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
         Ok(r)
     })
     .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 見つからない画像を DB から外す（FR-104）

@@ -64,28 +64,39 @@ export default function Gallery({ root }: { root: string }) {
   const [aside, setAside] = useState<'trash' | 'missing' | null>(null)
   const inTrash = aside === 'trash'
   const inMissing = aside === 'missing'
-  const [scanning, setScanning] = useState(false)
+  // 差分検出の進み具合。total が0の間は、中身を読むファイルを数えている
+  const [scanning, setScanning] = useState<ImportProgress | null>(null)
 
+  // 読み直した画像を返す。読めなければ空
   async function reload() {
     try {
-      setData(await invoke<GalleryData>('load_gallery'))
+      const g = await invoke<GalleryData>('load_gallery')
+      setData(g)
       setLoadError(null)
+      return g.images
     } catch (e) {
       setLoadError(String(e))
+      return []
     }
   }
   async function reloadTrash() {
     try {
-      setTrash(await invoke<Image[]>('load_trash'))
+      const t = await invoke<Image[]>('load_trash')
+      setTrash(t)
+      return t
     } catch (e) {
       setLoadError(String(e))
+      return []
     }
   }
   async function reloadMissing() {
     try {
-      setMissing(await invoke<Image[]>('load_missing'))
+      const m = await invoke<Image[]>('load_missing')
+      setMissing(m)
+      return m
     } catch (e) {
       setLoadError(String(e))
+      return []
     }
   }
 
@@ -93,29 +104,29 @@ export default function Gallery({ root }: { root: string }) {
   async function scan() {
     if (busy.current) return
     busy.current = true
-    setScanning(true)
+    setScanning({ done: 0, total: 0 })
     try {
       setResult({ kind: 'scan', report: await invoke<ScanReport>('scan_library') })
     } catch (e) {
       setResult({ kind: 'error', message: `差分を確認できません（${e}）` })
     }
     busy.current = false
-    setScanning(false)
-    // 一覧が丸ごと変わりうるので、選択も外す
-    setSelection(EMPTY_SELECTION)
-    reload()
-    reloadTrash()
-    reloadMissing()
+    setScanning(null)
+    // 差分検出の間も操作できるので、選択は外さず、なくなった画像だけを外す
+    const lists = await Promise.all([reload(), reloadTrash(), reloadMissing()])
+    const alive = new Set(lists.flat().map((i) => i.id))
+    setSelection((s) => {
+      const ids = new Set([...s.ids].filter((id) => alive.has(id)))
+      if (ids.size === s.ids.size) return s
+      return { ids, anchor: s.anchor !== null && ids.has(s.anchor) ? s.anchor : null }
+    })
   }
 
   const scanRef = useRef(scan)
   scanRef.current = scan
-  // 差分検出の前に、今の DB の一覧を先に出す
+  // 差分検出の前に、今の DB の一覧を先に出す。差分検出は時間がかかることがあるため
   useEffect(() => {
-    reload()
-    reloadTrash()
-    reloadMissing()
-    scanRef.current()
+    Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => scanRef.current())
   }, [])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
@@ -219,6 +230,8 @@ export default function Gallery({ root }: { root: string }) {
   useEffect(() => {
     const unlisten = [
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
+      // 終わった後に届いた進み具合で、表示を戻さない
+      listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === 'drop') startRef.current(e.payload.paths)
       }),
@@ -430,10 +443,10 @@ export default function Gallery({ root }: { root: string }) {
           value={thumbWidth}
           onChange={(e) => setThumbWidth(Number(e.target.value))}
         />
-        <button type="button" className="button" disabled={!!progress || scanning} onClick={() => pick(false)}>
+        <button type="button" className="button" disabled={!!progress || !!scanning} onClick={() => pick(false)}>
           画像を取り込む
         </button>
-        <button type="button" className="button" disabled={!!progress || scanning} onClick={() => pick(true)}>
+        <button type="button" className="button" disabled={!!progress || !!scanning} onClick={() => pick(true)}>
           フォルダを取り込む
         </button>
       </header>
@@ -453,7 +466,7 @@ export default function Gallery({ root }: { root: string }) {
         missingCount={missing.length}
         aside={aside}
         onAside={openAside}
-        scanning={scanning || !!progress}
+        scanning={!!scanning || !!progress}
         onScan={scan}
       />
 
@@ -549,24 +562,17 @@ export default function Gallery({ root }: { root: string }) {
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <span className="statusbar__import" role="status">
-          {scanning ? (
-            '差分を確認中…'
-          ) : progress ? (
+          {scanning || progress ? (
             <>
-              取り込み中 {progress.done} / {progress.total}枚
-              <span
-                className="progress"
-                role="progressbar"
-                aria-label="取り込みの進み具合"
-                aria-valuemin={0}
-                aria-valuemax={progress.total}
-                aria-valuenow={progress.done}
-              >
-                <span
-                  className="progress__done"
-                  style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
-                />
-              </span>
+              {scanning
+                ? scanning.total
+                  ? `Finder での変更を反映中 ${scanning.done} / ${scanning.total}枚`
+                  : 'Finder での変更を確認中…'
+                : `取り込み中 ${progress!.done} / ${progress!.total}枚`}
+              <Progress
+                label={scanning ? 'Finder での変更を反映する進み具合' : '取り込みの進み具合'}
+                value={(scanning ?? progress)!}
+              />
             </>
           ) : result?.kind === 'error' ? (
             <>
@@ -708,6 +714,20 @@ function scanSummary(r: ScanReport) {
 }
 
 const sortTags = (tags: Tag[]) => tags.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
+
+// 数え終わるまで（total が0の間）は、バーを空のまま出す
+const Progress = ({ label, value }: { label: string; value: ImportProgress }) => (
+  <span
+    className="progress"
+    role="progressbar"
+    aria-label={label}
+    aria-valuemin={0}
+    aria-valuemax={value.total}
+    aria-valuenow={value.done}
+  >
+    <span className="progress__done" style={{ width: `${value.total ? (value.done / value.total) * 100 : 0}%` }} />
+  </span>
+)
 
 const Chevron = ({ d }: { d: string }) => (
   <svg

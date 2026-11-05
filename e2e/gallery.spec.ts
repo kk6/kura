@@ -59,6 +59,8 @@ async function openGallery(page: import('@playwright/test').Page) {
   await page.goto('/')
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await expect(page.getByRole('banner')).toBeVisible()
+  // 開いた後の差分検出（FR-104）が終わるまで待つ。その間は取り込みを受け付けず、結果がステータスバーを上書きするため
+  await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
 }
 
 test('フォルダを取り込むと、ステータスバーに進み具合と結果を出し、スキップの一覧を開ける', async ({ page }) => {
@@ -1033,10 +1035,18 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
 test('開いた後に差分を確認して結果を出し、見つからない画像を開いて確かめてからDBから外す', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
-  await openGallery(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
   const status = page.getByRole('contentinfo')
   const missingItem = sidebar.getByRole('button', { name: /^見つからない/ })
+
+  // 一覧を先に出してから差分を検出し、その間は進み具合を出して取り込みのボタンを止める
+  await expect(status).toContainText('Finder での変更を反映中 2 / 4枚')
+  await expect(status.getByRole('progressbar', { name: 'Finder での変更を反映する進み具合' })).toBeVisible()
+  await expect(thumbs(page).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'フォルダを取り込む' })).toBeDisabled()
+  await page.screenshot({ path: 'test-results/scan-progress.png' })
 
   // 開いた後の差分検出の結果は、変わったものだけをステータスバーに出す
   await expect(status).toContainText('完了：差分を反映（登録 3枚、移動 1枚、カテゴリ追加 1件）')

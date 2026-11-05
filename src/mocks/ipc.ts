@@ -342,6 +342,16 @@ const SCAN: ScanReport = {
   skipped: [{ path: '/Users/me/Pictures/Kura ライブラリ/_未分類/メモ.txt', kind: 'unsupported' }],
 }
 
+// 本物と同じく進み具合を送り、e2e でステータスバーの表示を確かめられるよう少し待つ
+const scanLibrary: Handler = async () => {
+  if (created) return { ...SCAN, added: 0, moved: 0, missing: 0, categories_added: 0, skipped: [] }
+  await emit('scan-progress', { done: 0, total: 4 })
+  await emit('scan-progress', { done: 2, total: 4 })
+  await new Promise((r) => setTimeout(r, 500))
+  await emit('scan-progress', { done: 4, total: 4 })
+  return structuredClone(SCAN)
+}
+
 const forgetImages: Handler = (args) => {
   const ids = new Set(args?.ids as number[])
   const done = MISSING.filter((i) => ids.has(i.id)).map((i) => i.id)
@@ -380,10 +390,7 @@ const handlers: Record<string, Handler> = {
   empty_trash: emptyTrash,
   // 新しく作ったライブラリは空なので、差分もない
   load_missing: () => (created ? [] : structuredClone(MISSING)),
-  scan_library: () =>
-    created
-      ? { ...SCAN, added: 0, moved: 0, missing: 0, categories_added: 0, skipped: [] }
-      : structuredClone(SCAN),
+  scan_library: scanLibrary,
   forget_images: forgetImages,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
