@@ -30,7 +30,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 
 ## コマンド
 
-初回は `npm install` と `npx playwright install webkit` を実行する。
+初回は `npm install` と `npx playwright install webkit` を実行する。`npm install` はコミット前のフック（lefthook）も入れる。フックはコミットするファイルだけを Prettier、ESLint、rustfmt、ruff にかける。`git blame` で整形だけのコミットを飛ばすには `git config blame.ignoreRevsFile .git-blame-ignore-revs` を実行する。
 
 - 開発サーバー（アプリ）：`npm run tauri dev`
 - 開発サーバー（Tauri のコマンドをモックに差し替えた画面だけ）：`npm run dev:mock`（http://localhost:5173）。モックの応答は `src/mocks/ipc.ts` に書く
@@ -41,9 +41,13 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - テスト（画面）：`npm run test:e2e`（モックの開発サーバーを Playwright の WebKit で開き、`test-results/gallery.png` にスクリーンショットを保存する）
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
 - テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`
-- Lint（TypeScript）：`npm run lint`（型検査、ESLint、トークン以外の値の検出）
-- Lint（Rust）：`cargo clippy -- -D warnings`（`src-tauri/` で実行）
-- Lint（Python）：`uvx ruff check` と `uvx ruff format --check`
+- 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
+- 整形（Rust）：`cargo fmt`（`src-tauri/` で実行）
+- 整形（Python）：`uvx ruff format`
+- Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出）
+- Lint（Rust）：`cargo fmt --check` と `cargo clippy -- -D warnings`（`src-tauri/` で実行）
+- Lint（Python）：`uvx ruff check` と `uvx ruff format --check`（`spikes/` は対象外）
+- CI：`.github/workflows/ci.yml`。push と pull request で、上のテストと Lint を macOS で流す（`ml/` の pytest は `ml/` ができてから足す）
 
 ## 設計上の決まり
 
