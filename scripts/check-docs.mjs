@@ -1,7 +1,9 @@
 // ドキュメントがコードと食い違っていないかを機械的に調べる
 // - docs/design.md のトークンの表と src/styles/tokens.css の名前と値
 // - CLAUDE.md に書いた npm のコマンドが package.json にあるか
-import { readFileSync } from 'node:fs'
+// - Tauri のコマンド名が、Rust、src/mocks/ipc.ts、画面の invoke で揃っているか
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const read = (path) => readFileSync(path, 'utf8')
 const norm = (v) => v.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -33,8 +35,32 @@ for (const [, name] of read('CLAUDE.md').matchAll(/npm run ([\w:-]+)/g)) {
   if (!(name in scripts)) problems.push(`CLAUDE.md の npm run ${name} が package.json にない`)
 }
 
+// Tauri のコマンド名。モックの開発サーバーは Rust を通らないので、モックだけが古いままでも e2e は通ってしまう
+const rust = new Set(
+  read('src-tauri/src/main.rs')
+    .match(/generate_handler!\[([^\]]*)\]/)[1]
+    .match(/\w+/g),
+)
+const mock = new Set(
+  [
+    ...read('src/mocks/ipc.ts')
+      .match(/^const handlers\b[^\n]*\n([\s\S]*?)^\}/m)[1]
+      .matchAll(/^ {2}'?([\w:|]+)'?: /gm),
+  ]
+    .map((m) => m[1])
+    .filter((n) => !n.includes(':')),
+)
+const invoked = new Set()
+for (const path of readdirSync('src', { recursive: true })) {
+  if (!/\.tsx?$/.test(path) || path.startsWith('mocks')) continue
+  for (const [, name] of read(join('src', path)).matchAll(/invoke(?:<[^>]*>)?\(\s*'(\w+)'/g)) invoked.add(name)
+}
+for (const name of mock) if (!rust.has(name)) problems.push(`モックの ${name} が Rust のコマンドにない`)
+for (const name of rust) if (!mock.has(name)) problems.push(`Rust のコマンド ${name} のモックがない`)
+for (const name of invoked) if (!rust.has(name)) problems.push(`画面が呼ぶ ${name} が Rust のコマンドにない`)
+
 if (problems.length) {
   console.error(`ドキュメントの食い違い（${problems.length}件）:\n${problems.join('\n')}`)
   process.exit(1)
 }
-console.log(`ドキュメントの検査：トークン ${doc.size}件、npm のコマンドを確かめた`)
+console.log(`ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件を確かめた`)
