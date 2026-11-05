@@ -1129,3 +1129,72 @@ test('設定ダイアログでカテゴリの移動の確認を戻し、管理�
   await expect(moveDialog).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('検索・選択・拡大表示・タグ付け・ゴミ箱・設定をキーボードだけで行える（NFR-12）', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const zoom = page.getByRole('region', { name: '拡大表示' })
+  const search = page.getByRole('combobox', { name: '検索' })
+
+  // ⌘F で検索欄へ移る。入力中の矢印キーや Space は一覧の操作にしない
+  await page.keyboard.press('Meta+f')
+  await expect(search).toBeFocused()
+  await page.keyboard.type('ref_0000 ')
+  await page.keyboard.press('ArrowRight')
+  expect(await selectedNames(page)).toEqual([])
+  await page.keyboard.press('Escape')
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+
+  // 矢印キーで選ぶ。何も選んでいなければ先頭から
+  await page.keyboard.press('ArrowRight')
+  await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')
+  await page.keyboard.press('ArrowRight')
+  await expect(detail.getByRole('heading')).toHaveText('ref_00002.jpg')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowDown')
+  await expect(detail.getByRole('heading')).not.toHaveText('ref_00001.jpg')
+  expect(await selectedNames(page)).toHaveLength(1)
+  await page.keyboard.press('ArrowUp')
+  await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')
+
+  // 下へ進み続けると、選んだ画像が見えるようにスクロールする
+  for (let i = 0; i < 20; i++) await page.keyboard.press('ArrowDown')
+  await expect(page.locator('.list__thumb--selected')).toBeInViewport()
+
+  // Space で拡大表示を開いて閉じる
+  await page.keyboard.press('ArrowRight')
+  const name = await detail.getByRole('heading').textContent()
+  await page.keyboard.press(' ')
+  await expect(zoom.getByRole('img')).toHaveAccessibleName(name!)
+  await page.keyboard.press(' ')
+  await expect(zoom).toHaveCount(0)
+
+  // T でタグの入力欄へ移る。t は入力欄に入れない
+  await page.keyboard.press('t')
+  const tagInput = detail.getByRole('combobox', { name: 'タグ' })
+  await expect(tagInput).toBeFocused()
+  await expect(tagInput).toHaveValue('')
+  await page.keyboard.type('手元')
+  await page.keyboard.press('Enter')
+  await expect(detail.getByRole('listitem').filter({ hasText: '手元' })).toBeVisible()
+  await page.evaluate(() => (document.activeElement as HTMLElement).blur())
+
+  // ⌘A ですべて選び、⌘Delete でゴミ箱へ移す
+  await page.keyboard.press('Meta+a')
+  await expect(detail.getByRole('heading')).toHaveText('2000枚を選んでいます')
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('ArrowRight')
+  await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')
+  await page.keyboard.press('Meta+Backspace')
+  await expect(page.getByRole('contentinfo')).toContainText('完了：ゴミ箱へ移した 1枚')
+  await expect(thumb(page, 1)).toHaveCount(0)
+
+  // ⌘, で設定を開く
+  await page.keyboard.press('Meta+,')
+  await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
+  expect(errors).toEqual([])
+})

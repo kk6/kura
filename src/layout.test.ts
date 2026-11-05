@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { layout, visible } from './layout'
+import { layout, neighbor, visible } from './layout'
 
 const size = (width: number, height: number) => ({ width, height })
 
@@ -63,5 +63,24 @@ describe('visible', () => {
     const two = layout([size(1, 1), size(1, 2), size(1, 1), size(1, 1)], 210, 100, 10)
     // 列0：0（0〜100）、2（110〜210）。列1：1（0〜200）、3（210〜310）
     expect(visible(two, 150, 205).sort()).toEqual([1, 2])
+  })
+})
+
+describe('neighbor', () => {
+  // 列は [0], [1, 3], [2, 4]
+  const l = layout([size(100, 300), size(100, 100), size(100, 100), size(100, 100), size(100, 50)], 320, 100, 10)
+
+  test('左右は並び順の前後に移り、端では止まる', () => {
+    expect(neighbor(l, 3, 'ArrowLeft')).toBe(2)
+    expect(neighbor(l, 3, 'ArrowRight')).toBe(4)
+    expect(neighbor(l, 0, 'ArrowLeft')).toBeUndefined()
+    expect(neighbor(l, 4, 'ArrowRight')).toBeUndefined()
+  })
+
+  test('上下は同じ列の上下の画像に移り、端では止まる', () => {
+    expect(neighbor(l, 1, 'ArrowDown')).toBe(3)
+    expect(neighbor(l, 4, 'ArrowUp')).toBe(2)
+    expect(neighbor(l, 3, 'ArrowDown')).toBeUndefined()
+    expect(neighbor(l, 0, 'ArrowUp')).toBeUndefined()
   })
 })

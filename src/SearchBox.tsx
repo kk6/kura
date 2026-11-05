@@ -58,6 +58,7 @@ export default function SearchBox({
         className="gallery__search"
         type="search"
         placeholder="ファイル名、メモ、タグ、カテゴリを検索"
+        id="search"
         aria-label="検索"
         autoComplete="off"
         role="combobox"

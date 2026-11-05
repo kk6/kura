@@ -53,3 +53,14 @@ export function visible(l: Layout, top: number, bottom: number): number[] {
   }
   return out
 }
+
+export type Arrow = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown'
+
+/** 矢印キーで移る先の画像の番号（NFR-12）。左右は並び順の前後、上下は同じ列の上下。端では undefined */
+export function neighbor(l: Layout, i: number, key: Arrow): number | undefined {
+  const n = l.x.length
+  if (key === 'ArrowLeft') return i > 0 ? i - 1 : undefined
+  if (key === 'ArrowRight') return i < n - 1 ? i + 1 : undefined
+  const column = l.columns.find((c) => c.includes(i))!
+  return column[column.indexOf(i) + (key === 'ArrowUp' ? -1 : 1)]
+}

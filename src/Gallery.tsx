@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
 import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
@@ -208,30 +208,61 @@ export default function Gallery({ root, settings, onSettings }: Props) {
   // 拡大表示（FR-508）。左右キーか左右の端のボタンで、今の並び順の前後の画像に移る
   const zoomed = zoom ? selectedImage : null
   const at = zoomed ? order.indexOf(zoomed.id) : -1
+  const moveTo = useCallback((id: number) => setSelection({ ids: new Set([id]), anchor: id }), [])
   const step = (by: number) => {
     const id = order[at + by]
-    if (id !== undefined) setSelection({ ids: new Set([id]), anchor: id })
+    if (id !== undefined) moveTo(id)
   }
-  const stepRef = useRef(step)
-  stepRef.current = step
 
-  // Escape は拡大表示を閉じ、拡大表示でなければ選択を外す（FR-509）
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // 入力中の文字の操作と、ダイアログを閉じる Escape は奪わない
-      if ((e.target as Element).closest('input, textarea, select, dialog')) return
-      const by = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
-      if (e.key === 'Escape') {
-        if (zoomed) setZoom(false)
-        else setSelection(EMPTY_SELECTION)
-      } else if (by && zoomed) {
-        e.preventDefault()
-        stepRef.current(by)
-      }
+  // キーボードの操作（FR-508、FR-509、NFR-12）。一覧の矢印キーは Masonry で受ける
+  const onKey = (e: KeyboardEvent) => {
+    // ダイアログの中の操作は奪わない
+    if ((e.target as Element).closest('dialog')) return
+    const key = e.key.toLowerCase()
+    if (e.metaKey && key === 'f') {
+      e.preventDefault()
+      document.getElementById('search')?.focus()
+      return
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [zoomed])
+    if (e.metaKey && key === ',') {
+      e.preventDefault()
+      setSettingsOpen(true)
+      return
+    }
+    // 入力中の文字の操作は奪わない
+    if ((e.target as Element).closest('input, textarea, select')) return
+    const by = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
+    if (e.key === 'Escape') {
+      if (zoomed) setZoom(false)
+      else setSelection(EMPTY_SELECTION)
+    } else if (by && zoomed) {
+      e.preventDefault()
+      step(by)
+    } else if (e.key === ' ') {
+      // 一覧のスクロールに使わせない
+      e.preventDefault()
+      if (zoomed) setZoom(false)
+      // ゴミ箱と見つからない画像は、ダブルクリックと同じく拡大表示しない
+      else if (selectedImage && !aside) setZoom(true)
+    } else if (e.metaKey && key === 'a' && !zoomed) {
+      e.preventDefault()
+      setSelection({ ids: new Set(order), anchor: order[0] ?? null })
+    } else if (e.metaKey && e.key === 'Backspace' && !aside && selection.ids.size) {
+      e.preventDefault()
+      trashImages([...selection.ids])
+    } else if (key === 't' && !e.metaKey && !e.ctrlKey && !e.altKey && selection.ids.size && !aside) {
+      // 入力欄に t を入れないよう、既定の動きを止めてから移る
+      e.preventDefault()
+      document.getElementById('detail-tag')?.focus()
+    }
+  }
+  const keyRef = useRef(onKey)
+  keyRef.current = onKey
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => keyRef.current(e)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [])
 
   // shortcut: 取り込み中に選んだりドロップしたりしたものは無視する。続けて取り込みたい要望が出たら順番待ちにする
   async function start(paths: string[]) {
@@ -529,6 +560,9 @@ export default function Gallery({ root, settings, onSettings }: Props) {
         }
         // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
         onOpen={() => !aside && setZoom(true)}
+        active={selection.anchor}
+        keys={!zoomed}
+        onMove={moveTo}
       />
 
       {zoomed && (
