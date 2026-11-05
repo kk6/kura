@@ -147,7 +147,7 @@ const TRASH_DONE = {
   trashed: 'ゴミ箱へ移した',
   restored: '元に戻した',
   emptied: 'ゴミ箱から削除した',
-  forgotten: 'DBから外した',
+  forgotten: '一覧から外した',
 }
 
 // 差分検出の結果のうち、0でないものだけを並べる

@@ -1042,10 +1042,12 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
 
   // 選んだ画像だけを完全に削除する。取り消せないので枚数を見せて確かめる
   await trashItem.click()
-  await page.getByRole('main', { name: '画像の一覧' }).getByRole('img').first().click()
+  const first = page.getByRole('main', { name: '画像の一覧' }).getByRole('img').first()
+  await first.click()
   await panel.getByRole('button', { name: '完全に削除' }).click()
   const purgeDialog = page.getByRole('dialog', { name: '選んだ画像を完全に削除する' })
-  await expect(purgeDialog).toContainText('選んだ画像 1枚を完全に削除します。元に戻せません。')
+  // 1枚だけのときは、どの画像かをファイル名で出す
+  await expect(purgeDialog).toContainText(`「${await first.getAttribute('alt')}」を完全に削除します。元に戻せません。`)
   await page.screenshot({ path: 'test-results/trash-purge-confirm.png' })
   await purgeDialog.getByRole('button', { name: '削除する' }).click()
   await expect(status).toContainText('完了：ゴミ箱から削除した 1枚')
@@ -1073,7 +1075,7 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
   expect(errors).toEqual([])
 })
 
-test('開いた後に差分を確認して結果を出し、見つからない画像を開いて確かめてからDBから外す', async ({ page }) => {
+test('開いた後に差分を確認して結果を出し、見つからない画像を開いて確かめてから一覧から外す', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -1105,19 +1107,19 @@ test('開いた後に差分を確認して結果を出し、見つからない�
   await expect(thumbs(page)).toHaveCount(2)
   await expect(status).toContainText('見つからない 2枚')
   const panel = page.getByRole('complementary', { name: '見つからない画像' })
-  await expect(panel.getByRole('button', { name: 'DBから外す' })).toBeDisabled()
+  await expect(panel.getByRole('button', { name: '一覧から外す' })).toBeDisabled()
   await page.getByRole('main', { name: '画像の一覧' }).getByAltText('missing_1.jpg').dblclick()
   await expect(page.getByRole('region', { name: '拡大表示' })).toHaveCount(0)
   await expect(panel.getByRole('heading')).toHaveText('missing_1.jpg')
   await page.screenshot({ path: 'test-results/missing.png' })
 
   // 外すのは取り消せないので、枚数を見せて確かめる
-  await panel.getByRole('button', { name: 'DBから外す' }).click()
-  const dialog = page.getByRole('dialog', { name: '選んだ画像をDBから外す' })
-  await expect(dialog).toContainText('選んだ画像 1枚のタグ、メモ、評価を削除します。元に戻せません。')
+  await panel.getByRole('button', { name: '一覧から外す' }).click()
+  const dialog = page.getByRole('dialog', { name: '選んだ画像を一覧から外す' })
+  await expect(dialog).toContainText('「missing_1.jpg」のタグ、メモ、評価を削除します。元に戻せません。')
   await page.screenshot({ path: 'test-results/missing-confirm.png' })
   await dialog.getByRole('button', { name: '外す' }).click()
-  await expect(status).toContainText('完了：DBから外した 1枚')
+  await expect(status).toContainText('完了：一覧から外した 1枚')
   await expect(thumbs(page)).toHaveCount(1)
   await expect(missingItem).toContainText('1')
 

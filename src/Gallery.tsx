@@ -320,7 +320,7 @@ export default function Gallery({ root, settings, onSettings }: Props) {
     try {
       r = await invoke<Done>('forget_images', { ids })
     } catch (e) {
-      setResult({ kind: 'error', message: `DBから外せません（${e}）` })
+      setResult({ kind: 'error', message: `一覧から外せません（${e}）` })
       return
     }
     setSelection(EMPTY_SELECTION)
@@ -669,7 +669,7 @@ export default function Gallery({ root, settings, onSettings }: Props) {
               result.kind === 'emptied'
                 ? '削除できなかった画像'
                 : result.kind === 'forgotten'
-                  ? 'DBから外せなかった画像'
+                  ? '一覧から外せなかった画像'
                   : undefined
             }
             failed={result.failed ?? []}

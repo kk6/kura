@@ -18,16 +18,17 @@ export default function MissingPanel({
       <h2 className="detail__name">{name ?? (selected ? `${selected}枚を選んでいます` : '見つからない画像')}</h2>
       <p className="detail__note">
         Finder
-        で消したか、ライブラリの外へ移した画像です。ファイルを元の場所に戻すか、ライブラリの中に置いて「差分を確認」を押すと、タグとメモを残したまま一覧に戻ります。
+        で消したか、ライブラリの外へ移した画像です。ファイルを元の場所に戻すか、ライブラリの中に置いて、サイドバーの「カテゴリ」の見出しにある
+        ↻（差分を確認）を押すと、タグとメモを残したまま一覧に戻ります。
       </p>
       <div className="detail__actions">
         <button type="button" className="button" disabled={!selected} onClick={() => setConfirming(true)}>
-          DBから外す
+          一覧から外す
         </button>
       </div>
       {confirming && (
         <ConfirmDialog
-          title="選んだ画像をDBから外す"
+          title="選んだ画像を一覧から外す"
           confirm="外す"
           onConfirm={() => {
             setConfirming(false)
@@ -35,7 +36,7 @@ export default function MissingPanel({
           }}
           onClose={() => setConfirming(false)}
         >
-          選んだ画像 {selected}枚のタグ、メモ、評価を削除します。元に戻せません。
+          {name ? `「${name}」` : `選んだ画像 ${selected}枚`}のタグ、メモ、評価を削除します。元に戻せません。
         </ConfirmDialog>
       )}
     </aside>
