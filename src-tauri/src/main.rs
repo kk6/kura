@@ -4,6 +4,7 @@ mod gallery;
 mod import;
 mod library;
 mod recent;
+mod sync;
 mod tag;
 mod trash;
 
@@ -287,6 +288,36 @@ async fn empty_trash(app: AppHandle) -> Result<trash::Done, String> {
     with_library(app, trash::empty).await
 }
 
+#[tauri::command]
+fn load_missing(current: State<Current>) -> Result<Vec<gallery::Image>, String> {
+    let current = current.0.lock().unwrap();
+    gallery::missing(current.as_ref().ok_or("ライブラリを開いていません")?)
+}
+
+/// 差分検出（FR-104）。画面がライブラリを開いた後と、利用者がボタンを押したときに呼ぶ
+#[tauri::command]
+async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
+    with_library(app, |lib| {
+        let r = sync::scan(lib)?;
+        log::info!(
+            "差分を反映しました：登録 {}、移動 {}、更新 {}、見つからない {}、スキップ {}件",
+            r.added,
+            r.moved,
+            r.updated,
+            r.missing,
+            r.skipped.len()
+        );
+        Ok(r)
+    })
+    .await
+}
+
+/// 見つからない画像を DB から外す（FR-104）
+#[tauri::command]
+async fn forget_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Done, String> {
+    with_library(app, move |lib| sync::forget(lib, &ids)).await
+}
+
 async fn with_library<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&mut Library) -> Result<T, String> + Send + 'static,
@@ -366,7 +397,10 @@ fn main() {
             trash_images,
             restore_images,
             purge_images,
-            empty_trash
+            empty_trash,
+            load_missing,
+            scan_library,
+            forget_images
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -210,7 +210,7 @@ fn purge_one(lib: &mut Library, id: i64) -> Result<(), String> {
     Ok(())
 }
 
-fn forget(lib: &mut Library, id: i64) -> Result<(), String> {
+pub(crate) fn forget(lib: &mut Library, id: i64) -> Result<(), String> {
     let tx = lib.conn.transaction().map_err(err)?;
     for sql in [
         "DELETE FROM image_tags WHERE image_id = ?1",

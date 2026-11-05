@@ -52,8 +52,8 @@ pub struct Gallery {
 
 pub fn load(lib: &Library) -> Result<Gallery, String> {
     let conn = &lib.conn;
-    // ゴミ箱の画像は一覧に出さない（FR-511）
-    let images = images(lib, false)?;
+    // ゴミ箱の画像（FR-511）と見つからない画像（FR-104）は一覧に出さない
+    let images = images(lib, "deleted_at IS NULL AND missing_at IS NULL ORDER BY id")?;
     let categories = conn
         .prepare("SELECT id, name, parent_id FROM categories ORDER BY sort_order, name, id")
         .map_err(err)?
@@ -88,10 +88,18 @@ pub fn load(lib: &Library) -> Result<Gallery, String> {
 
 /// ゴミ箱の画像（FR-511）。削除した新しい順に並べる
 pub fn trash(lib: &Library) -> Result<Vec<Image>, String> {
-    images(lib, true)
+    images(lib, "deleted_at IS NOT NULL ORDER BY deleted_at DESC, id")
 }
 
-fn images(lib: &Library, trashed: bool) -> Result<Vec<Image>, String> {
+/// 差分検出（FR-104）で実ファイルが見つからなかった画像。見つからなくなった新しい順に並べる
+pub fn missing(lib: &Library) -> Result<Vec<Image>, String> {
+    images(
+        lib,
+        "deleted_at IS NULL AND missing_at IS NOT NULL ORDER BY missing_at DESC, id",
+    )
+}
+
+fn images(lib: &Library, filter: &str) -> Result<Vec<Image>, String> {
     let conn = &lib.conn;
     let mut tags_of: HashMap<i64, Vec<i64>> = HashMap::new();
     let mut stmt = conn
@@ -104,10 +112,6 @@ fn images(lib: &Library, trashed: bool) -> Result<Vec<Image>, String> {
             .or_default()
             .push(r.get(1).map_err(err)?);
     }
-    let filter = match trashed {
-        true => "deleted_at IS NOT NULL ORDER BY deleted_at DESC, id",
-        false => "deleted_at IS NULL ORDER BY id",
-    };
     let images = conn
         .prepare(&format!(
             "SELECT id, file_name, hash, width, height, color, category_id, rating, imported_at, memo

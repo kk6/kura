@@ -196,7 +196,7 @@ fn check_name(what: &str, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate(name: &str) -> Result<(), String> {
+pub(crate) fn validate(name: &str) -> Result<(), String> {
     check_name("カテゴリ名", name)?;
     if name == UNCATEGORIZED_DIR {
         return Err(format!("{UNCATEGORIZED_DIR} はカテゴリ名に使えません"));
@@ -305,7 +305,7 @@ pub fn apply_category(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
 pub const TRASH_CATEGORY: &str = "trash_category";
 
 // ?1 のカテゴリと、その子孫のカテゴリ
-const SUBTREE: &str = "WITH RECURSIVE sub(id) AS (
+pub(crate) const SUBTREE: &str = "WITH RECURSIVE sub(id) AS (
     SELECT ?1 UNION ALL SELECT c.id FROM categories c JOIN sub ON c.parent_id = sub.id
 )";
 

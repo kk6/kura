@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Rgb, RgbImage};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -23,7 +23,7 @@ fn err(e: impl Display) -> String {
 }
 
 /// 時刻は UNIX 時間のミリ秒で保存する
-fn millis(t: SystemTime) -> Result<i64, String> {
+pub(crate) fn millis(t: SystemTime) -> Result<i64, String> {
     Ok(t.duration_since(UNIX_EPOCH).map_err(err)?.as_millis() as i64)
 }
 
@@ -74,17 +74,101 @@ pub enum Outcome {
 
 /// ライブラリの外の画像1枚を、category（None は未分類）のフォルダへコピーして登録する。
 /// 同じ中身の画像が未分類にあり category が指定されていれば、コピーせずにその画像を category へ移す（FR-204 の例外）
-pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Outcome, String> {
-    let bytes = fs::read(src).map_err(|e| format!("{} を読めません（{e}）", src.display()))?;
-    // 拡張子ではなく中身で判定する。拡張子と中身が食い違うファイルもブラウザやビューアーでは開けるため
-    let format = match image::guess_format(&bytes) {
-        Ok(f @ (ImageFormat::Jpeg | ImageFormat::Png | ImageFormat::WebP | ImageFormat::Gif)) => f,
-        _ => return Ok(Outcome::Unsupported),
-    };
-    let hash: String = Sha256::digest(&bytes)
+/// 対応している形式なら、その形式。拡張子ではなく中身で判定する。拡張子と中身が食い違うファイルもブラウザやビューアーでは開けるため
+pub(crate) fn supported(bytes: &[u8]) -> Option<ImageFormat> {
+    match image::guess_format(bytes) {
+        Ok(f @ (ImageFormat::Jpeg | ImageFormat::Png | ImageFormat::WebP | ImageFormat::Gif)) => {
+            Some(f)
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
-        .collect();
+        .collect()
+}
+
+/// 画像を読んで分かること。サムネイルは render が書く
+pub(crate) struct Rendered {
+    pub width: u32,
+    pub height: u32,
+    pub color: String,
+}
+
+/// 画像を読み、サムネイルを書いて、幅・高さ・代表色を返す。src はエラーの文言に使う
+pub(crate) fn render(
+    root: &Path,
+    bytes: &[u8],
+    format: ImageFormat,
+    hash: &str,
+    src: &Path,
+) -> Result<Rendered, String> {
+    let unreadable = |e: image::ImageError| format!("画像を読めません（{}、{e}）", src.display());
+    let mut decoder = ImageReader::with_format(Cursor::new(bytes), format)
+        .into_decoder()
+        .map_err(unreadable)?;
+    let orientation = decoder.orientation().map_err(unreadable)?;
+    let mut img = DynamicImage::from_decoder(decoder).map_err(unreadable)?;
+    // 幅と高さは、Exif の向きを反映した表示上の値にする。WebKit も向きを反映して表示するため
+    img.apply_orientation(orientation);
+    let (width, height) = (img.width(), img.height());
+    let thumb = flatten(&match width > THUMB_WIDTH {
+        true => img.thumbnail(THUMB_WIDTH, height),
+        false => img,
+    });
+    let color = average(&thumb);
+    write_thumb(root, hash, &thumb)?;
+    Ok(Rendered {
+        width,
+        height,
+        color,
+    })
+}
+
+/// 画像の行を足す。登録日時は今の時刻。返り値は新しい行の id
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn insert(
+    conn: &Connection,
+    file_name: &str,
+    hash: &str,
+    r: &Rendered,
+    file_size: i64,
+    file_mtime: i64,
+    category: Option<i64>,
+    imported_at: i64,
+) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO images(file_name, hash, width, height, file_size, file_mtime, color,
+                            category_id, imported_at, registered_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            file_name,
+            hash,
+            r.width,
+            r.height,
+            file_size,
+            file_mtime,
+            r.color,
+            category,
+            imported_at,
+            millis(SystemTime::now())?
+        ],
+    )
+    .map_err(err)?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// ライブラリの外の画像1枚を、category（None は未分類）のフォルダへコピーして登録する。
+/// 同じ中身の画像が未分類にあり category が指定されていれば、コピーせずにその画像を category へ移す（FR-204 の例外）
+pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Outcome, String> {
+    let bytes = fs::read(src).map_err(|e| format!("{} を読めません（{e}）", src.display()))?;
+    let Some(format) = supported(&bytes) else {
+        return Ok(Outcome::Unsupported);
+    };
+    let hash = sha256(&bytes);
     // deleted_at を見ないので、ゴミ箱の画像とも重複を判定する
     if let Some((id, current, trashed)) = lib
         .conn
@@ -107,25 +191,9 @@ pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Ou
         };
     }
 
-    let unreadable = |e: image::ImageError| format!("画像を読めません（{}、{e}）", src.display());
-    let mut decoder = ImageReader::with_format(Cursor::new(&bytes), format)
-        .into_decoder()
-        .map_err(unreadable)?;
-    let orientation = decoder.orientation().map_err(unreadable)?;
-    let mut img = DynamicImage::from_decoder(decoder).map_err(unreadable)?;
-    // 幅と高さは、Exif の向きを反映した表示上の値にする。WebKit も向きを反映して表示するため
-    img.apply_orientation(orientation);
-    let (width, height) = (img.width(), img.height());
-    let thumb = flatten(&match width > THUMB_WIDTH {
-        true => img.thumbnail(THUMB_WIDTH, height),
-        false => img,
-    });
-    let color = average(&thumb);
-    write_thumb(&lib.root, &hash, &thumb)?;
-
+    let rendered = render(&lib.root, &bytes, format, &hash, src)?;
     let meta = fs::metadata(src).map_err(err)?;
     let imported_at = millis(meta.modified().map_err(err)?)?;
-    let registered_at = millis(SystemTime::now())?;
     let name = src
         .file_name()
         .and_then(|n| n.to_str())
@@ -151,25 +219,16 @@ pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Ou
                     .and_then(|m| m.modified())
                     .map_err(err)?,
             )?;
-            tx.execute(
-                "INSERT INTO images(file_name, hash, width, height, file_size, file_mtime, color,
-                                    category_id, imported_at, registered_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![
-                    op.dst.file_name().and_then(|n| n.to_str()),
-                    hash,
-                    width,
-                    height,
-                    meta.len() as i64,
-                    file_mtime,
-                    color,
-                    category,
-                    imported_at,
-                    registered_at
-                ],
-            )
-            .map_err(err)?;
-            id.set(tx.last_insert_rowid());
+            id.set(insert(
+                tx,
+                op.dst.file_name().and_then(|n| n.to_str()).unwrap_or(name),
+                &hash,
+                &rendered,
+                meta.len() as i64,
+                file_mtime,
+                category,
+                imported_at,
+            )?);
             Ok(())
         },
     )?;
@@ -191,7 +250,7 @@ pub enum Reason {
     },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct Skipped {
     pub path: PathBuf,
     #[serde(flatten)]
