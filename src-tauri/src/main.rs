@@ -10,7 +10,7 @@ mod tag;
 mod trash;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use library::{Access, Library};
 use serde::Serialize;
@@ -58,7 +58,7 @@ fn activate(
         // 一覧に残せなくてもライブラリは使えるので、開く処理は止めない
         log::error!("最近使ったライブラリを保存できません：{e}");
     }
-    *current.0.lock().unwrap() = Some(lib);
+    *current.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(lib);
     log::info!("ライブラリを開きました：{}", root.display());
     Ok(root)
 }

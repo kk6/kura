@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 use rusqlite::{Connection, Transaction};
 
@@ -249,9 +249,11 @@ pub trait Access {
 
 impl Access for Mutex<Option<Library>> {
     fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
+        // 途中で panic しても DB はトランザクションで、ファイルの移動は pending_ops で整合が保たれるので、
+        // poison を理由に以後のコマンドをすべて止めずに使い続ける
         f(self
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .as_mut()
             .ok_or("ライブラリを開いていません")?)
     }
@@ -260,6 +262,30 @@ impl Access for Mutex<Option<Library>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 開いていないライブラリは使えずエラーにする() {
+        let m: Mutex<Option<Library>> = Mutex::new(None);
+        assert_eq!(
+            m.with(|_| Ok(())),
+            Err("ライブラリを開いていません".to_string())
+        );
+    }
+
+    #[test]
+    fn ライブラリを使う途中でpanicしても次からは使える() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = Mutex::new(Some(create(dir.path()).unwrap()));
+        let r = std::panic::catch_unwind(|| {
+            m.with(|_| -> Result<(), String> { panic!("途中で止まる") })
+        });
+        assert!(r.is_err());
+
+        assert_eq!(
+            m.with(|lib| Ok(lib.root.clone())),
+            Ok(dir.path().to_path_buf())
+        );
+    }
 
     fn user_version(conn: &Connection) -> i64 {
         conn.query_row("PRAGMA user_version", [], |r| r.get(0))
