@@ -247,12 +247,13 @@ export default function Gallery({ root }: { root: string }) {
     reloadTrash()
   }
 
-  async function emptyTrash() {
+  // ids があれば選んだ画像だけを、なければゴミ箱の画像をすべて完全に削除する
+  async function purge(targets?: number[]) {
     let r: Done
     try {
-      r = await invoke<Done>('empty_trash')
+      r = await invoke<Done>(targets ? 'purge_images' : 'empty_trash', targets && { ids: targets })
     } catch (e) {
-      setResult({ kind: 'error', message: `ゴミ箱を空にできません（${e}）` })
+      setResult({ kind: 'error', message: `完全に削除できません（${e}）` })
       return
     }
     setSelection(EMPTY_SELECTION)
@@ -444,7 +445,13 @@ export default function Gallery({ root }: { root: string }) {
       )}
 
       {inTrash ? (
-        <TrashPanel count={trash.length} selected={ids.length} onRestore={restoreImages} onEmpty={emptyTrash} />
+        <TrashPanel
+          count={trash.length}
+          selected={ids.length}
+          onRestore={restoreImages}
+          onPurge={() => purge(ids)}
+          onEmpty={() => purge()}
+        />
       ) : (
         <Detail
           root={root}

@@ -278,6 +278,11 @@ async fn restore_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Restored
 }
 
 #[tauri::command]
+async fn purge_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Done, String> {
+    with_library(app, move |lib| trash::purge(lib, &ids)).await
+}
+
+#[tauri::command]
 async fn empty_trash(app: AppHandle) -> Result<trash::Done, String> {
     with_library(app, trash::empty).await
 }
@@ -360,6 +365,7 @@ fn main() {
             load_trash,
             trash_images,
             restore_images,
+            purge_images,
             empty_trash
         ])
         .run(tauri::generate_context!())

@@ -6,6 +6,7 @@ export default function TrashPanel({
   count,
   selected,
   onRestore,
+  onPurge,
   onEmpty,
 }: {
   // ゴミ箱の画像の枚数
@@ -13,9 +14,12 @@ export default function TrashPanel({
   // 選んでいる画像の枚数
   selected: number
   onRestore: () => void
+  // 選んだ画像だけを完全に削除する
+  onPurge: () => void
   onEmpty: () => void
 }) {
-  const [confirming, setConfirming] = useState(false)
+  // 確認ダイアログで答えを待っている操作
+  const [confirming, setConfirming] = useState<'purge' | 'empty' | null>(null)
   return (
     <aside className="gallery__detail" aria-label="ゴミ箱">
       <h2 className="detail__name">{selected ? `${selected}枚を選んでいます` : 'ゴミ箱'}</h2>
@@ -26,21 +30,25 @@ export default function TrashPanel({
         <button type="button" className="button" disabled={!selected} onClick={onRestore}>
           元に戻す
         </button>
-        <button type="button" className="button" disabled={!count} onClick={() => setConfirming(true)}>
+        <button type="button" className="button" disabled={!selected} onClick={() => setConfirming('purge')}>
+          完全に削除
+        </button>
+        <button type="button" className="button" disabled={!count} onClick={() => setConfirming('empty')}>
           ゴミ箱を空にする
         </button>
       </div>
       {confirming && (
         <ConfirmDialog
-          title="ゴミ箱を空にする"
-          confirm="空にする"
+          title={confirming === 'purge' ? '選んだ画像を完全に削除する' : 'ゴミ箱を空にする'}
+          confirm={confirming === 'purge' ? '削除する' : '空にする'}
           onConfirm={() => {
-            setConfirming(false)
-            onEmpty()
+            setConfirming(null)
+            if (confirming === 'purge') onPurge()
+            else onEmpty()
           }}
-          onClose={() => setConfirming(false)}
+          onClose={() => setConfirming(null)}
         >
-          ゴミ箱の画像 {count}枚を完全に削除します。元に戻せません。
+          {confirming === 'purge' ? `選んだ画像 ${selected}枚` : `ゴミ箱の画像 ${count}枚`}を完全に削除します。元に戻せません。
         </ConfirmDialog>
       )}
     </aside>

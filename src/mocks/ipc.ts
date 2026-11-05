@@ -312,6 +312,13 @@ const restoreImages: Handler = (args) => {
   return out
 }
 
+const purgeImages: Handler = (args) => {
+  const ids = new Set(args?.ids as number[])
+  const done = TRASH.filter((i) => ids.has(i.id)).map((i) => i.id)
+  TRASH.splice(0, TRASH.length, ...TRASH.filter((i) => !ids.has(i.id)))
+  return { done, failed: [] }
+}
+
 const emptyTrash: Handler = () => ({ done: TRASH.splice(0).map((i) => i.id), failed: [] })
 
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
@@ -341,6 +348,7 @@ const handlers: Record<string, Handler> = {
   load_trash: () => structuredClone(TRASH),
   trash_images: trashImages,
   restore_images: restoreImages,
+  purge_images: purgeImages,
   empty_trash: emptyTrash,
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple

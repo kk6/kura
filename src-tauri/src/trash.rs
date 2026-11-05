@@ -154,51 +154,60 @@ pub fn apply_restore(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
 /// ファイルを先に消すのは、行が残っていれば、途中で止まってももう一度空にすると続きから消せるため。
 /// 消せないファイルの画像は行を残し、元に戻せるようにする
 pub fn empty(lib: &mut Library) -> Result<Done, String> {
-    let images = {
+    let ids = {
         let mut stmt = lib
             .conn
-            .prepare(
-                "SELECT id, file_name, hash FROM images WHERE deleted_at IS NOT NULL ORDER BY id",
-            )
+            .prepare("SELECT id FROM images WHERE deleted_at IS NOT NULL ORDER BY id")
             .map_err(err)?;
-        let images = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })
+        let ids = stmt
+            .query_map([], |r| r.get::<_, i64>(0))
             .map_err(err)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(err)?;
-        images
+        ids
     };
+    purge(lib, &ids)
+}
+
+/// ゴミ箱の画像のうち ids だけを完全に削除する。消し方は empty と同じ。ゴミ箱にない画像は消さずに failed に入れる
+pub fn purge(lib: &mut Library, ids: &[i64]) -> Result<Done, String> {
     let mut out = Done::default();
-    for (id, file_name, hash) in images {
-        let path = lib.root.join(trash_path(id, &file_name));
-        let result = match fs::remove_file(&path) {
-            Err(e) if e.kind() != ErrorKind::NotFound => {
-                Err(format!("{} を消せません（{e}）", path.display()))
-            }
-            _ => forget(lib, id),
-        };
-        match result {
-            Ok(()) => {
-                out.done.push(id);
-                let thumb = lib
-                    .root
-                    .join(KURA_DIR)
-                    .join("thumbs")
-                    .join(format!("{hash}.jpg"));
-                if let Err(e) = fs::remove_file(&thumb) {
-                    log::warn!("サムネイルを消せません（{}、{e}）", thumb.display());
-                }
-            }
+    for &id in ids {
+        match purge_one(lib, id) {
+            Ok(()) => out.done.push(id),
             Err(message) => out.failed.push(Failed { id, message }),
         }
     }
     Ok(out)
+}
+
+fn purge_one(lib: &mut Library, id: i64) -> Result<(), String> {
+    let (file_name, hash): (String, String) = lib
+        .conn
+        .query_row(
+            "SELECT file_name, hash FROM images WHERE id = ?1 AND deleted_at IS NOT NULL",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(err)?
+        .ok_or(format!("ゴミ箱に画像が見つかりません（{id}）"))?;
+    let path = lib.root.join(trash_path(id, &file_name));
+    match fs::remove_file(&path) {
+        Err(e) if e.kind() != ErrorKind::NotFound => {
+            return Err(format!("{} を消せません（{e}）", path.display()))
+        }
+        _ => forget(lib, id)?,
+    }
+    let thumb = lib
+        .root
+        .join(KURA_DIR)
+        .join("thumbs")
+        .join(format!("{hash}.jpg"));
+    if let Err(e) = fs::remove_file(&thumb) {
+        log::warn!("サムネイルを消せません（{}、{e}）", thumb.display());
+    }
+    Ok(())
 }
 
 fn forget(lib: &mut Library, id: i64) -> Result<(), String> {
@@ -546,5 +555,23 @@ mod tests {
 
         assert_eq!(r.done, [a]);
         assert!(!exists(&lib, a));
+    }
+
+    #[test]
+    fn 選んだ画像だけを完全に削除しゴミ箱にない画像は消さない() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+        let b = put(&lib, None, "b.jpg", "B");
+        let alive = put(&lib, None, "c.jpg", "C");
+        trash(&mut lib, &[a, b]).unwrap();
+
+        let r = purge(&mut lib, &[a, alive, 999]).unwrap();
+
+        assert_eq!(r.done, [a]);
+        assert_eq!(ids(&r.failed), [alive, 999]);
+        assert!(!exists(&lib, a));
+        assert!(exists(&lib, b) && exists(&lib, alive));
+        assert_eq!(files(&lib, TRASH_DIR), [format!("{b}.jpg")]);
+        assert_eq!(read(&lib, "_未分類/c.jpg"), "C");
     }
 }

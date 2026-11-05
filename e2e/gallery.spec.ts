@@ -996,17 +996,29 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
   await expect(all).toContainText('2000')
   await page.screenshot({ path: 'test-results/trash-restored.png' })
 
+  // 選んだ画像だけを完全に削除する。取り消せないので枚数を見せて確かめる
+  await trashItem.click()
+  await page.getByRole('main', { name: '画像の一覧' }).getByRole('img').first().click()
+  await panel.getByRole('button', { name: '完全に削除' }).click()
+  const purgeDialog = page.getByRole('dialog', { name: '選んだ画像を完全に削除する' })
+  await expect(purgeDialog).toContainText('選んだ画像 1枚を完全に削除します。元に戻せません。')
+  await page.screenshot({ path: 'test-results/trash-purge-confirm.png' })
+  await purgeDialog.getByRole('button', { name: '削除する' }).click()
+  await expect(status).toContainText('完了：ゴミ箱から削除した 1枚')
+  await expect(thumbs(page)).toHaveCount(1)
+  await expect(trashItem).toContainText('1')
+
   // 空にするのは取り消せないので、枚数を見せて確かめる。Enter だけでは空にしない
   await panel.getByRole('button', { name: 'ゴミ箱を空にする' }).click()
   const dialog = page.getByRole('dialog', { name: 'ゴミ箱を空にする' })
-  await expect(dialog).toContainText('ゴミ箱の画像 2枚を完全に削除します。元に戻せません。')
+  await expect(dialog).toContainText('ゴミ箱の画像 1枚を完全に削除します。元に戻せません。')
   await expect(dialog.getByRole('button', { name: 'キャンセル' })).toBeFocused()
   await page.screenshot({ path: 'test-results/trash-empty-confirm.png' })
   await page.keyboard.press('Enter')
-  await expect(thumbs(page)).toHaveCount(2)
+  await expect(thumbs(page)).toHaveCount(1)
   await panel.getByRole('button', { name: 'ゴミ箱を空にする' }).click()
   await dialog.getByRole('button', { name: '空にする' }).click()
-  await expect(status).toContainText('完了：ゴミ箱から削除した 2枚')
+  await expect(status).toContainText('完了：ゴミ箱から削除した 1枚')
   await expect(thumbs(page)).toHaveCount(0)
   await expect(panel.getByRole('button', { name: 'ゴミ箱を空にする' })).toBeDisabled()
 
