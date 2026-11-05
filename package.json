@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:mock": "vite --mode mock",
     "build": "tsc -b && vite build",
-    "lint": "tsc -b && eslint . && prettier --check . && node scripts/check-tokens.mjs",
+    "lint": "tsc -b && eslint . && prettier --check . && node scripts/check-tokens.mjs && node scripts/check-docs.mjs",
     "test:e2e": "playwright test",
     "tauri": "tauri",
     "dev-library": "uv run scripts/gen_dev_library.py",

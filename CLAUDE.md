@@ -44,7 +44,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
 - 整形（Rust）：`cargo fmt`（`src-tauri/` で実行）
 - 整形（Python）：`uvx ruff@0.17.3 format`
-- Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出）
+- Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出、ドキュメントの食い違いの検出）。ドキュメントの検査（`scripts/check-docs.mjs`）は、`docs/design.md` のトークンの表と `tokens.css` の名前と値、この CLAUDE.md の `npm run` のコマンドが `package.json` にあるかを確かめる
 - Lint（Rust）：`cargo fmt --check` と `cargo clippy -- -D warnings`（`src-tauri/` で実行）
 - Lint（Python）：`uvx ruff@0.17.3 check` と `uvx ruff@0.17.3 format --check`（`spikes/` は対象外）
 - CI：`.github/workflows/ci.yml`。push と pull request で、上のテストと Lint を macOS で流す（`ml/` の pytest は `ml/` ができてから足す）
