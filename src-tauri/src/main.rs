@@ -39,7 +39,7 @@ fn allow_assets<R: Runtime>(app: &AppHandle<R>, root: &std::path::Path) -> tauri
     // ルートの ** は . で始まる .kura に入らないので、サムネイルは別に許可する。
     // DB とゴミ箱はそれに頼らず明示的に禁じる（forbid は allow より優先される）
     scope.allow_directory(root, true)?;
-    scope.allow_directory(kura.join("thumbs"), true)?;
+    scope.allow_directory(library::thumbs_dir(root), true)?;
     for name in ["kura.db", "kura.db-wal", "kura.db-shm"] {
         scope.forbid_file(kura.join(name))?;
     }

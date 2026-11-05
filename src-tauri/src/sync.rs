@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -8,21 +7,12 @@ use std::time::SystemTime;
 
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
-use unicode_normalization::UnicodeNormalization;
 
 use crate::category::{self, Failed, SUBTREE};
-use crate::fileops;
+use crate::fileops::{self, nfc};
 use crate::import::{self, millis, Reason, Skipped};
-use crate::library::{Library, KURA_DIR, UNCATEGORIZED_DIR};
+use crate::library::{self, err, Library, UNCATEGORIZED_DIR};
 use crate::trash::{self, Done};
-
-fn err(e: impl Display) -> String {
-    e.to_string()
-}
-
-fn nfc(name: &std::ffi::OsStr) -> String {
-    name.to_string_lossy().nfc().collect()
-}
 
 /// 差分検出（FR-104）の結果
 #[derive(Debug, Default, PartialEq, Serialize)]
@@ -421,7 +411,7 @@ fn apply(
                     )
                     .map_err(err)
             })?;
-            remove_thumb(root, &old);
+            library::remove_thumb(root, &old);
             report.updated += 1;
         }
         Work::New { category } => {
@@ -518,16 +508,6 @@ fn remove_category(lib: &mut Library, id: i64) -> Result<usize, String> {
     Ok(n)
 }
 
-fn remove_thumb(root: &Path, hash: &str) {
-    let thumb = root
-        .join(KURA_DIR)
-        .join("thumbs")
-        .join(format!("{hash}.jpg"));
-    if let Err(e) = fs::remove_file(&thumb) {
-        log::warn!("サムネイルを消せません（{}、{e}）", thumb.display());
-    }
-}
-
 /// 見つからない画像を DB から外す（FR-104）。行（タグの付き方と元URLを含む）とサムネイルを消す。
 /// 見つからない状態でない画像は外さずに failed に入れる
 pub fn forget(lib: &mut Library, ids: &[i64]) -> Result<Done, String> {
@@ -545,7 +525,7 @@ pub fn forget(lib: &mut Library, ids: &[i64]) -> Result<Done, String> {
             .map_err(err)?;
         let result = match hash {
             None => Err(format!("見つからない画像ではありません（{id}）")),
-            Some(hash) => trash::forget(lib, id).map(|_| remove_thumb(&lib.root, &hash)),
+            Some(hash) => trash::forget(lib, id).map(|_| library::remove_thumb(&lib.root, &hash)),
         };
         match result {
             Ok(()) => out.done.push(id),

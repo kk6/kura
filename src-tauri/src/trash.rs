@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -9,15 +8,11 @@ use serde::Serialize;
 
 use crate::category::{self, Failed, Moved};
 use crate::fileops::{self, OnConflict, PendingOp, Request};
-use crate::library::{Library, KURA_DIR, TRASH_DIR};
+use crate::library::{self, err, Library, TRASH_DIR};
 
 /// 画像をゴミ箱へ移す操作と、ゴミ箱から戻す操作の、pending_ops の種類
 pub const TRASH_IMAGE: &str = "trash_image";
 pub const RESTORE_IMAGE: &str = "restore_image";
-
-fn err(e: impl Display) -> String {
-    e.to_string()
-}
 
 #[derive(Debug, Default, Serialize)]
 pub struct Done {
@@ -199,14 +194,7 @@ fn purge_one(lib: &mut Library, id: i64) -> Result<(), String> {
         }
         _ => forget(lib, id)?,
     }
-    let thumb = lib
-        .root
-        .join(KURA_DIR)
-        .join("thumbs")
-        .join(format!("{hash}.jpg"));
-    if let Err(e) = fs::remove_file(&thumb) {
-        log::warn!("サムネイルを消せません（{}、{e}）", thumb.display());
-    }
+    library::remove_thumb(&lib.root, &hash);
     Ok(())
 }
 

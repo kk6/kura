@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,14 +6,10 @@ use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::fileops::{self, OnConflict, PendingOp, Request};
-use crate::library::{Library, TRASH_DIR, UNCATEGORIZED_DIR};
+use crate::library::{err, Library, TRASH_DIR, UNCATEGORIZED_DIR};
 
 /// 画像をカテゴリのフォルダへ移す操作の、pending_ops の種類
 pub const MOVE_IMAGE: &str = "move_image";
-
-fn err(e: impl Display) -> String {
-    e.to_string()
-}
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct Moved {

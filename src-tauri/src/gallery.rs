@@ -1,16 +1,11 @@
 use std::collections::HashMap;
-use std::fmt::Display;
 use std::path::PathBuf;
 
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 
 use crate::category;
-use crate::library::Library;
-
-fn err(e: impl Display) -> String {
-    e.to_string()
-}
+use crate::library::{err, Library};
 
 /// 一覧に並べる画像1枚分。並べ替え（FR-506）は画面側で行うので、それに要る項目も含める
 #[derive(Debug, PartialEq, Serialize)]

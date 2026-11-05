@@ -1,16 +1,10 @@
-use std::fmt::Display;
-
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::fileops;
 use crate::gallery::Tag;
-use crate::library::Library;
-
-fn err(e: impl Display) -> String {
-    e.to_string()
-}
+use crate::library::{err, Library};
 
 /// 選んだ画像に付いているタグと、そのタグが付いている枚数（FR-406、FR-407）
 #[derive(Debug, PartialEq, Serialize)]

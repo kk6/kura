@@ -1,5 +1,4 @@
 use std::cell::Cell;
-use std::fmt::Display;
 use std::fs;
 use std::io::{BufWriter, Cursor};
 use std::path::{Path, PathBuf};
@@ -14,13 +13,9 @@ use sha2::{Digest, Sha256};
 
 use crate::category;
 use crate::fileops::{self, OnConflict, Request};
-use crate::library::{Library, KURA_DIR};
+use crate::library::{self, err, Library};
 
 const THUMB_WIDTH: u32 = 320;
-
-fn err(e: impl Display) -> String {
-    e.to_string()
-}
 
 /// 時刻は UNIX 時間のミリ秒で保存する
 pub(crate) fn millis(t: SystemTime) -> Result<i64, String> {
@@ -52,14 +47,14 @@ fn average(img: &RgbImage) -> String {
 
 /// .kura/thumbs/<ハッシュ>.jpg に書く。ハッシュを名前にするので、取り込みが途中で失敗して残っても、次の取り込みで同じファイルを使える
 fn write_thumb(root: &Path, hash: &str, img: &RgbImage) -> Result<(), String> {
-    let dir = root.join(KURA_DIR).join("thumbs");
+    let dir = library::thumbs_dir(root);
     fs::create_dir_all(&dir).map_err(err)?;
     let tmp = dir.join(format!("{hash}.jpg.tmp"));
     let file = fs::File::create(&tmp).map_err(err)?;
     img.write_with_encoder(JpegEncoder::new_with_quality(BufWriter::new(file), 85))
         .map_err(|e| format!("サムネイルを書けません（{e}）"))?;
     // 書きかけのサムネイルを見せないよう、書き終えてから正式な名前にする
-    fs::rename(&tmp, dir.join(format!("{hash}.jpg"))).map_err(err)
+    fs::rename(&tmp, library::thumb_path(root, hash)).map_err(err)
 }
 
 #[derive(Debug, PartialEq)]

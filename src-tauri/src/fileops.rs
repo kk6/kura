@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::ffi::{CString, OsStr};
-use std::fmt::Display;
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
@@ -9,7 +8,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, Transaction};
 use unicode_normalization::UnicodeNormalization;
 
-use crate::library::Library;
+use crate::library::{err, Library};
 
 pub enum OnConflict {
     Number,
@@ -40,10 +39,6 @@ pub type Apply<'a> = &'a dyn Fn(&Transaction, &PendingOp) -> Result<(), String>;
 
 const TMP_PREFIX: &str = ".kura-tmp-";
 
-fn err(e: impl Display) -> String {
-    e.to_string()
-}
-
 /// APFS と exFAT の初期設定に合わせ、正規化（NFC）と大文字・小文字の違いを無視して名前を比べるための鍵
 pub fn key(name: &OsStr) -> String {
     name.to_string_lossy()
@@ -52,7 +47,7 @@ pub fn key(name: &OsStr) -> String {
         .to_lowercase()
 }
 
-fn nfc(name: &OsStr) -> String {
+pub(crate) fn nfc(name: &OsStr) -> String {
     name.to_string_lossy().nfc().collect()
 }
 

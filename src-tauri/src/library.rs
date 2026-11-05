@@ -9,6 +9,23 @@ use rusqlite::{Connection, Transaction};
 use crate::fileops::{self, PendingOp};
 
 pub const KURA_DIR: &str = ".kura";
+
+/// サムネイルを置くフォルダ。サムネイルの名前は `<ハッシュ>.jpg`
+pub fn thumbs_dir(root: &Path) -> PathBuf {
+    root.join(KURA_DIR).join("thumbs")
+}
+
+pub fn thumb_path(root: &Path, hash: &str) -> PathBuf {
+    thumbs_dir(root).join(format!("{hash}.jpg"))
+}
+
+/// 画像の行を消した後に呼ぶ。サムネイルが残っても画像の操作は済んでいるので、消せなければログに残すだけにする
+pub fn remove_thumb(root: &Path, hash: &str) {
+    let thumb = thumb_path(root, hash);
+    if let Err(e) = fs::remove_file(&thumb) {
+        log::warn!("サムネイルを消せません（{}、{e}）", thumb.display());
+    }
+}
 pub const UNCATEGORIZED_DIR: &str = "_未分類";
 /// 削除したカテゴリのフォルダに残った管理外のファイル（FR-404）と、削除した画像（FR-511、`<画像のid>.<拡張子>`）を置く
 pub const TRASH_DIR: &str = ".kura/trash";
@@ -79,7 +96,7 @@ pub struct Library {
     pub conn: Connection,
 }
 
-fn err(e: impl Display) -> String {
+pub(crate) fn err(e: impl Display) -> String {
     e.to_string()
 }
 
