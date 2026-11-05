@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: astral-sh/setup-uv@v6
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npx playwright install webkit
+      - run: npm run test:e2e
+
+      # tauri::generate_context! はビルド時に dist/ を読むので、先に画面をビルドする
+      - run: npm run build
+      - name: cargo fmt
+        working-directory: src-tauri
+        run: cargo fmt --check
+      - name: cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test
+
+      - run: uv run --with pillow --with pytest pytest scripts/
+      - run: uvx ruff check
+      - run: uvx ruff format --check

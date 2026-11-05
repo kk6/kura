@@ -1,0 +1,3 @@
+# 整形だけのコミット。git config blame.ignoreRevsFile .git-blame-ignore-revs で blame から外す
+# style: 既存のコードを Prettier で整形する
+fb20d631f144ae2bc09551dc3607522d29e33641
