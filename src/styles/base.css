@@ -42,6 +42,7 @@ button {
 }
 
 .button:disabled {
+  border-color: var(--color-raise);
   color: var(--color-text-faint);
   cursor: default;
 }

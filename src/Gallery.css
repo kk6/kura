@@ -200,6 +200,12 @@ body.is-dragging * {
   color: var(--color-text-faint);
 }
 
+/* --color-text-faint は --color-selected の上で 4.5:1 に届かないので、一段濃くする（docs/design.md「色」） */
+.sidebar__item--selected .sidebar__count,
+.tag-input__option[aria-selected='true'] .search__kind {
+  color: var(--color-text-sub);
+}
+
 .sidebar__heading {
   display: flex;
   align-items: center;
