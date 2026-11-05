@@ -72,10 +72,13 @@ test('フォルダを取り込むと、ステータスバーに進み具合と�
   const status = page.getByRole('contentinfo')
   await expect(status).toContainText('取り込み中 240 / 481枚')
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '240')
-  await expect(page.getByRole('button', { name: '画像を取り込む' })).toBeDisabled()
+  // 取り込み中はボタンの代わりに処理中であることを出し、終わるとボタンに戻す
+  await expect(page.getByRole('button', { name: '画像を取り込む' })).toHaveCount(0)
+  await expect(page.getByRole('banner').getByRole('status')).toHaveText('取り込み中…')
   await page.screenshot({ path: 'test-results/import-progress.png' })
 
   await expect(status).toContainText('完了：取り込み 477枚')
+  await expect(page.getByRole('button', { name: '画像を取り込む' })).toBeEnabled()
   await expect(status).toContainText('完了：未分類から移した 3枚')
   await expect(status.getByRole('button', { name: '注意：スキップ 3枚' })).toBeVisible()
   await status.getByRole('button', { name: 'エラー：取り込めない 1件' }).click()
@@ -1045,7 +1048,8 @@ test('開いた後に差分を確認して結果を出し、見つからない�
   await expect(status).toContainText('Finder での変更を反映中 2 / 4枚')
   await expect(status.getByRole('progressbar', { name: 'Finder での変更を反映する進み具合' })).toBeVisible()
   await expect(thumbs(page).first()).toBeVisible()
-  await expect(page.getByRole('button', { name: 'フォルダを取り込む' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'フォルダを取り込む' })).toHaveCount(0)
+  await expect(page.getByRole('banner').getByRole('status')).toHaveText('Finder での変更を反映中…')
   await page.screenshot({ path: 'test-results/scan-progress.png' })
 
   // 開いた後の差分検出の結果は、変わったものだけをステータスバーに出す

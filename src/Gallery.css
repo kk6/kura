@@ -615,3 +615,51 @@ body.is-dragging * {
   flex-wrap: wrap;
   gap: var(--space-3);
 }
+
+/* ボタンと処理中の表示を同じ場所に重ねる */
+.gallery__import {
+  display: grid;
+}
+
+.gallery__import > * {
+  grid-area: 1 / 1;
+}
+
+.gallery__import-buttons {
+  display: flex;
+  gap: var(--space-4);
+}
+
+/* hidden でも場所は取る。visibility なら読み上げとクリックの対象からも外れる */
+.gallery__import-buttons[hidden] {
+  display: flex;
+  visibility: hidden;
+}
+
+/* 取り込みと差分検出の間に、取り込みのボタンの代わりに出す */
+.gallery__busy {
+  justify-content: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--size-control);
+  color: var(--color-text-sub);
+  white-space: nowrap;
+}
+
+.spinner {
+  animation: spin var(--duration-spin) linear infinite;
+}
+
+/* 動きを減らす設定では回さない */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}

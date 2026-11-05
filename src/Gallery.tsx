@@ -443,12 +443,24 @@ export default function Gallery({ root }: { root: string }) {
           value={thumbWidth}
           onChange={(e) => setThumbWidth(Number(e.target.value))}
         />
-        <button type="button" className="button" disabled={!!progress || !!scanning} onClick={() => pick(false)}>
-          画像を取り込む
-        </button>
-        <button type="button" className="button" disabled={!!progress || !!scanning} onClick={() => pick(true)}>
-          フォルダを取り込む
-        </button>
+        {/* 取り込みと差分検出の間は、押せないボタンを残さず処理中であることを出す。押せない理由がわからないと壊れたと思われるため。
+            ボタンは見えないまま場所を取り、ヘッダーの幅が変わらないようにする */}
+        <span className="gallery__import">
+          <span className="gallery__import-buttons" hidden={!!(scanning || progress)}>
+            <button type="button" className="button" onClick={() => pick(false)}>
+              画像を取り込む
+            </button>
+            <button type="button" className="button" onClick={() => pick(true)}>
+              フォルダを取り込む
+            </button>
+          </span>
+          {(scanning || progress) && (
+            <span className="gallery__busy" role="status">
+              <Spinner />
+              {scanning ? 'Finder での変更を反映中…' : '取り込み中…'}
+            </span>
+          )}
+        </span>
       </header>
 
       <Sidebar
@@ -727,6 +739,23 @@ const Progress = ({ label, value }: { label: string; value: ImportProgress }) =>
   >
     <span className="progress__done" style={{ width: `${value.total ? (value.done / value.total) * 100 : 0}%` }} />
   </span>
+)
+
+// 処理中を示す、回る円弧のアイコン
+const Spinner = () => (
+  <svg
+    className="spinner"
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    aria-hidden="true"
+  >
+    <path d="M12 3a9 9 0 1 1-9 9" />
+  </svg>
 )
 
 const Chevron = ({ d }: { d: string }) => (
