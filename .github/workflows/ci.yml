@@ -4,6 +4,13 @@ on:
   push:
   pull_request:
 
+# 同じブランチに続けて push したら、古い実行を取り消して macOS の同時実行の枠（5つ）を空ける。
+# main では取り消さない。paths-filter が直前の push との差分しか見ないので、取り消すと検査が漏れる。
+# 同じグループでは待っている実行も新しい実行に置き換えられるので、main は実行ごとに別のグループにする
+concurrency:
+  group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read # paths-filter が pull_request で変更ファイルを読む
