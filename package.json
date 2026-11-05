@@ -7,11 +7,13 @@
     "dev": "vite",
     "dev:mock": "vite --mode mock",
     "build": "tsc -b && vite build",
-    "lint": "tsc -b && eslint . && node scripts/check-tokens.mjs",
+    "lint": "tsc -b && eslint . && prettier --check . && node scripts/check-tokens.mjs",
     "test:e2e": "playwright test",
     "tauri": "tauri",
     "dev-library": "uv run scripts/gen_dev_library.py",
-    "test": "vitest run"
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "prepare": "lefthook install"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
@@ -28,9 +30,12 @@
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
     "eslint": "^9.25.0",
+    "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
+    "lefthook": "^2.2.2",
+    "prettier": "^3.9.10",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5",

@@ -1,0 +1,20 @@
+# コミットするファイルだけを整形・検査する。重いテストは CI に任せる
+pre-commit:
+  parallel: true
+  commands:
+    prettier:
+      glob: '*.{js,mjs,cjs,ts,tsx,json,yml,yaml}'
+      run: npx prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+    eslint:
+      glob: '*.{ts,tsx}'
+      run: npx eslint --no-warn-ignored {staged_files}
+    rustfmt:
+      root: 'src-tauri/'
+      glob: '*.rs'
+      run: rustfmt --edition 2021 {staged_files}
+      stage_fixed: true
+    ruff:
+      glob: '*.py'
+      run: uvx ruff check {staged_files} && uvx ruff format {staged_files}
+      stage_fixed: true

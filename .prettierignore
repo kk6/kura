@@ -1,0 +1,11 @@
+# 整形の対象は src/、e2e/、scripts/ の JS と TS、設定ファイルだけ（.gitignore の対象も除く）
+spikes/
+dev-library/
+src-tauri/target/
+src-tauri/gen/
+.claude/
+docs/
+package-lock.json
+*.css
+*.md
+*.html
