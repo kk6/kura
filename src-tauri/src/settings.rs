@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// サイドバーでカテゴリを移すときに確認する（FR-403）
+    /// サイドバーでカテゴリを移すときに確認する（FR-412）
     pub confirm_category_move: bool,
     /// 一覧の列の幅の目安（FR-501）。範囲に収めるのは画面側
     pub thumb_width: u32,

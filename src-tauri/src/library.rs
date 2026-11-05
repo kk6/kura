@@ -149,7 +149,7 @@ fn apply_op(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
         "import" => Ok(()),
         crate::category::MOVE_IMAGE => crate::category::apply_move(tx, op),
         crate::category::MOVE_CATEGORY => crate::category::apply_category(tx, op),
-        crate::category::TRASH_CATEGORY => crate::category::apply_trash(tx, op),
+        crate::category::TRASH_CATEGORY => crate::category::apply_trash_category(tx, op),
         crate::trash::TRASH_IMAGE => crate::trash::apply_trash(tx, op),
         crate::trash::RESTORE_IMAGE => crate::trash::apply_restore(tx, op),
         _ => Err(format!("未知の操作の種類です（{}）", op.kind)),

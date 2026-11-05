@@ -380,7 +380,7 @@ pub fn delete(lib: &mut Library, id: i64) -> Result<Deleted, String> {
                     name: &name,
                     on_conflict: OnConflict::Number,
                 },
-                &apply_trash,
+                &apply_trash_category,
             )
         });
     match result {
@@ -397,7 +397,7 @@ pub fn delete(lib: &mut Library, id: i64) -> Result<Deleted, String> {
 /// TRASH_CATEGORY の DB の更新。カテゴリを子孫ごと消す。ゴミ箱の画像は category_id を空にし、
 /// 復元（FR-511）で元のカテゴリが消えたと分かるよう category_deleted に印を付ける。
 /// 未分類へ移していない画像が残っていれば、外部キーの制約で失敗する
-pub fn apply_trash(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
+pub fn apply_trash_category(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
     tx.execute(
         &format!(
             "{SUBTREE} UPDATE images SET category_id = NULL, category_deleted = 1
