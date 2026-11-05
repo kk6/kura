@@ -5,6 +5,7 @@ import ConfirmDialog from './ConfirmDialog'
 export default function TrashPanel({
   count,
   selected,
+  name,
   onRestore,
   onPurge,
   onEmpty,
@@ -13,6 +14,8 @@ export default function TrashPanel({
   count: number
   // 選んでいる画像の枚数
   selected: number
+  // 1枚だけ選んでいるときのファイル名
+  name?: string
   onRestore: () => void
   // 選んだ画像だけを完全に削除する
   onPurge: () => void
@@ -22,7 +25,7 @@ export default function TrashPanel({
   const [confirming, setConfirming] = useState<'purge' | 'empty' | null>(null)
   return (
     <aside className="gallery__detail" aria-label="ゴミ箱">
-      <h2 className="detail__name">{selected ? `${selected}枚を選んでいます` : 'ゴミ箱'}</h2>
+      <h2 className="detail__name">{name ?? (selected ? `${selected}枚を選んでいます` : 'ゴミ箱')}</h2>
       <p className="detail__note">
         削除した画像は、ゴミ箱を空にするまで元に戻せます。元のカテゴリが削除されていれば、未分類に戻します。
       </p>

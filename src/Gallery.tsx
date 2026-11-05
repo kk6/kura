@@ -531,6 +531,11 @@ export default function Gallery({ root, settings, onSettings }: Props) {
       <Masonry
         root={root}
         images={listed}
+        empty={
+          !aside && filtered
+            ? '条件に合う画像がありません'
+            : '画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください'
+        }
         thumbWidth={thumbWidth}
         selected={selection.ids}
         onSelect={(id, e) =>
@@ -583,12 +588,17 @@ export default function Gallery({ root, settings, onSettings }: Props) {
         <TrashPanel
           count={trash.length}
           selected={ids.length}
+          name={selected.length === 1 ? selected[0].file_name : undefined}
           onRestore={restoreImages}
           onPurge={() => purge(ids)}
           onEmpty={() => purge()}
         />
       ) : inMissing ? (
-        <MissingPanel selected={ids.length} onForget={forget} />
+        <MissingPanel
+          selected={ids.length}
+          name={selected.length === 1 ? selected[0].file_name : undefined}
+          onForget={forget}
+        />
       ) : (
         <Detail
           root={root}

@@ -6,6 +6,8 @@ import { type Arrow, layout, neighbor, visible } from './layout'
 type Props = {
   root: string
   images: Image[]
+  // 1枚もないときに出す文言
+  empty: string
   thumbWidth: number
   selected: Set<number>
   // id が null のときは画像のない所を押した
@@ -19,7 +21,18 @@ type Props = {
 
 const ARROWS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
 
-export default function Masonry({ root, images, thumbWidth, selected, onSelect, onOpen, active, keys, onMove }: Props) {
+export default function Masonry({
+  root,
+  images,
+  empty,
+  thumbWidth,
+  selected,
+  onSelect,
+  onOpen,
+  active,
+  keys,
+  onMove,
+}: Props) {
   const ref = useRef<HTMLElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
   const [viewport, setViewport] = useState({ width: 0, height: 0, gap: 0 })
@@ -93,7 +106,7 @@ export default function Masonry({ root, images, thumbWidth, selected, onSelect, 
       onDoubleClick={(e) => (e.target as HTMLElement).dataset.id && !e.shiftKey && !e.metaKey && onOpen()}
     >
       {images.length === 0 ? (
-        <p className="list__empty">画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください</p>
+        <p className="list__empty">{empty}</p>
       ) : (
         l && (
           <div className="list__canvas" style={{ height: l.height + gap * 2 }}>

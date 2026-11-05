@@ -957,6 +957,8 @@ test('検索バーに入れると名前の合うカテゴリとタグを候補�
   )
   // 座りのカテゴリの画像（id を 5 で割って 2 余る）のうち、座りのタグ（5 の倍数）は付いていない
   await expect(status).toContainText('0 / 2000枚')
+  // 絞り込みで0枚のときは、取り込み方ではなく条件に合わないことを出す
+  await expect(page.getByRole('main', { name: '画像の一覧' })).toHaveText('条件に合う画像がありません')
 
   // Tab と Shift+Tab で候補を移り、最後の候補で Tab を押すと次の部品（並べ替え）へ移る
   // 座りのカテゴリとタグは絞り込みに使っているので出さない
@@ -1020,6 +1022,8 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
   await expect(panel.getByRole('button', { name: '元に戻す' })).toBeDisabled()
   await thumb(page, 1).dblclick()
   await expect(page.getByRole('region', { name: '拡大表示' })).toHaveCount(0)
+  // 1枚だけ選んでいるときは、どの画像かをファイル名で出す
+  await expect(panel.getByRole('heading')).toHaveText((await thumb(page, 1).getAttribute('alt'))!)
   await page.screenshot({ path: 'test-results/trash.png' })
 
   // 元のカテゴリが消えた画像は未分類に戻して知らせる
@@ -1104,6 +1108,7 @@ test('開いた後に差分を確認して結果を出し、見つからない�
   await expect(panel.getByRole('button', { name: 'DBから外す' })).toBeDisabled()
   await page.getByRole('main', { name: '画像の一覧' }).getByAltText('missing_1.jpg').dblclick()
   await expect(page.getByRole('region', { name: '拡大表示' })).toHaveCount(0)
+  await expect(panel.getByRole('heading')).toHaveText('missing_1.jpg')
   await page.screenshot({ path: 'test-results/missing.png' })
 
   // 外すのは取り消せないので、枚数を見せて確かめる
