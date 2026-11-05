@@ -51,3 +51,14 @@ button {
   color: var(--color-on-text);
   background: var(--color-text);
 }
+
+.button--primary:disabled {
+  border-color: var(--color-line);
+  background: var(--color-raise);
+}
+
+/* エラーの枠にフォーカスの黒い枠を重ねると二重の太い枠になる。文字のカーソルで選ばれていることはわかる（docs/design.md「状態の表示」） */
+input[aria-invalid='true']:focus-visible,
+textarea[aria-invalid='true']:focus-visible {
+  outline: none;
+}

@@ -35,7 +35,7 @@ export default function ConfirmDialog({
           キャンセル
         </button>
         <button
-          className="button"
+          className="button button--primary"
           onClick={(e) => {
             e.preventDefault()
             onConfirm()

@@ -25,7 +25,7 @@ export default function LibrarySelect({ recent, error, onOpen }: Props) {
         title: 'Kura',
         kind: 'warning',
         okLabel: '続ける',
-        cancelLabel: 'やめる',
+        cancelLabel: 'キャンセル',
       })
       if (!ok) return
     }

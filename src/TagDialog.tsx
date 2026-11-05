@@ -116,11 +116,11 @@ export default function TagDialog({
           {errorLine}
           <span className="tags__buttons">
             <button type="button" className="button" onClick={() => start(null)}>
-              やめる
+              キャンセル
             </button>
             <button
               type="button"
-              className="button"
+              className="button button--primary"
               disabled={a.into === null}
               onClick={() => a.into !== null && run(onMerge(a.id, a.into))}
             >
@@ -136,11 +136,11 @@ export default function TagDialog({
         </p>
         {errorLine}
         <span className="tags__buttons">
-          {/* 取り消せない操作なので、Enter を押しただけでは削除しないようやめるを選んでおく */}
+          {/* 取り消せない操作なので、Enter を押しただけでは削除しないようキャンセルを選んでおく */}
           <button type="button" className="button" autoFocus onClick={() => start(null)}>
-            やめる
+            キャンセル
           </button>
-          <button type="button" className="button" onClick={() => run(onDelete(a.id))}>
+          <button type="button" className="button button--primary" onClick={() => run(onDelete(a.id))}>
             削除する
           </button>
         </span>

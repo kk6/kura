@@ -38,7 +38,7 @@ export default function MoveCategoryDialog({
         <button className="button">キャンセル</button>
         <button
           ref={confirm}
-          className="button"
+          className="button button--primary"
           onClick={(e) => {
             e.preventDefault()
             onConfirm(skip)
