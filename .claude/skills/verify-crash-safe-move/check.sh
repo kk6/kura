@@ -13,23 +13,8 @@ TLA_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 JAR="${TLA2TOOLS:-$REPO/.claude/tmp/tla/tla2tools-$TLA_VERSION.jar}"
 OUT="$REPO/.claude/tmp/tla/out"
 
-# 関数の本体（fn から対応する } まで）の空白を詰めた sha256
-fingerprint() {
-  python3 -I - "$REPO/$1" "$2" <<'PY'
-import hashlib, re, sys
-src = open(sys.argv[1], encoding="utf-8").read()
-m = re.search(r"^\s*(pub(\(crate\))?\s+)?fn\s+" + re.escape(sys.argv[2]) + r"\b", src, re.M)
-if not m:
-    print("MISSING"); sys.exit()
-i, depth = src.index("{", m.end()), 0
-for j in range(i, len(src)):
-    depth += {"{": 1, "}": -1}.get(src[j], 0)
-    if depth == 0:
-        break
-body = re.sub(r"\s+", " ", src[m.start():j + 1])
-print(hashlib.sha256(body.encode()).hexdigest()[:16])
-PY
-}
+# 関数の本体の指紋。コメントや文字列の中の波括弧は数えない（fingerprint.py）
+fingerprint() { python3 -I "$HERE/fingerprint.py" "$REPO/$1" "$2"; }
 
 drift() {
   local changed=0 file fn want got
@@ -100,6 +85,7 @@ case "${1:-all}" in
   rehash) rehash ;;
   model) model ;;
   all)
+    python3 -I "$HERE/fingerprint.py" --self-test || exit 1
     d=0; drift || d=1
     model; m=$?
     mutants; u=$?

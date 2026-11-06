@@ -107,3 +107,4 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 | `mutants/*.cfg` | 壊した版。1行目の `Expect <性質>` が、落ちるべき性質 |
 | `coverage.tsv` | モデルが写す関数と、同期したコミットでの指紋 |
 | `check.sh` | 実行 |
+| `fingerprint.py` | 関数の本体の指紋。コメントと文字列の中の波括弧を数えない。`check.sh` が自己テストを流す |
