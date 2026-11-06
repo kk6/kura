@@ -1,0 +1,61 @@
+name: Release
+
+# v0.1.0 のようなタグを push すると、.app を zip にして GitHub Release に添付する
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # Release を作り、zip を添付する
+
+jobs:
+  release:
+    # Apple シリコンのランナー。zip の名前の CPU は uname -m から取る
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+
+      # ビルドの前に止める。CHANGELOG の項がないまま Release を作らない
+      - name: タグとバージョン、CHANGELOG を確かめる
+        id: meta
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # 3つのファイルとロックファイルのバージョンがそろっているか
+          node scripts/check-docs.mjs
+          actual="$(node -p "require('./package.json').version")"
+          if [ "$actual" != "$version" ]; then
+            echo "::error::タグは $GITHUB_REF_NAME、package.json などのバージョンは $actual。npm run version:set -- $version でそろえる"
+            exit 1
+          fi
+          # 「## [版]」の見出しの次の行から、次の「## 」の手前まで。末尾のリンクの定義は除く
+          awk -v h="## [$version]" 'index($0, "## ") == 1 { p = index($0, h) == 1; next } p && !/^\[[^]]+\]: /' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md に ## [$version] の項がない"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "zip=Kura-$version-$(uname -m).zip" >> "$GITHUB_OUTPUT"
+
+      - run: npm run tauri build
+
+      # ditto は Finder の「圧縮」と同じ形で、署名と拡張属性を保ったまま zip にする
+      - name: .app を zip にする
+        run: ditto -c -k --keepParent src-tauri/target/release/bundle/macos/Kura.app "${{ steps.meta.outputs.zip }}"
+
+      - name: GitHub Release を作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" "${{ steps.meta.outputs.zip }}"
+          --verify-tag
+          --title "Kura ${{ steps.meta.outputs.version }}"
+          --notes-file "$RUNNER_TEMP/notes.md"
