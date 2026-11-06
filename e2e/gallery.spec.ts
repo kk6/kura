@@ -110,6 +110,59 @@ test('ドロップしたファイルを取り込む', async ({ page }) => {
   await expect(page.getByRole('contentinfo')).toContainText('完了：取り込み 477枚')
 })
 
+// メニューの「ライブラリを切り替える…」（FR-105）。Rust はメニューを選ぶと switch-library を送るだけなので、その送信を真似る
+const switchLibrary = (page: import('@playwright/test').Page) =>
+  page.evaluate(() =>
+    (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('plugin:event|emit', {
+      event: 'switch-library',
+      payload: null,
+    }),
+  )
+
+test('ライブラリを切り替えると選択画面に戻り、入力中のメモを保存し、最近使った一覧から開き直せる', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  await thumb(page, 2).click()
+  const memo = page.getByRole('complementary', { name: '詳細' }).getByRole('textbox', { name: 'メモ' })
+  await memo.fill('切り替える前に書いたメモ')
+
+  // ダイアログを開いている間は、ほかのショートカットと同じく効かない
+  await page.getByRole('button', { name: '設定' }).click()
+  await switchLibrary(page)
+  await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await memo.click()
+
+  await switchLibrary(page)
+  const screen = page.getByRole('main', { name: 'ライブラリ選択' })
+  await expect(screen.getByRole('button', { name: '新しいライブラリを作る' })).toBeVisible()
+  await expect(screen.getByRole('button', { name: /Kura ライブラリ/ })).toBeVisible()
+  await expect(screen.getByRole('alert')).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/library-switch.png' })
+
+  await screen.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  await thumb(page, 2).click()
+  await expect(memo).toHaveValue('切り替える前に書いたメモ')
+  expect(errors).toEqual([])
+})
+
+test('差分検出の途中ではライブラリを切り替えず、その理由をダイアログで出す', async ({ page }) => {
+  const dialogs: string[] = []
+  page.on('console', (m) => m.text().startsWith('dialog: ') && dialogs.push(m.text()))
+  await page.goto('/')
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  await expect(page.getByRole('banner').getByRole('status')).toBeVisible()
+
+  await switchLibrary(page)
+  await expect.poll(() => dialogs).toEqual([expect.stringContaining('終わってから、もう一度選んでください')])
+  await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
+  await expect(page.getByRole('banner')).toBeVisible()
+})
+
 const thumbs = (page: import('@playwright/test').Page) =>
   page.getByRole('main', { name: '画像の一覧' }).getByRole('img')
 

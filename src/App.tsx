@@ -37,6 +37,14 @@ export default function App() {
   }, [])
 
   if (screen.kind === 'loading' || !settings) return null
-  if (screen.kind === 'gallery') return <Gallery root={screen.path} settings={settings} onSettings={saveSettings} />
+  if (screen.kind === 'gallery')
+    return (
+      <Gallery
+        root={screen.path}
+        settings={settings}
+        onSettings={saveSettings}
+        onSwitch={() => setScreen({ kind: 'select' })}
+      />
+    )
   return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} />
 }

@@ -1,10 +1,14 @@
-//! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする
+//! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
+//! 足したのは「ファイル」の「ライブラリを切り替える…」だけ
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
 use tauri::menu::{
-    AboutMetadata, Menu, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
+    AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
 };
 use tauri::{AppHandle, Runtime};
+
+/// ライブラリ選択画面へ戻る項目（FR-105）。選ぶと main.rs が画面へ switch-library イベントを送る
+pub const SWITCH_LIBRARY: &str = "switch-library";
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let name = app.package_info().name.clone();
@@ -41,10 +45,17 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 app,
                 "ファイル",
                 true,
-                &[&PredefinedMenuItem::close_window(
-                    app,
-                    Some("ウインドウを閉じる"),
-                )?],
+                &[
+                    &MenuItem::with_id(
+                        app,
+                        SWITCH_LIBRARY,
+                        "ライブラリを切り替える…",
+                        true,
+                        Some("CmdOrCtrl+Shift+O"),
+                    )?,
+                    &sep()?,
+                    &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
+                ],
             )?,
             &Submenu::with_items(
                 app,

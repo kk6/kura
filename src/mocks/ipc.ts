@@ -420,6 +420,8 @@ const handlers: Record<string, Handler> = {
   forget_images: forgetImages,
   backup_library: () => null,
   'plugin:dialog|save': (args) => `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
+  // e2e が中身を確かめられるように、出したダイアログの文をコンソールに出す
+  'plugin:dialog|message': (args) => console.info(`dialog: ${args?.message}`),
   'plugin:dialog|open': (args) =>
     (args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']

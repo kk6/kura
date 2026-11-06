@@ -335,6 +335,14 @@ fn main() {
         )
         .plugin(tauri_plugin_dialog::init())
         .menu(menu::build)
+        .on_menu_event(|app, event| {
+            // 開いているライブラリ（Current）は次のライブラリを開くまで残す。戻るかどうかは画面が決める
+            if event.id() == menu::SWITCH_LIBRARY {
+                if let Err(e) = app.emit(menu::SWITCH_LIBRARY, ()) {
+                    log::warn!("ライブラリの切り替えを画面に送れません：{e}");
+                }
+            }
+        })
         .manage(Current::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,

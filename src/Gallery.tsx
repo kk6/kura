@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { open } from '@tauri-apps/plugin-dialog'
+import { message, open } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
 import { Icon, ICONS } from './icons'
@@ -45,9 +45,11 @@ type Props = {
   // アプリ全体の設定。onSettings は保存に失敗したら理由の文字列で reject する
   settings: Settings
   onSettings: (settings: Settings) => Promise<void>
+  // ライブラリ選択画面へ戻る（FR-105）。メニューの「ライブラリを切り替える…」で呼ぶ
+  onSwitch: () => void
 }
 
-export default function Gallery({ root, settings, onSettings }: Props) {
+export default function Gallery({ root, settings, onSettings, onSwitch }: Props) {
   const [data, setData] = useState(EMPTY)
   const [sort, setSort] = useState<SortKey>('imported')
   const [filter, setFilter] = useState(NO_FILTER)
@@ -260,11 +262,31 @@ export default function Gallery({ root, settings, onSettings }: Props) {
   const startRef = useRef(start)
   startRef.current = start
 
+  // 取り込みと差分検出の途中では戻らない。どちらも開いているライブラリを1枚ずつ読み書きするため
+  function leave() {
+    // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
+    if (document.querySelector('dialog[open]')) return
+    // ステータスバーは処理の間は進み具合を出すので、断る理由はダイアログで知らせる
+    if (busy.current) {
+      message('取り込みか Finder での変更の反映が終わってから、もう一度選んでください。', {
+        title: 'ライブラリを切り替えられません',
+        kind: 'warning',
+      })
+      return
+    }
+    // 入力中のメモは blur で保存される。ライブラリは次に開くまで Rust 側に残るので、保存は前のライブラリに届く
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    onSwitch()
+  }
+  const leaveRef = useRef(leave)
+  leaveRef.current = leave
+
   useEffect(() => {
     const unlisten = [
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
+      listen('switch-library', () => leaveRef.current()),
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === 'drop') startRef.current(e.payload.paths)
       }),
