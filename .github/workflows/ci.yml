@@ -66,8 +66,9 @@ jobs:
               - '{**/*.py,**/pyproject.toml,**/uv.lock,ruff.toml,.github/workflows/ci.yml}'
 
   # lint は docs、CLAUDE.md、main.rs のコマンド名も調べるので、どの変更でも流す
+  # OS に左右されない検査なので、macOS の同時実行の枠（5つ）を使わない ubuntu で流す
   web:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -127,10 +128,11 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+  # OS に左右されない検査なので ubuntu で流す
   python:
     needs: changes
     if: needs.changes.outputs.python == 'true'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
