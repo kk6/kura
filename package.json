@@ -14,7 +14,8 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "prepare": "lefthook install",
-    "docs:screenshots": "playwright test -c playwright.docs.config.ts"
+    "docs:screenshots": "playwright test -c playwright.docs.config.ts",
+    "version:set": "uv run scripts/set_version.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

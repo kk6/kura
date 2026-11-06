@@ -46,7 +46,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
 - 整形（Rust）：`cargo fmt`（`src-tauri/` で実行）
 - 整形（Python）：`uvx ruff@0.17.3 format`
-- Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出、ドキュメントの食い違いの検出）。ドキュメントの検査（`scripts/check-docs.mjs`）は、`docs/design.md` のトークンの表と `tokens.css` の名前と値、この CLAUDE.md と README.md の `npm run` のコマンドが `package.json` にあるか、Tauri のコマンド名が `main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` で揃っているかを確かめる
+- Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出、ドキュメントの食い違いの検出）。ドキュメントの検査（`scripts/check-docs.mjs`）は、`docs/design.md` のトークンの表と `tokens.css` の名前と値、この CLAUDE.md と README.md の `npm run` のコマンドが `package.json` にあるか、Tauri のコマンド名が `main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` で揃っているかを確かめる。アプリのバージョンが `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` とロックファイルで揃っているかも確かめる
 - Lint（Rust）：`cargo fmt --check` と `cargo clippy -- -D warnings`（`src-tauri/` で実行）
 - Lint（Python）：`uvx ruff@0.17.3 check` と `uvx ruff@0.17.3 format --check`（`spikes/` は対象外）
 - CI：`.github/workflows/ci.yml`。push と pull request で、上のテストと Lint を流す。ジョブは web（lint、Vitest、build）、e2e、rust、python に分かれて並列に動く。e2e と rust は macOS、OS に左右されない web と python は ubuntu で流す。web はいつも流れ、ほかの3つは `changes` ジョブ（dorny/paths-filter）が変わったファイルを見て流すかを決める（`ml/` の pytest は `ml/` ができてから足す）

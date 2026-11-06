@@ -2,6 +2,7 @@
 // - docs/design.md のトークンの表と src/styles/tokens.css の名前と値
 // - CLAUDE.md と README.md に書いた npm のコマンドが package.json にあるか
 // - Tauri のコマンド名が、Rust、src/mocks/ipc.ts、画面の invoke で揃っているか
+// - アプリのバージョンが package.json、Cargo.toml、tauri.conf.json とロックファイルで揃っているか
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -61,8 +62,27 @@ for (const name of mock) if (!rust.has(name)) problems.push(`モックの ${name
 for (const name of rust) if (!mock.has(name)) problems.push(`Rust のコマンド ${name} のモックがない`)
 for (const name of invoked) if (!rust.has(name)) problems.push(`画面が呼ぶ ${name} が Rust のコマンドにない`)
 
+// バージョンは npm run version:set でそろえる（scripts/set_version.py）
+const lock = JSON.parse(read('package-lock.json'))
+const versions = {
+  'package.json': JSON.parse(read('package.json')).version,
+  'package-lock.json': lock.version,
+  'package-lock.json の packages[""]': lock.packages[''].version,
+  'src-tauri/tauri.conf.json': JSON.parse(read('src-tauri/tauri.conf.json')).version,
+  'src-tauri/Cargo.toml': read('src-tauri/Cargo.toml').match(/^\[package\]\nname = "kura"\nversion = "([^"]+)"/m)?.[1],
+  'src-tauri/Cargo.lock': read('src-tauri/Cargo.lock').match(/^name = "kura"\nversion = "([^"]+)"/m)?.[1],
+}
+if (new Set(Object.values(versions)).size !== 1)
+  problems.push(
+    `バージョンが食い違っている（npm run version:set でそろえる）：${Object.entries(versions)
+      .map(([f, v]) => `${f} は ${v}`)
+      .join('、')}`,
+  )
+
 if (problems.length) {
   console.error(`ドキュメントの食い違い（${problems.length}件）:\n${problems.join('\n')}`)
   process.exit(1)
 }
-console.log(`ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件を確かめた`)
+console.log(
+  `ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件、バージョン ${versions['package.json']} を確かめた`,
+)
