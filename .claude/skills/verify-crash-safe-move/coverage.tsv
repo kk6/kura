@@ -1,0 +1,12 @@
+# file<TAB>function<TAB>fingerprint (check.sh rehash). Confirmed against the model at the sync commit in SKILL.md.
+src-tauri/src/fileops.rs	rename_excl	cbb8e2a33e08f4de
+src-tauri/src/fileops.rs	present	932addaa2a507394
+src-tauri/src/fileops.rs	transfer	ee05dbf1a012e35b
+src-tauri/src/fileops.rs	record	f00ef9b64c1e93b8
+src-tauri/src/fileops.rs	tmp_path	280d4e7c4bba9bf6
+src-tauri/src/fileops.rs	finish	db1b9991d156ee80
+src-tauri/src/fileops.rs	drop_op	11d1635d59c639df
+src-tauri/src/fileops.rs	settle	73b562ea9c7a45b3
+src-tauri/src/fileops.rs	recover	98250a067b49690b
+src-tauri/src/library.rs	connect	8d3b23a4c5ec5714
+src-tauri/src/library.rs	apply_op	c9c7598ed8118f5d

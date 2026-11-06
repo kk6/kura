@@ -25,7 +25,7 @@ Kura（蔵）は、イラスト制作用の参考画像をパソコンの中だ�
 
 フェーズ2以降で作る予定です。詳しくは [要件定義書](docs/requirements.md) の「開発フェーズと優先度」を見てください。
 
-- フェーズ2：画像の URL からの取り込み、作画中に画像を自由に並べるボード（お絵描きモード）、最前面表示
+- フェーズ2：作画中に画像を自由に並べるボード（お絵描きモード）、最前面表示、ダウンロード元の URL の記録
 - フェーズ3：ポーズ、構図、内容が似た画像の検索
 - フェーズ4：検索条件の保存（スマートフォルダ）、縦横比や追加した日での絞り込み、クリップボードからの取り込みなどの改善
 - フェーズ5：画像以外の資料（CLIP STUDIO PAINT の .clip、フォント、動画）
@@ -98,6 +98,7 @@ npm run docs:screenshots
 | [docs/requirements.md](docs/requirements.md) | 要件定義書。機能要件（FR-xxx）と非機能要件（NFR-xx）、開発フェーズ |
 | [docs/design.md](docs/design.md) | 画面のデザインの決まり |
 | [CLAUDE.md](CLAUDE.md) | 開発の決まりとコマンドの一覧 |
+| [docs/development.md](docs/development.md) | 開発ガイド。Claude Code に開発を頼むときの頼み方と、検証のスキルの使い方 |
 
 ## ライセンス
 

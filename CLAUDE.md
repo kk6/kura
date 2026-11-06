@@ -76,6 +76,11 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
   - 例外は `docs/images/` のスクリーンショットだけ。README とユーザーガイドに載せる。中身は、ダミーのデータをモックの画面（`npm run dev:mock`）に出して `npm run docs:screenshots` で撮ったもの。本物の資料を写さない。1枚 300KB 以下を目安にする
 - Rust のファイル操作は、テストを先に書いてから実装する。失敗時の動き（移動の途中で失敗した場合など）もテストする。
 
+## 検証のスキル
+
+- Rust のコマンド、取り込み、DB、ファイル操作を変えたら、`.claude/skills/verify-kura/` の手順で実アプリを隔離して起動し、操作して確かめる。モックの画面は Rust を通らない
+- `fileops.rs` の移動の手順、`library.rs` の `connect` と `apply_op`、`pending_ops` の扱いを変えたら、`.claude/skills/verify-crash-safe-move/check.sh` を流す。`DRIFT` が出たら、その SKILL.md の手順でモデルを合わせ直す
+
 ## 作業の進め方
 
 - 1つの作業は、FR-xxx の ID 1つか、関連する数個の ID の単位にする。

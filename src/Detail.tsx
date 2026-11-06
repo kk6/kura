@@ -225,7 +225,7 @@ export default function Detail(props: Props) {
           <dl className="detail__fields">
             {classify}
             <dt>元URL</dt>
-            {/* shortcut: 文字として出すだけで、ブラウザでは開けない。URL 取り込み（フェーズ2）で元URLが入るようになったら開けるようにする */}
+            {/* shortcut: 文字として出すだけで、ブラウザでは開けない。ダウンロード元の記録（FR-208、フェーズ2）で元URLが入るようになったら開けるようにする */}
             <dd className="detail__url">{detail && (detail.source?.page_url ?? detail.source?.image_url ?? 'なし')}</dd>
             <dt>サイズ</dt>
             <dd>
