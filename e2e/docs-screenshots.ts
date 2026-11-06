@@ -4,6 +4,8 @@ import { expect, type Page, test } from '@playwright/test'
 
 // Retina（2倍）で撮ると1枚 300KB を超えるので、等倍で撮る
 test.use({ deviceScaleFactor: 1 })
+// ダイアログが開く動きの途中で撮らないよう、動きを止める（docs/design.md「動き」）
+test.use({ contextOptions: { reducedMotion: 'reduce' } })
 
 const shot = (page: Page, name: string) => page.screenshot({ path: `docs/images/${name}.png` })
 
