@@ -98,6 +98,7 @@ npm run docs:screenshots
 | [docs/requirements.md](docs/requirements.md) | 要件定義書。機能要件（FR-xxx）と非機能要件（NFR-xx）、開発フェーズ |
 | [docs/design.md](docs/design.md) | 画面のデザインの決まり |
 | [CLAUDE.md](CLAUDE.md) | 開発の決まりとコマンドの一覧 |
+| [docs/development.md](docs/development.md) | 開発ガイド。Claude Code に開発を頼むときの頼み方と、検証のスキルの使い方 |
 
 ## ライセンス
 
