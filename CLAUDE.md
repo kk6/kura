@@ -26,6 +26,7 @@ src-tauri/    Rust（Tauri 本体）
 ml/           Python（特徴量の計算）
 docs/         要件定義書、デザインの決まり
 scripts/      開発用スクリプト（ダミーライブラリの生成など）
+homepage/     紹介ページ（GitHub Pages）。main に入ると .github/workflows/pages.yml が docs/images/ と tokens.css を添えて公開する
 spikes/       使い捨てのプロトタイプ。結果は各 README と要件定義書の4章にある。本体のコードから参照しない
 ```
 

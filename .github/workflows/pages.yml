@@ -1,0 +1,47 @@
+name: Pages
+
+# 紹介ページ（homepage/）を GitHub Pages に公開する。ページが使う画像とトークンも変わったら出し直す
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'homepage/**'
+      - 'docs/images/**'
+      - 'src/styles/tokens.css'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 公開が重なったら、後から来た方を待たせる（途中の公開は取り消さない）
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # 画像とトークンは homepage/ にコミットせず、元の場所からコピーする。二重に持つと食い違うため
+      - name: ページを組み立てる
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          cp -R homepage/. "$RUNNER_TEMP/site/"
+          cp -R docs/images "$RUNNER_TEMP/site/images"
+          cp src/styles/tokens.css "$RUNNER_TEMP/site/tokens.css"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+      - id: deployment
+        uses: actions/deploy-pages@v4

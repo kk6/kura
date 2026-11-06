@@ -93,6 +93,7 @@ npm run docs:screenshots
 
 | ファイル | 中身 |
 | --- | --- |
+| [紹介ページ](https://kk6.github.io/kura/) | アプリの紹介。中身は `homepage/` |
 | [docs/user-guide.md](docs/user-guide.md) | ユーザーガイド。アプリの使い方 |
 | [CHANGELOG.md](CHANGELOG.md) | 版ごとの変更 |
 | [docs/requirements.md](docs/requirements.md) | 要件定義書。機能要件（FR-xxx）と非機能要件（NFR-xx）、開発フェーズ |
