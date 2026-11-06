@@ -755,7 +755,7 @@ test('サイドバーのカテゴリとタグを押し、検索バーに入れ�
   // 2〜10枚目以外は、id が3の倍数に「あおり」、5の倍数に「座り」が付く
   const tags = sidebar.getByRole('list', { name: 'タグ' })
   await tags.getByRole('button', { name: /^あおり/ }).click()
-  await tags.getByRole('button', { name: /^座り/ }).click()
+  await tags.getByRole('button', { name: /^座り/ }).click({ modifiers: ['Meta'] })
   await expect(tags.getByRole('button', { name: /^あおり/ })).toHaveAttribute('aria-pressed', 'true')
   // AND は 15 の倍数と1枚目、OR は 3 か 5 の倍数と1枚目
   await expect(status).toContainText('134 / 2000枚')
@@ -765,7 +765,8 @@ test('サイドバーのカテゴリとタグを押し、検索バーに入れ�
 
   await sidebar.getByRole('button', { name: 'AND' }).click()
   await tags.getByRole('button', { name: /^座り/ }).click()
-  await tags.getByRole('button', { name: /^あおり/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(status).not.toContainText('/ 2000枚')
 
   // 検索はファイル名かメモに含む画像。大文字・小文字は区別しない
   const search = page.getByRole('combobox', { name: '検索' })
@@ -775,6 +776,57 @@ test('サイドバーのカテゴリとタグを押し、検索バーに入れ�
   await expect(status).toContainText('1 / 2000枚')
   await search.fill('')
   expect(errors).toEqual([])
+})
+
+test('サイドバーのタグは一覧の画像と同じく、押すとそれだけ、⌘で足し、Shift で範囲を選び、Escape・⌘A・余白はタグに効く', async ({
+  page,
+}) => {
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const tags = sidebar.getByRole('list', { name: 'タグ' })
+  // 1枚目には あおり と 座り が付いている。OR にして、タグを選んでも1枚目が見えたままにする
+  await sidebar.getByRole('button', { name: 'OR' }).click()
+  const tag = (name: string) => tags.getByRole('button', { name: new RegExp(`^${name}`) })
+  const pressed = () =>
+    tags
+      .getByRole('button')
+      .evaluateAll((bs) =>
+        bs
+          .filter((b) => b.getAttribute('aria-pressed') === 'true')
+          .map((b) => b.querySelector('.sidebar__name')?.textContent),
+      )
+
+  // 並びは あおり、座り、振り返り
+  await tag('あおり').click()
+  await tag('振り返り').click()
+  expect(await pressed()).toEqual(['振り返り'])
+  await tag('あおり').click({ modifiers: ['Meta'] })
+  expect(await pressed()).toEqual(['あおり', '振り返り'])
+  await tag('振り返り').click({ modifiers: ['Meta'] })
+  expect(await pressed()).toEqual(['あおり'])
+  // Shift は最後に修飾キーなしか ⌘ で押したタグ（あおり）から範囲を選び直す
+  await tag('あおり').click()
+  await tag('振り返り').click({ modifiers: ['Shift'] })
+  expect(await pressed()).toEqual(['あおり', '座り', '振り返り'])
+
+  // タグにフォーカスがあるときの Escape はタグの選択を外し、画像の選択は残す
+  await thumb(page, 1).click()
+  await tag('座り').click()
+  await page.keyboard.press('Escape')
+  expect(await pressed()).toEqual([])
+  expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
+
+  // ⌘A はタグをすべて選ぶ。一覧の画像は選ばない
+  await tag('座り').click()
+  await page.keyboard.press('Meta+a')
+  expect(await pressed()).toEqual(['あおり', '座り', '振り返り'])
+  expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
+
+  // サイドバーの余白を押すとタグの選択を外す
+  const box = (await sidebar.boundingBox())!
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height - 10)
+  expect(await pressed()).toEqual([])
 })
 
 test('見えなくなった画像の選択は絞り込みで外し、タグを外すと件数と絞り込みに反映する', async ({ page }) => {

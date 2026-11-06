@@ -1,10 +1,18 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react'
 import { subtree } from './categoryTree'
 import ConfirmDialog from './ConfirmDialog'
 import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import type { countImages, Filter } from './filter'
 import type { Category, Gallery } from './galleryTypes'
+import { select } from './selection'
 
 type Props = {
   gallery: Gallery
@@ -48,8 +56,31 @@ export default function Sidebar(props: Props) {
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
   const scope = (category: Filter['category']) => onFilter({ ...filter, category })
-  const toggleTag = (id: number) =>
-    onFilter({ ...filter, tags: filter.tags.includes(id) ? filter.tags.filter((t) => t !== id) : [...filter.tags, id] })
+
+  // タグは一覧の画像と同じ選び方にする（FR-504）。Shift の範囲はサイドバーの並び順で決める
+  const tagOrder = gallery.tags.map((t) => t.id)
+  const [tagAnchor, setTagAnchor] = useState<number | null>(null)
+  const setTags = (tags: number[], anchor: number | null) => {
+    setTagAnchor(anchor)
+    onFilter({ ...filter, tags })
+  }
+  const pickTag = (e: MouseEvent<HTMLButtonElement>, id: number) => {
+    // macOS の WebKit はクリックでボタンにフォーカスを移さない。続く Escape と ⌘A をタグに効かせるため移す
+    e.currentTarget.focus()
+    const s = select({ ids: new Set(filter.tags), anchor: tagAnchor }, tagOrder, id, {
+      shift: e.shiftKey,
+      meta: e.metaKey,
+    })
+    setTags([...s.ids], s.anchor)
+  }
+  const onTagKey = (e: ReactKeyboardEvent) => {
+    if (e.key === 'Escape') setTags([], null)
+    else if (e.metaKey && e.key.toLowerCase() === 'a') setTags(tagOrder, tagOrder[0] ?? null)
+    else return
+    // 一覧の画像の Escape と ⌘A（Gallery が window で受ける）に渡さない
+    e.preventDefault()
+    e.stopPropagation()
+  }
 
   const collapsed = new Set(gallery.categories.filter((c) => c.collapsed).map((c) => c.id))
   const toggle = (id: number) => onCollapse([id], !collapsed.has(id))
@@ -258,7 +289,14 @@ export default function Sidebar(props: Props) {
   )
 
   return (
-    <nav className="gallery__sidebar" aria-label="サイドバー">
+    <nav
+      className="gallery__sidebar"
+      aria-label="サイドバー"
+      // 余白（項目のない所）を押すとタグの選択を外す。click だと、カテゴリのドラッグを余白で離したときにも届くので押した時点で見る
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget && e.button === 0 && filter.tags.length) setTags([], null)
+      }}
+    >
       <ul className="sidebar__list">
         <li>
           <button
@@ -365,14 +403,14 @@ export default function Sidebar(props: Props) {
           </button>
         </span>
       </h2>
-      <ul className="sidebar__list" aria-labelledby="sidebar-tags">
+      <ul className="sidebar__list" aria-labelledby="sidebar-tags" onKeyDown={onTagKey}>
         {gallery.tags.map((t) => (
           <li key={t.id}>
             <button
               type="button"
               className={`sidebar__item sidebar__button${filter.tags.includes(t.id) ? ' sidebar__item--selected' : ''}`}
               aria-pressed={filter.tags.includes(t.id)}
-              onClick={() => toggleTag(t.id)}
+              onClick={(e) => pickTag(e, t.id)}
             >
               <span className="sidebar__name">{t.name}</span>
               <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
