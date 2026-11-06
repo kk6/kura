@@ -89,4 +89,4 @@ npm run docs:screenshots
 
 ## ライセンス
 
-MIT
+[MIT](LICENSE)
