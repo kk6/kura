@@ -42,7 +42,8 @@ cmd_launch() {
   dir=$(run_dir "$id")
   [ -x "$BIN" ] || die "$APP がない。先に: $0 build"
   pgrep -f "$BIN" >/dev/null && die "別の検証用 Kura が動いている（pgrep -fl '$BIN'）。先に stop する"
-  [ -e "$dir/pid" ] && die "$dir は使用済み。別の run id を使う"
+  # 途中で失敗した run の lib/ が残っていると、cp -R がその中へ複製して古い DB を開くので、フォルダごと使用済みとみなす
+  [ -e "$dir" ] && die "$dir は使用済み。別の run id を使う"
   # 複製元は、この手順で作ったもの（$BASE の下）に限る。本物の資料のライブラリを渡されても読まない
   local src_lib=""
   if [ "$mode" != empty ] && [ "$mode" != template ]; then
@@ -63,8 +64,7 @@ cmd_launch() {
       cp -R "$src_lib" "$dir/lib"; lib="$dir/lib" ;;
   esac
   # 起動時、アプリは一覧の先頭のライブラリを自動で開く。空なら選択画面
-  if [ -n "$lib" ]; then printf '["%s"]\n' "$lib" >"$(data_dir "$id")/recent-libraries.json"
-  else echo '[]' >"$(data_dir "$id")/recent-libraries.json"; fi
+  python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1:]))' ${lib:+"$lib"} >"$(data_dir "$id")/recent-libraries.json"
   # HOME を差し替えて、利用者の ~/Library/Application Support/dev.kk6.kura を読まない・書かない
   HOME="$dir/home" RUST_LOG=info nohup "$BIN" >"$dir/app.log" 2>&1 &
   local p=$!

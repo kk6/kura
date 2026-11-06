@@ -102,5 +102,6 @@ Claude は `docs/design.md` を読み、モックの画面のスクリーンシ�
 
 ## 本物の資料について
 
-- Claude は本物の資料フォルダを読みません。`.claude/settings.json` で、`~/Pictures/References/` の読み書きを禁じています
+- Claude は本物の資料フォルダに触れません。これは CLAUDE.md の決まりとして守るもので、設定で全部を防いでいるわけではありません
+- `.claude/settings.json` が禁じているのは、`~/Pictures/References/` の下を Read と Edit のツールで読み書きすることだけです。Bash のコマンドからの読み取りや、ほかの場所にある資料フォルダは防げません。資料フォルダの場所をセッションの中で伝えないでください
 - 本物の資料での確認は、利用者が自分で行います。手順は `docs/tasks/phase1-check.md` のように、Claude に書いてもらえます
