@@ -6,6 +6,7 @@
 
 - `docs/requirements.md`：要件定義書。機能要件には FR-xxx、非機能要件には NFR-xx の ID が付いている
 - `docs/design.md`：デザインの決まり。画面に手を入れる前に必ず読む
+- `docs/user-guide.md`：利用者向けの使い方。画面の動きや文言を変えたら合わせて直す
 
 要件定義書の「未決事項」に関わる判断が必要になったら、実装で決めずに質問する。決まったことは `docs/requirements.md` に書き戻す。
 
@@ -39,12 +40,13 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - テスト（Rust、別のファイルシステム）：`hdiutil create -size 64m -fs ExFAT -volname KURAEX <名前>.dmg` で作ったイメージを `hdiutil attach -nobrowse` でマウントし、`KURA_TEST_DIR=<マウント先> cargo test fileops` で同じテストを流す（HFS+ や大文字・小文字を区別する APFS も同じ）
 - テスト（画面の単体テスト）：`npm test`（Vitest。`src/**/*.test.ts` を流す）
 - テスト（画面）：`npm run test:e2e`（モックの開発サーバーを Playwright の WebKit で開き、`test-results/` にスクリーンショット（`gallery.png` など）を保存する）
+- ドキュメントのスクリーンショット：`npm run docs:screenshots`（モックの開発サーバーを Playwright の WebKit で開き、`docs/images/` に撮り直す。`e2e/docs-screenshots.ts`。CI では流さない）
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
 - テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`
 - 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
 - 整形（Rust）：`cargo fmt`（`src-tauri/` で実行）
 - 整形（Python）：`uvx ruff@0.17.3 format`
-- Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出、ドキュメントの食い違いの検出）。ドキュメントの検査（`scripts/check-docs.mjs`）は、`docs/design.md` のトークンの表と `tokens.css` の名前と値、この CLAUDE.md の `npm run` のコマンドが `package.json` にあるか、Tauri のコマンド名が `main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` で揃っているかを確かめる
+- Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出、ドキュメントの食い違いの検出）。ドキュメントの検査（`scripts/check-docs.mjs`）は、`docs/design.md` のトークンの表と `tokens.css` の名前と値、この CLAUDE.md と README.md の `npm run` のコマンドが `package.json` にあるか、Tauri のコマンド名が `main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` で揃っているかを確かめる
 - Lint（Rust）：`cargo fmt --check` と `cargo clippy -- -D warnings`（`src-tauri/` で実行）
 - Lint（Python）：`uvx ruff@0.17.3 check` と `uvx ruff@0.17.3 format --check`（`spikes/` は対象外）
 - CI：`.github/workflows/ci.yml`。push と pull request で、上のテストと Lint を流す。ジョブは web（lint、Vitest、build）、e2e、rust、python に分かれて並列に動く。e2e と rust は macOS、OS に左右されない web と python は ubuntu で流す。web はいつも流れ、ほかの3つは `changes` ジョブ（dorny/paths-filter）が変わったファイルを見て流すかを決める（`ml/` の pytest は `ml/` ができてから足す）
@@ -70,6 +72,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 本物の資料フォルダには絶対に触れない。読み取りもしない。
 - 開発とテストには、`scripts/` のスクリプトで生成したダミー画像のライブラリを使う。
 - 画像ファイルをリポジトリにコミットしない。テスト用の画像も、テストの中で生成する。
+  - 例外は `docs/images/` のスクリーンショットだけ。README とユーザーガイドに載せる。中身は、ダミーのデータをモックの画面（`npm run dev:mock`）に出して `npm run docs:screenshots` で撮ったもの。本物の資料を写さない。1枚 300KB 以下を目安にする
 - Rust のファイル操作は、テストを先に書いてから実装する。失敗時の動き（移動の途中で失敗した場合など）もテストする。
 
 ## 作業の進め方

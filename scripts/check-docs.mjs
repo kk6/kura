@@ -1,6 +1,6 @@
 // ドキュメントがコードと食い違っていないかを機械的に調べる
 // - docs/design.md のトークンの表と src/styles/tokens.css の名前と値
-// - CLAUDE.md に書いた npm のコマンドが package.json にあるか
+// - CLAUDE.md と README.md に書いた npm のコマンドが package.json にあるか
 // - Tauri のコマンド名が、Rust、src/mocks/ipc.ts、画面の invoke で揃っているか
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -31,8 +31,10 @@ for (const name of css.keys()) {
 }
 
 const scripts = JSON.parse(read('package.json')).scripts
-for (const [, name] of read('CLAUDE.md').matchAll(/npm run ([\w:-]+)/g)) {
-  if (!(name in scripts)) problems.push(`CLAUDE.md の npm run ${name} が package.json にない`)
+for (const file of ['CLAUDE.md', 'README.md']) {
+  for (const [, name] of read(file).matchAll(/npm run ([\w:-]+)/g)) {
+    if (!(name in scripts)) problems.push(`${file} の npm run ${name} が package.json にない`)
+  }
 }
 
 // Tauri のコマンド名。モックの開発サーバーは Rust を通らないので、モックだけが古いままでも e2e は通ってしまう

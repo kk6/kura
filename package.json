@@ -13,7 +13,8 @@
     "dev-library": "uv run scripts/gen_dev_library.py",
     "test": "vitest run",
     "format": "prettier --write .",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "docs:screenshots": "playwright test -c playwright.docs.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
