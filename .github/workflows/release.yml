@@ -14,14 +14,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false # Release は gh が GH_TOKEN で作る
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+      # 書き込み権限を持つジョブなので、外部のアクション（rust-toolchain、rust-cache）を使わず、ランナーにある rustup を使う
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
       - run: npm ci
 
       # ビルドの前に止める。CHANGELOG の項がないまま Release を作らない
