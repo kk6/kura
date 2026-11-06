@@ -12,6 +12,15 @@
 .dialog[open] {
   display: flex;
   flex-direction: column;
+  animation: dialog-in var(--duration-base) ease-out;
+}
+
+/* 開くときだけ動かす。閉じるときはすぐ消す（docs/design.md「動き」） */
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-rise));
+  }
 }
 
 /* 背後の参考画像の色の見え方を変えないよう、幕は付けない */

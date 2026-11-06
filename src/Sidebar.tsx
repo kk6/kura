@@ -12,6 +12,7 @@ import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import type { countImages, Filter } from './filter'
 import type { Category, Gallery } from './galleryTypes'
+import { Icon } from './icons'
 import { select } from './selection'
 
 type Props = {
@@ -457,19 +458,3 @@ export default function Sidebar(props: Props) {
     </nav>
   )
 }
-
-const Icon = ({ d }: { d: string }) => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d={d} />
-  </svg>
-)

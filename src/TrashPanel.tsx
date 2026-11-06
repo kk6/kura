@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import ConfirmDialog from './ConfirmDialog'
+import { Icon, ICONS } from './icons'
 
 // ゴミ箱を開いている間に、詳細パネルの場所に出す（FR-511）
 export default function TrashPanel({
@@ -31,12 +32,15 @@ export default function TrashPanel({
       </p>
       <div className="detail__actions">
         <button type="button" className="button" disabled={!selected} onClick={onRestore}>
+          <Icon d={ICONS.undo} />
           元に戻す
         </button>
         <button type="button" className="button" disabled={!selected} onClick={() => setConfirming('purge')}>
+          <Icon d={ICONS.x} />
           完全に削除
         </button>
         <button type="button" className="button" disabled={!count} onClick={() => setConfirming('empty')}>
+          <Icon d={ICONS.trash} />
           ゴミ箱を空にする
         </button>
       </div>

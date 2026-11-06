@@ -4,6 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
+import { Icon, ICONS } from './icons'
 import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
@@ -489,9 +490,11 @@ export default function Gallery({ root, settings, onSettings }: Props) {
         <span className="gallery__import">
           <span className="gallery__import-buttons" hidden={!!(scanning || progress)}>
             <button type="button" className="button" onClick={() => pick(false)}>
+              <Icon d={ICONS.imagePlus} />
               画像を取り込む
             </button>
             <button type="button" className="button" onClick={() => pick(true)}>
+              <Icon d={ICONS.folderPlus} />
               フォルダを取り込む
             </button>
           </span>
@@ -502,8 +505,14 @@ export default function Gallery({ root, settings, onSettings }: Props) {
             </span>
           )}
         </span>
-        <button type="button" className="button" onClick={() => setSettingsOpen(true)}>
-          設定
+        <button
+          type="button"
+          className="button button--icon"
+          aria-label="設定"
+          title="設定（⌘,）"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Icon d={ICONS.settings} />
         </button>
       </header>
 

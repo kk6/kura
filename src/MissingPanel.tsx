@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import ConfirmDialog from './ConfirmDialog'
+import { Icon, ICONS } from './icons'
 
 // 見つからない画像（FR-104）を開いている間に、詳細パネルの場所に出す
 export default function MissingPanel({
@@ -23,6 +24,7 @@ export default function MissingPanel({
       </p>
       <div className="detail__actions">
         <button type="button" className="button" disabled={!selected} onClick={() => setConfirming(true)}>
+          <Icon d={ICONS.listX} />
           一覧から外す
         </button>
       </div>

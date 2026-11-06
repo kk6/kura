@@ -32,6 +32,10 @@ button {
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   height: var(--size-control);
   padding: 0 var(--space-4);
   border: var(--border);
@@ -39,6 +43,25 @@ button {
   background: var(--color-surface);
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease-out,
+    transform var(--duration-fast) ease-out;
+}
+
+/* アイコンだけのボタン（docs/design.md「アイコン」） */
+.button--icon {
+  width: var(--size-control);
+  padding: 0;
+}
+
+/* 押した手応えを返す（docs/design.md「動き」）。押せないボタンは変えない */
+.button:enabled:hover {
+  background: var(--color-raise);
+}
+
+.button:enabled:active {
+  background: var(--color-selected);
+  transform: scale(var(--motion-press));
 }
 
 .button:disabled {
@@ -53,6 +76,11 @@ button {
   background: var(--color-text);
 }
 
+.button--primary:enabled:hover,
+.button--primary:enabled:active {
+  background: var(--color-text);
+}
+
 .button--primary:disabled {
   border-color: var(--color-line);
   background: var(--color-raise);
@@ -62,4 +90,16 @@ button {
 input[aria-invalid='true']:focus-visible,
 textarea[aria-invalid='true']:focus-visible {
   outline: none;
+}
+
+/* 動きを減らす設定では、処理中のアイコンも含めてどの動きも止める。背景の色はすぐ切り替える */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0s !important;
+    animation: none !important;
+  }
+
+  .button:enabled:active {
+    transform: none;
+  }
 }

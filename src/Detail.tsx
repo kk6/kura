@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { useState } from 'react'
 import { CategorySelect, TagEditor } from './Classify'
+import { Icon, ICONS } from './icons'
 import Status from './Status'
 import type { Category, Detail as DetailData, Image, Tag } from './galleryTypes'
 
@@ -190,6 +191,7 @@ export default function Detail(props: Props) {
   // 元に戻せるので確認は出さない
   const trash = (
     <button type="button" className="button detail__trash" onClick={() => props.onTrash(ids)}>
+      <Icon d={ICONS.trash} />
       ゴミ箱へ移す
     </button>
   )

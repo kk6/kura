@@ -615,6 +615,32 @@ body.is-dragging * {
   background: var(--color-selected);
 }
 
+/* 押せる行とボタンの手応え（docs/design.md「動き」）。行は幅いっぱいなので縮めず、背景だけ変える */
+.sidebar__button,
+.sidebar__item--category,
+.sidebar__mode,
+.sidebar__add {
+  transition:
+    background-color var(--duration-fast) ease-out,
+    transform var(--duration-fast) ease-out;
+}
+
+.sidebar__button:not(.sidebar__item--selected):hover,
+.sidebar__item--category:not(.sidebar__item--selected, .sidebar__item--dragging):hover,
+.sidebar__mode:not(.sidebar__mode--on):hover {
+  background: var(--color-raise);
+}
+
+.sidebar__button:active,
+.sidebar__item--category:active {
+  background: var(--color-selected);
+}
+
+.sidebar__mode:active,
+.sidebar__add:enabled:active {
+  transform: scale(var(--motion-press));
+}
+
 /* タグの AND と OR の切り替え */
 .sidebar__mode {
   height: var(--size-control-sm);
@@ -695,13 +721,6 @@ body.is-dragging * {
 
 .spinner {
   animation: spin var(--duration-spin) linear infinite;
-}
-
-/* 動きを減らす設定では回さない */
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation: none;
-  }
 }
 
 @keyframes spin {
