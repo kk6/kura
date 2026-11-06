@@ -43,6 +43,15 @@ cmd_launch() {
   [ -x "$BIN" ] || die "$APP がない。先に: $0 build"
   pgrep -f "$BIN" >/dev/null && die "別の検証用 Kura が動いている（pgrep -fl '$BIN'）。先に stop する"
   [ -e "$dir/pid" ] && die "$dir は使用済み。別の run id を使う"
+  # 複製元は、この手順で作ったもの（$BASE の下）に限る。本物の資料のライブラリを渡されても読まない
+  local src_lib=""
+  if [ "$mode" != empty ] && [ "$mode" != template ]; then
+    local base_real
+    src_lib=$(cd "$mode" 2>/dev/null && pwd -P) || die "$mode がない"
+    base_real=$(cd "$BASE" && pwd -P) || die "$BASE がない"
+    [[ "$src_lib/" == "$base_real/"* ]] || die "$mode は $BASE の下にない。この手順で作ったライブラリだけを渡す"
+    [ -d "$src_lib/.kura" ] || die "$mode はライブラリではない"
+  fi
   mkdir -p "$dir/home" "$dir/evidence" "$(data_dir "$id")"
   local lib=""
   case $mode in
@@ -50,7 +59,8 @@ cmd_launch() {
     template)
       [ -d "$BASE/template/.kura" ] || die "見本のライブラリがない。SKILL.md の「見本を作る」を先に行う"
       cp -R "$BASE/template" "$dir/lib"; lib="$dir/lib" ;;
-    *) [ -d "$mode/.kura" ] || die "$mode はライブラリではない"; cp -R "$mode" "$dir/lib"; lib="$dir/lib" ;;
+    *)
+      cp -R "$src_lib" "$dir/lib"; lib="$dir/lib" ;;
   esac
   # 起動時、アプリは一覧の先頭のライブラリを自動で開く。空なら選択画面
   if [ -n "$lib" ]; then printf '["%s"]\n' "$lib" >"$(data_dir "$id")/recent-libraries.json"
@@ -100,6 +110,12 @@ kill_app() {
     kill "$p"; for _ in $(seq 1 20); do kill -0 "$p" 2>/dev/null || break; sleep 0.25; done
     kill -0 "$p" 2>/dev/null && kill -9 "$p"
   fi
+  # この run の HOME で動いている Kura が残っていれば（自分のものと確かめられなかったものを含む）、
+  # その run のデータを消したり複製したりしない
+  local q
+  for q in $(pgrep -f "$BIN" || true); do
+    has_home "$q" "$(run_dir "$1")/home" && die "pid $q がこの run のデータで動いている。止めて確かめるまで後片付けしない"
+  done
   return 0
 }
 

@@ -102,7 +102,7 @@ computer-use を使う。準備：
 ```bash
 $V stop <id>
 ```
-自分が起動した pid だけを止め（名前で kill しない。pid、起動時刻、実行ファイル、HOME がすべて合うときだけシグナルを送る）、`home/`、`lib/`、`src/`、`app.log` を消す。`evidence/` は残す。全画面操作を使ったら `release_full_control`、最後に `app_release` を呼ぶ。失敗した試行のあとも必ず `stop` する。run のフォルダごと消すのは、証跡が要らなくなってから利用者が決める。
+自分が起動した pid だけを止め（名前で kill しない。pid、起動時刻、実行ファイル、HOME がすべて合うときだけシグナルを送る。この run の HOME で動く Kura が残っていれば、何も消さずにエラーにする）、`home/`、`lib/`、`src/`、`app.log` を消す。`evidence/` は残す。全画面操作を使ったら `release_full_control`、最後に `app_release` を呼ぶ。失敗した試行のあとも必ず `stop` する。run のフォルダごと消すのは、証跡が要らなくなってから利用者が決める。
 
 ## Helpers
 
@@ -111,7 +111,7 @@ $V stop <id>
 | コマンド | 内容 |
 | --- | --- |
 | `build` | `npm run tauri build -- --debug --bundles app` |
-| `launch <id> [empty\|template\|<lib>]` | 隔離して起動し、doctor を流す。`<lib>`（この手順で作ったライブラリ）は run の `lib/` に複製して開く |
+| `launch <id> [empty\|template\|<lib>]` | 隔離して起動し、doctor を流す。`<lib>` は `.claude/tmp/verify-kura/` の下のライブラリだけを受け付け、run の `lib/` に複製して開く |
 | `doctor <id>` | 上の確認 |
 | `src <id> [枚数]` | 取り込み元のダミー画像を `runs/<id>/src/` に作る（`scripts/gen_dev_library.py`） |
 | `db <id> "<SQL>"` | run のライブラリの DB を読み取り専用で引く |
