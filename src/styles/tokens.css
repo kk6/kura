@@ -46,6 +46,10 @@
   --size-control-sm: 24px;
   /* 処理中のアイコンが1回転する時間 */
   --duration-spin: 1s;
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --motion-press: 0.96;
+  --motion-rise: 4px;
   --size-board-toolbar: 40px;
   --size-select-panel: 480px;
   --size-progress: 3px;
