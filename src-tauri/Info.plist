@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS が足すメニューの項目（ウインドウの整列、サービスなど）とダイアログを日本語にする -->
+  <key>CFBundleDevelopmentRegion</key>
+  <string>ja</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>ja</string>
+  </array>
+</dict>
+</plist>

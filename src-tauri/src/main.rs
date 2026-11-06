@@ -3,6 +3,7 @@ mod fileops;
 mod gallery;
 mod import;
 mod library;
+mod menu;
 mod recent;
 mod settings;
 mod sync;
@@ -333,6 +334,7 @@ fn main() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
+        .menu(menu::build)
         .manage(Current::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
