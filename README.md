@@ -35,7 +35,18 @@ Kura（蔵）は、イラスト制作用の参考画像をパソコンの中だ�
 - macOS（Apple シリコン）。Windows には対応しない
 - ライブラリは、内蔵ディスクか外付けドライブ（APFS、HFS+、exFAT）に置く。iCloud Drive とネットワークドライブは動作を保証しない。選ぶと警告が出る
 
-まだリリースしていません。使うときは、下の「開発の始め方」の手順でソースからビルドします。
+## インストール
+
+1. [Releases](https://github.com/kk6/kura/releases) から、最新の版の `Kura-<版>-arm64.zip` をダウンロードする
+2. zip をダブルクリックして展開し、できた `Kura.app` を「アプリケーション」フォルダに移す
+3. `Kura.app` を開く
+
+Kura は Apple の開発者の署名と公証を受けていません。そのため、初めて開くときに macOS が「開発元を確認できない」などと表示して止めます。次のどちらかの方法で開きます。一度開けば、次からは普通に開けます。
+
+- Finder で `Kura.app` を右クリック（control キーを押しながらクリック）し、「開く」を選ぶ。確認が出たら「開く」を押す。macOS 15 以降ではこの方法で開けないので、次の方法を使う
+- 一度開こうとして止められたあと、システム設定の「プライバシーとセキュリティ」を開く。下の方にある Kura の表示の横の「このまま開く」を押し、確認が出たら「開く」を押す
+
+版ごとの変更は [CHANGELOG.md](CHANGELOG.md) にあります。ソースからビルドするときは、下の「開発の始め方」を見てください。
 
 ## 開発の始め方
 
@@ -83,6 +94,7 @@ npm run docs:screenshots
 | ファイル | 中身 |
 | --- | --- |
 | [docs/user-guide.md](docs/user-guide.md) | ユーザーガイド。アプリの使い方 |
+| [CHANGELOG.md](CHANGELOG.md) | 版ごとの変更 |
 | [docs/requirements.md](docs/requirements.md) | 要件定義書。機能要件（FR-xxx）と非機能要件（NFR-xx）、開発フェーズ |
 | [docs/design.md](docs/design.md) | 画面のデザインの決まり |
 | [CLAUDE.md](CLAUDE.md) | 開発の決まりとコマンドの一覧 |
