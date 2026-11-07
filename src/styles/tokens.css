@@ -17,10 +17,10 @@
   --color-info: #1f5fb0;
 
   --font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
-  --font-size-sm: 11.5px;
-  --font-size-md: 12.5px;
-  --font-size-lg: 13px;
-  --font-size-xl: 14px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
   --font-weight-regular: 400;
   --font-weight-bold: 600;
   --line-height: 1.5;
@@ -31,18 +31,19 @@
   --space-4: 12px;
   --space-5: 16px;
   --radius-sm: 2px;
-  --radius-md: 3px;
+  --radius-md: 4px;
   --border: 1px solid var(--color-line);
   --focus-ring: 2px solid var(--color-text);
   --select-outline: 2px solid var(--color-text);
   --select-inner: 1px solid var(--color-bg);
 
-  --size-header: 48px;
-  --size-sidebar: 208px;
-  --size-detail: 300px;
-  --size-statusbar: 28px;
-  --size-sidebar-item: 28px;
-  --size-control: 30px;
+  --size-header: 56px;
+  --size-sidebar: 232px;
+  --size-detail: 320px;
+  --size-statusbar: 32px;
+  --size-toolbar: 48px;
+  --size-sidebar-item: 32px;
+  --size-control: 32px;
   --size-control-sm: 24px;
   /* 処理中のアイコンが1回転する時間 */
   --duration-spin: 1s;
@@ -57,4 +58,5 @@
   --size-dialog: 560px;
   --size-icon: 15px;
   --size-slider-thumb: 12px;
+  --size-check: 18px;
 }
