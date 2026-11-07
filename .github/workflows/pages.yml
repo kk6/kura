@@ -1,12 +1,13 @@
 name: Pages
 
-# 紹介ページ（homepage/）を GitHub Pages に公開する。ページが使う画像とトークンも変わったら出し直す
+# 紹介ページ（homepage/）を GitHub Pages に公開する。ページが使う画像・アイコン・トークンも変わったら出し直す
 on:
   push:
     branches: [main]
     paths:
       - 'homepage/**'
       - 'docs/images/**'
+      - 'src-tauri/icons/icon.svg'
       - 'src/styles/tokens.css'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -32,13 +33,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      # 画像とトークンは homepage/ にコミットせず、元の場所からコピーする。二重に持つと食い違うため
+      # 画像・アイコン・トークンは元の場所からコピーする。二重に持つと食い違うため
       - name: ページを組み立てる
         run: |
           mkdir -p "$RUNNER_TEMP/site"
           cp -R homepage/. "$RUNNER_TEMP/site/"
           cp -R docs/images "$RUNNER_TEMP/site/images"
           cp src/styles/tokens.css "$RUNNER_TEMP/site/tokens.css"
+          cp src-tauri/icons/icon.svg "$RUNNER_TEMP/site/favicon.svg"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
