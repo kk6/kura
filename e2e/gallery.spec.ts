@@ -1080,8 +1080,9 @@ test('検索バーに入れると名前の合うカテゴリとタグを候補�
   await expect(search).toBeFocused()
   for (let i = 0; i < 2; i++) await search.press('Tab')
   await expect(options.nth(2)).toHaveAttribute('aria-selected', 'true')
+  // 次の部品へ移る。どの部品かは macOS の「キーボードナビゲーション」の設定で変わる（オフだとボタンを飛ばす）ので、検索欄を離れたことだけを見る
   await search.press('Tab')
-  await expect(page.getByRole('button', { name: '画像を取り込む' })).toBeFocused()
+  await expect(search).not.toBeFocused()
 
   // 自動修正（cat を Cat にする提案）を出さない
   await expect(search).toHaveAttribute('autocorrect', 'off')
