@@ -220,6 +220,19 @@ body.is-dragging * {
   white-space: nowrap;
 }
 
+/* 見出しの開閉ボタン（タグ）。見出しの文字のまま押せるようにする */
+.sidebar__section {
+  display: inline-flex;
+  align-items: center;
+  /* 開閉の印は文字の右に置き、文字の位置をほかの見出しとそろえる */
+  padding: 0;
+  border: none;
+  font: inherit;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+
 /* 開閉ボタン。子のないカテゴリにも同じ幅の空きを置いて、名前の位置をそろえる */
 .sidebar__toggle {
   display: inline-flex;

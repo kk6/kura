@@ -12,6 +12,8 @@ pub struct Settings {
     pub confirm_category_move: bool,
     /// 一覧の列の幅の目安（FR-501）。範囲に収めるのは画面側
     pub thumb_width: u32,
+    /// サイドバーのタグ一覧を閉じている（FR-503）。タグが多いとサイドバーのスクロールが長くなるため
+    pub tags_collapsed: bool,
 }
 
 impl Default for Settings {
@@ -19,6 +21,7 @@ impl Default for Settings {
         Settings {
             confirm_category_move: true,
             thumb_width: 200,
+            tags_collapsed: false,
         }
     }
 }
@@ -68,6 +71,7 @@ mod tests {
         let s = Settings {
             confirm_category_move: false,
             thumb_width: 140,
+            tags_collapsed: true,
         };
 
         save(&file, &s).unwrap();
@@ -85,6 +89,8 @@ mod tests {
 
         assert_eq!(s.thumb_width, 300);
         assert!(s.confirm_category_move);
+        // タグ一覧の開閉は後の版で足したので、前の版のファイルには項目がない。開いた状態で始める
+        assert!(!s.tags_collapsed);
     }
 
     #[test]
@@ -105,6 +111,7 @@ mod tests {
         let before = Settings {
             confirm_category_move: false,
             thumb_width: 120,
+            tags_collapsed: false,
         };
         save(&file, &before).unwrap();
         if !lock(dir.path()) {

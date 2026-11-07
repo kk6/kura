@@ -1406,3 +1406,24 @@ test('UIのリニューアルで足した、ライブラリのメニュー、一
   await expect(screen.getByRole('alert')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('サイドバーのタグ一覧を閉じても選んでいるタグは残し、閉じた状態は開き直しても残る', async ({ page }) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const tags = sidebar.getByRole('list', { name: 'タグ' }).getByRole('button')
+  const toggle = sidebar.getByRole('button', { name: 'タグ', exact: true })
+
+  await tags.filter({ hasText: '座り' }).click()
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(tags).toHaveText([/座り/])
+  await page.screenshot({ path: 'test-results/tags-collapsed.png' })
+
+  // 閉じた状態はアプリ全体の設定に残る
+  await page.reload()
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(tags).toHaveCount(0)
+  await toggle.click()
+  await expect(tags).toHaveCount(3)
+})

@@ -583,6 +583,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         onScan={scan}
         root={root}
         onReveal={() => reveal()}
+        tagsCollapsed={settings.tags_collapsed}
+        onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
       />
 
       <div className="gallery__toolbar">

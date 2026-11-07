@@ -43,6 +43,9 @@ type Props = {
   // ライブラリの場所。押すと Finder で開く
   root: string
   onReveal: () => void
+  // タグ一覧を閉じているか（アプリ全体の設定）。閉じていても、選んでいるタグは出す
+  tagsCollapsed: boolean
+  onTagsCollapse: (collapsed: boolean) => void
 }
 
 // 長いパスは途中を … で省き、先頭のフォルダと最後の2つを残す（全体は title で出す）
@@ -407,7 +410,17 @@ export default function Sidebar(props: Props) {
         {tree(null, 0)}
       </ul>
       <h2 className="sidebar__heading" id="sidebar-tags">
-        タグ
+        <button
+          type="button"
+          className="sidebar__section"
+          aria-expanded={!props.tagsCollapsed}
+          onClick={() => props.onTagsCollapse(!props.tagsCollapsed)}
+        >
+          タグ
+          <span className="sidebar__toggle">
+            <Icon d={props.tagsCollapsed ? 'M9 6l6 6-6 6' : 'M6 9l6 6 6-6'} />
+          </span>
+        </button>
         {/* 選んだタグをすべて含む（AND）か、どれかを含む（OR）か */}
         <span className="sidebar__actions" role="group" aria-label="タグの組み合わせ">
           {(['and', 'or'] as const).map((mode) => (
@@ -428,19 +441,22 @@ export default function Sidebar(props: Props) {
         </span>
       </h2>
       <ul className="sidebar__list" aria-labelledby="sidebar-tags" onKeyDown={onTagKey}>
-        {gallery.tags.map((t) => (
-          <li key={t.id}>
-            <button
-              type="button"
-              className={`sidebar__item sidebar__button${filter.tags.includes(t.id) ? ' sidebar__item--selected' : ''}`}
-              aria-pressed={filter.tags.includes(t.id)}
-              onClick={(e) => pickTag(e, t.id)}
-            >
-              <span className="sidebar__name">{t.name}</span>
-              <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
-            </button>
-          </li>
-        ))}
+        {/* 閉じていても選んでいるタグは出す。何で絞り込んでいるかが見えなくならないように */}
+        {gallery.tags
+          .filter((t) => !props.tagsCollapsed || filter.tags.includes(t.id))
+          .map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                className={`sidebar__item sidebar__button${filter.tags.includes(t.id) ? ' sidebar__item--selected' : ''}`}
+                aria-pressed={filter.tags.includes(t.id)}
+                onClick={(e) => pickTag(e, t.id)}
+              >
+                <span className="sidebar__name">{t.name}</span>
+                <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
+              </button>
+            </li>
+          ))}
       </ul>
       <button type="button" className="sidebar__location" title={props.root} onClick={props.onReveal}>
         <Icon d={ICONS.folder} />
