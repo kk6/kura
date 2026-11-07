@@ -3,339 +3,230 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Kura — 参考画像をローカルで整理する macOS アプリ</title>
+    <title>Kura — 資料をローカルで整理する macOS アプリ</title>
     <meta
       name="description"
-      content="Kura（蔵）は、イラスト制作用の参考画像をパソコンの中だけで取り込み、整理し、探すための macOS アプリです。"
+      content="Kura（蔵）は、イラスト制作に使う参考画像をパソコンの中だけで取り込み、整理・検索するための macOS アプリです。"
     />
-    <!-- tokens.css と images/ は、公開のワークフロー（.github/workflows/pages.yml）が src/styles/ と docs/images/ からコピーする -->
+    <!-- favicon.svg、tokens.css、images/ は公開ワークフローで元の場所からコピーする -->
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="tokens.css" />
-    <style>
-      /* 紹介ページだけの大きさ。アプリの文字は小さく詰めてあるので、読み物のページには足りない */
-      :root {
-        --page-width: 960px;
-        --page-text: 16px;
-        --page-lead: 18px;
-        --page-h2: 22px;
-        --page-h1: 40px;
-        --page-gap: 64px;
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        background: var(--color-surface);
-        color: var(--color-text);
-        font-family: var(--font-family);
-        font-size: var(--page-text);
-        line-height: 1.7;
-      }
-      main,
-      header,
-      footer {
-        max-width: var(--page-width);
-        margin: 0 auto;
-        padding: 0 var(--space-5);
-      }
-      header {
-        padding-top: var(--page-gap);
-      }
-      h1 {
-        margin: 0;
-        font-size: var(--page-h1);
-        font-weight: var(--font-weight-bold);
-        line-height: 1.2;
-      }
-      h1 span {
-        margin-left: var(--space-3);
-        color: var(--color-text-faint);
-        font-size: var(--page-h2);
-        font-weight: var(--font-weight-regular);
-      }
-      h2 {
-        margin: 0 0 var(--space-5);
-        font-size: var(--page-h2);
-        font-weight: var(--font-weight-bold);
-      }
-      h3 {
-        margin: 0 0 var(--space-1);
-        font-size: var(--page-text);
-        font-weight: var(--font-weight-bold);
-      }
-      p {
-        margin: 0 0 var(--space-4);
-      }
-      .lead {
-        margin: var(--space-5) 0 var(--space-5);
-        color: var(--color-text-sub);
-        font-size: var(--page-lead);
-      }
-      a {
-        color: var(--color-text);
-      }
-      a:focus-visible {
-        outline: var(--focus-ring);
-        outline-offset: 2px;
-      }
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--space-4);
-        align-items: center;
-      }
-      .button {
-        display: inline-flex;
-        align-items: center;
-        height: 40px;
-        padding: 0 var(--space-5);
-        border: var(--border);
-        border-radius: var(--radius-md);
-        background: var(--color-surface);
-        color: var(--color-text);
-        font-weight: var(--font-weight-bold);
-        text-decoration: none;
-        transition:
-          background var(--duration-fast) ease-out,
-          transform var(--duration-fast) ease-out;
-      }
-      .button:hover {
-        background: var(--color-raise);
-      }
-      .button:active {
-        transform: scale(var(--motion-press));
-      }
-      .button.primary {
-        border-color: var(--color-text);
-        background: var(--color-text);
-        color: var(--color-on-text);
-      }
-      .note {
-        color: var(--color-text-faint);
-        font-size: var(--font-size-xl);
-      }
-      figure {
-        margin: 0;
-      }
-      figure img {
-        display: block;
-        width: 100%;
-        height: auto;
-        border: var(--border);
-        border-radius: var(--radius-sm);
-        background: var(--color-bg);
-      }
-      figcaption {
-        margin-top: var(--space-3);
-        color: var(--color-text-faint);
-        font-size: var(--font-size-xl);
-      }
-      .hero {
-        margin-top: var(--page-gap);
-      }
-      section {
-        margin-top: var(--page-gap);
-        padding-top: var(--page-gap);
-        border-top: var(--border);
-      }
-      .features {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: var(--space-5) 40px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-      }
-      .features p {
-        margin: 0;
-        color: var(--color-text-sub);
-      }
-      .shots {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-        gap: 40px var(--space-5);
-      }
-      ol,
-      ul.plain {
-        margin: 0 0 var(--space-4);
-        padding-left: 1.5em;
-      }
-      li + li {
-        margin-top: var(--space-1);
-      }
-      code {
-        padding: 0 var(--space-1);
-        border-radius: var(--radius-sm);
-        background: var(--color-raise);
-        font-size: 0.9em;
-      }
-      footer {
-        margin-top: var(--page-gap);
-        padding-top: var(--space-5);
-        padding-bottom: var(--page-gap);
-        border-top: var(--border);
-        color: var(--color-text-faint);
-        font-size: var(--font-size-xl);
-      }
-      footer a {
-        color: var(--color-text-sub);
-      }
-      @media (max-width: 600px) {
-        :root {
-          --page-h1: 32px;
-          --page-gap: 40px;
-        }
-        h1 span {
-          display: block;
-          margin: var(--space-1) 0 0;
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .button {
-          transition: none;
-        }
-        .button:active {
-          transform: none;
-        }
-      }
-    </style>
+    <link rel="stylesheet" href="style.css" />
   </head>
-  <body>
-    <header>
-      <h1>Kura<span>蔵</span></h1>
-      <p class="lead">
-        イラスト制作用の参考画像を、パソコンの中だけで取り込み、整理し、探すための macOS
-        アプリです。外部のサービスを使わないので、サービスの規約や判断で資料を失うことがありません。
-      </p>
-      <div class="actions">
-        <a class="button primary" href="https://github.com/kk6/kura/releases/latest">ダウンロード</a>
-        <a class="button" href="https://github.com/kk6/kura">GitHub</a>
-        <span class="note">無料・オープンソース（MIT）／ macOS（Apple シリコン）</span>
-      </div>
+  <body id="top">
+    <a class="skip-link" href="#main">本文へスキップ</a>
+    <header class="site-header page-width">
+      <a class="brand" href="#top" aria-label="Kura ホーム"
+        ><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M3 18h2L20 7l15 11h2M9 15v20m22-20v20M13 23h14m-14 7h14" /></svg
+        ><span>Kura</span></a
+      >
+      <nav aria-label="メインナビゲーション">
+        <a href="#features">機能</a>
+        <a href="https://github.com/kk6/kura">GitHub</a>
+        <a class="nav-download" href="https://github.com/kk6/kura/releases/latest">ダウンロード</a>
+      </nav>
     </header>
-
-    <main>
-      <figure class="hero">
+    <main id="main" class="page-width">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow">資料のための、小さな蔵。</p>
+        <h1 id="hero-title">集めた資料を<br />手元で整理。</h1>
+        <p class="hero-lead">イラスト制作の参考画像を管理するMacアプリ。</p>
+        <a class="button" href="https://github.com/kk6/kura/releases/latest">無料でダウンロード</a>
+        <p class="note">無料・オープンソース（MIT）／ macOS（Apple シリコン）</p>
+      </section>
+      <figure class="app-preview">
         <img
           src="images/gallery.png"
           width="1440"
           height="900"
           alt="Kura のギャラリー画面。左にカテゴリとタグ、中央に画像の一覧、右に選んだ画像の詳細が並ぶ"
+          fetchpriority="high"
         />
-        <figcaption>ギャラリー画面。スクリーンショットはダミーのデータで、サムネイルは色の塗りつぶしで写っています。</figcaption>
+        <figcaption>
+          ギャラリー画面。スクリーンショットにはダミーデータを使用し、サムネイルは色の塗りつぶしで表示しています。
+        </figcaption>
       </figure>
-
-      <section aria-labelledby="features">
-        <h2 id="features">できること</h2>
-        <ul class="features">
-          <li>
-            <h3>普通のフォルダに置く</h3>
-            <p>画像は普通のファイルとして置きます。Kura がなくても Finder で開けます。</p>
-          </li>
-          <li>
-            <h3>フォルダごと取り込む</h3>
-            <p>フォルダの構成はカテゴリとして再現します。中身が同じ画像は重複として取り込みません。</p>
-          </li>
-          <li>
-            <h3>カテゴリとタグで分ける</h3>
-            <p>複数の画像にまとめてタグを付けられます。タグは AND と OR で絞り込めます。</p>
-          </li>
-          <li>
-            <h3>縦横比を保って並べる</h3>
-            <p>並べ替え、サムネイルの大きさの変更、拡大表示ができます。</p>
-          </li>
-          <li>
-            <h3>ファイル名やメモで探す</h3>
-            <p>メモと星5段階の評価を付けて、検索に使えます。</p>
-          </li>
-          <li>
-            <h3>消しても戻せる</h3>
-            <p>削除した画像はアプリ内のゴミ箱に入ります。空にするまで元に戻せます。</p>
-          </li>
-          <li>
-            <h3>Finder での変更に追従する</h3>
-            <p>Finder で画像を足したり動かしたりしても、検出して反映します。</p>
-          </li>
-          <li>
-            <h3>外へ送らない</h3>
-            <p>画像も管理情報もパソコンの中だけに置きます。</p>
-          </li>
-        </ul>
-      </section>
-
-      <section aria-labelledby="screens">
-        <h2 id="screens">画面</h2>
-        <div class="shots">
-          <figure>
-            <img src="images/zoom.png" width="1440" height="900" loading="lazy" alt="画像を拡大表示した画面" />
-            <figcaption>拡大表示</figcaption>
-          </figure>
-          <figure>
+      <section id="features" class="highlights" aria-label="Kura の機能">
+        <div class="highlight">
+          <div class="highlight-copy">
+            <p class="feature-number">01</p>
+            <h2>ギャラリーから見つける。</h2>
+            <p>画像の縦横比を保ったまま、<br />資料を一覧で見渡せます。</p>
+          </div>
+          <figure class="detail-image gallery-detail">
             <img
-              src="images/tag-dialog.png"
+              src="images/gallery.png"
               width="1440"
               height="900"
               loading="lazy"
-              alt="複数の画像にまとめてタグを付けるダイアログ"
+              alt="縦横比を保って並ぶダミー画像の一覧"
             />
-            <figcaption>まとめてタグを付ける</figcaption>
-          </figure>
-          <figure>
-            <img
-              src="images/import-result.png"
-              width="1440"
-              height="900"
-              loading="lazy"
-              alt="取り込みの結果をステータスバーに表示した画面"
-            />
-            <figcaption>取り込みの結果</figcaption>
-          </figure>
-          <figure>
-            <img src="images/trash.png" width="1440" height="900" loading="lazy" alt="アプリ内のゴミ箱の画面" />
-            <figcaption>アプリ内のゴミ箱</figcaption>
           </figure>
         </div>
+        <div class="highlight highlight-reverse">
+          <figure class="detail-image sidebar-detail">
+            <img
+              src="images/gallery.png"
+              width="1440"
+              height="900"
+              loading="lazy"
+              alt="カテゴリとタグで資料を整理するサイドバー"
+            />
+          </figure>
+          <div class="highlight-copy">
+            <p class="feature-number">02</p>
+            <h2>フォルダに保存。</h2>
+            <p>
+              自分なりの分類で整理し、画像をファイルとして保存します。<br
+                class="desktop-break"
+              />Kuraがなくても、Finderから開けます。
+            </p>
+          </div>
+        </div>
       </section>
-
-      <section aria-labelledby="install">
-        <h2 id="install">インストール</h2>
-        <ol>
-          <li>
-            <a href="https://github.com/kk6/kura/releases/latest">Releases</a> から
-            <code>Kura-&lt;版&gt;-arm64.zip</code> をダウンロードする
-          </li>
-          <li>zip を展開し、<code>Kura.app</code> を「アプリケーション」フォルダに移す</li>
-          <li><code>Kura.app</code> を開く</li>
-        </ol>
-        <p>
-          Kura は Apple の開発者の署名と公証を受けていません。初めて開くときは macOS
-          に止められるので、次のどちらかの方法で開きます。一度開けば、次からは普通に開けます。
+      <div class="page-details">
+        <p class="intro">
+          イラスト制作に使う参考画像を、パソコンの中だけで取り込み、整理・検索するための macOS
+          アプリです。外部のサービスを使わないため、サービスの規約や判断によって資料を失うことがありません。
         </p>
-        <ul class="plain">
-          <li>Finder で <code>Kura.app</code> を右クリックし、「開く」を選ぶ（macOS 14 まで）</li>
-          <li>
-            一度開こうとして止められたあと、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押す（macOS 15
-            以降）
-          </li>
-        </ul>
-        <p>
-          動く環境は Apple シリコンの Mac です。ライブラリは内蔵ディスクか外付けドライブ（APFS、HFS+、exFAT）に置きます。
-        </p>
-      </section>
+        <section aria-labelledby="all-features">
+          <h2 id="all-features">できること</h2>
+          <ul class="features">
+            <li>
+              <h3>Finderからも開ける</h3>
+              <p>画像はファイルとして保存します。Kura がなくても Finder で開けます。</p>
+            </li>
+            <li>
+              <h3>フォルダごと取り込む</h3>
+              <p>取り込んだフォルダの構成をカテゴリとして再現します。内容が同じ画像は重複して取り込みません。</p>
+            </li>
+            <li>
+              <h3>カテゴリとタグで分ける</h3>
+              <p>複数の画像にまとめてタグを付けられます。タグを使って、AND と OR の条件で画像を絞り込めます。</p>
+            </li>
+            <li>
+              <h3>縦横比を保って並べる</h3>
+              <p>並べ替え、サムネイルの大きさの変更、拡大表示ができます。</p>
+            </li>
+            <li>
+              <h3>ファイル名やメモで探す</h3>
+              <p>画像にメモと5段階の星評価を付けて、検索に使えます。</p>
+            </li>
+            <li>
+              <h3>消しても戻せる</h3>
+              <p>削除した画像はアプリ内のゴミ箱に入ります。ゴミ箱を空にするまでは元に戻せます。</p>
+            </li>
+            <li>
+              <h3>Finder での変更に追従する</h3>
+              <p>Finder で画像を追加したり移動したりしても、変更を検出して反映します。</p>
+            </li>
+            <li>
+              <h3>外部へ送らない</h3>
+              <p>画像も管理情報もパソコンの中だけで管理します。</p>
+            </li>
+          </ul>
+        </section>
 
-      <section aria-labelledby="more">
-        <h2 id="more">もっと知る</h2>
-        <ul class="plain">
-          <li><a href="https://github.com/kk6/kura/blob/main/docs/user-guide.md">ユーザーガイド</a>：使い方</li>
-          <li><a href="https://github.com/kk6/kura/blob/main/CHANGELOG.md">CHANGELOG</a>：版ごとの変更</li>
-          <li>
-            <a href="https://github.com/kk6/kura/blob/main/docs/requirements.md">要件定義書</a
-            >：これから作る機能（お絵描きモード、似た画像の検索など）
-          </li>
-        </ul>
+        <section aria-labelledby="screens">
+          <h2 id="screens">画面</h2>
+          <div class="shots">
+            <figure>
+              <img src="images/zoom.png" width="1440" height="900" loading="lazy" alt="画像を拡大表示した画面" />
+              <figcaption>拡大表示</figcaption>
+            </figure>
+            <figure>
+              <img
+                src="images/tag-dialog.png"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="複数の画像にまとめてタグを付けるダイアログ"
+              />
+              <figcaption>まとめてタグを付ける</figcaption>
+            </figure>
+            <figure>
+              <img
+                src="images/import-result.png"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="取り込みの結果をステータスバーに表示した画面"
+              />
+              <figcaption>取り込みの結果</figcaption>
+            </figure>
+            <figure>
+              <img src="images/trash.png" width="1440" height="900" loading="lazy" alt="アプリ内のゴミ箱の画面" />
+              <figcaption>アプリ内のゴミ箱</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section aria-labelledby="more">
+          <h2 id="more">さらに詳しく</h2>
+          <ul class="plain">
+            <li><a href="https://github.com/kk6/kura/blob/main/docs/user-guide.md">ユーザーガイド</a>：使い方</li>
+            <li><a href="https://github.com/kk6/kura/blob/main/CHANGELOG.md">CHANGELOG</a>：各バージョンの変更内容</li>
+            <li>
+              <a href="https://github.com/kk6/kura/blob/main/docs/requirements.md">要件定義書</a
+              >：これから作る機能（お絵描きモード、似た画像の検索など）
+            </li>
+          </ul>
+        </section>
+      </div>
+      <section class="download" aria-labelledby="download-title">
+        <h2 id="download-title">Kuraを使ってみる</h2>
+        <a class="button" href="https://github.com/kk6/kura/releases/latest">無料でダウンロード</a>
+        <section id="install" class="installation" aria-labelledby="install-title">
+          <h2 id="install-title">インストール方法</h2>
+          <div class="install-copy">
+            <ol>
+              <li>
+                <a href="https://github.com/kk6/kura/releases/latest">Releases</a>
+                から <code>Kura-&lt;バージョン番号&gt;-arm64.zip</code> をダウンロードする
+              </li>
+              <li>
+                zip を展開し、<code>Kura.app</code>
+                を「アプリケーション」フォルダに移す
+              </li>
+              <li><code>Kura.app</code> を開く</li>
+            </ol>
+            <p>
+              Kura は Apple の開発者署名と公証を受けていません。初回起動時は macOS
+              によって起動がブロックされるため、次のどちらかの方法で開きます。一度開けば、次回からは通常どおり起動できます。
+            </p>
+            <ul class="plain">
+              <li>
+                Finder で
+                <code>Kura.app</code> を右クリックし、「開く」を選ぶ（macOS 14 まで）
+              </li>
+              <li>
+                一度起動を試してブロックされたあと、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押す（macOS
+                15 以降）
+              </li>
+            </ul>
+            <p>
+              対応環境は Apple シリコンの Mac
+              です。ライブラリは内蔵ディスクか外付けドライブ（APFS、HFS+、exFAT）に置きます。
+            </p>
+          </div>
+        </section>
       </section>
     </main>
-
-    <footer>Kura は MIT ライセンスのオープンソースソフトウェアです。</footer>
+    <footer class="site-footer page-width">
+      <div class="footer-row">
+        <a class="brand" href="#top" aria-label="Kura ホーム"
+          ><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M3 18h2L20 7l15 11h2M9 15v20m22-20v20M13 23h14m-14 7h14" /></svg
+          ><span>Kura</span></a
+        >
+        <nav aria-label="関連リンク">
+          <a href="https://github.com/kk6/kura/blob/main/docs/user-guide.md">ユーザーガイド</a>
+          <a href="https://github.com/kk6/kura">GitHub</a>
+          <a href="https://github.com/kk6/kura/blob/main/LICENSE">MIT License</a>
+        </nav>
+      </div>
+      <p class="note">Kura は MIT ライセンスのオープンソースソフトウェアです。</p>
+    </footer>
   </body>
 </html>
