@@ -394,6 +394,8 @@ const handlers: Record<string, Handler> = {
   import_paths: importPaths,
   load_gallery: loadGallery,
   image_detail: imageDetail,
+  // e2e が確かめられるように、開いたものをコンソールに出す
+  show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),
   set_memo: setMemo,
   set_rating: setRating,
   set_category: setCategory,

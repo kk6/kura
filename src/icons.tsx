@@ -24,12 +24,24 @@ export const ICONS = {
   undo: 'M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
   x: 'M18 6 6 18M6 6l12 12',
   listX: 'M11 12H3M16 6H3M16 18H3M19 10l-4 4M15 10l4 4',
+  panelRight: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM15 3v18',
+  folder:
+    'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z',
+  images:
+    'M18 22H4a2 2 0 0 1-2-2V6M22 13l-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18M12 8a2 2 0 1 0 4 0a2 2 0 1 0-4 0M6 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z',
+  inbox:
+    'M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z',
+  imageOff:
+    'M2 2l20 20M10.41 10.41a2 2 0 1 1-2.83-2.83M13.5 13.5 6 21M18 12l3 3M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59M21 15V5a2 2 0 0 0-2-2H9',
+  check: 'M20 6 9 17l-5-5',
+  // アプリのアイコン（src-tauri/icons/icon.svg）の絵を、線のアイコンに描き直したもの。Lucide ではない
+  kura: 'M1 11.5h1.5L12 4.5l9.5 7H23M5.5 9.3V21M18.5 9.3V21M8.5 14.5h7M8.5 18h7',
 }
 
-export const Icon = ({ d }: { d: string }) => (
+export const Icon = ({ d, size = 14 }: { d: string; size?: number }) => (
   <svg
-    width="14"
-    height="14"
+    width={size}
+    height={size}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"

@@ -2,9 +2,10 @@
   display: grid;
   grid-template:
     "header header header" var(--size-header)
+    "sidebar toolbar detail" var(--size-toolbar)
     "sidebar list detail" 1fr
     "status status status" var(--size-statusbar)
-    / var(--size-sidebar) 1fr var(--size-detail);
+    / var(--size-sidebar) minmax(0, 1fr) var(--size-detail);
   height: 100%;
 }
 
@@ -18,9 +19,84 @@
   background: var(--color-surface);
 }
 
+.gallery--no-detail {
+  grid-template-columns: var(--size-sidebar) minmax(0, 1fr) 0;
+}
+
+.gallery__brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  width: calc(var(--size-sidebar) - var(--space-5));
+}
+
+.gallery__mark {
+  display: flex;
+}
+
+.gallery__brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
 .gallery__logo {
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-bold);
+}
+
+/* ライブラリのメニュー。枠を付けず、ロゴの下の小さな文字に見せる */
+.gallery__library {
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+/* ⌘F の案内。入力した後は消すボタンと重なるので出さない */
+.search__key {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  transform: translateY(-50%);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+  pointer-events: none;
+}
+
+.gallery__toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: 0 var(--space-5);
+  border-bottom: var(--border);
+  background: var(--color-surface);
+}
+
+.toolbar__title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar__count {
+  flex: none;
+  color: var(--color-text-faint);
+}
+
+.toolbar__spacer {
+  flex: 1;
 }
 
 .search {
@@ -40,6 +116,8 @@
 
 .gallery__sidebar {
   grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: var(--space-3);
   border-right: var(--border);
@@ -194,6 +272,53 @@ body.is-dragging * {
   font-weight: var(--font-weight-bold);
 }
 
+.sidebar__folder {
+  display: inline-flex;
+  margin-right: var(--space-1);
+  color: var(--color-text-sub);
+}
+
+/* ライブラリの場所。サイドバーの下端に置き、押すと Finder で開く */
+.sidebar__location {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding: var(--space-4) var(--space-3);
+  border: none;
+  border-top: var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-sub);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) ease-out;
+}
+
+.sidebar__location:hover {
+  background: var(--color-raise);
+}
+
+.sidebar__location:active {
+  background: var(--color-selected);
+}
+
+.sidebar__location-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar__location-label {
+  color: var(--color-text-faint);
+}
+
+.sidebar__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidebar__count {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-regular);
@@ -214,9 +339,13 @@ body.is-dragging * {
   min-height: var(--size-control-sm);
   margin: var(--space-4) 0 var(--space-1);
   padding: 0 var(--space-3);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
-  color: var(--color-text-faint);
+}
+
+/* 先頭の「ライブラリ」の見出しは、上の余白をサイドバーの内側の余白だけにする */
+.gallery__sidebar > .sidebar__heading:first-child {
+  margin-top: 0;
 }
 
 .gallery__list {
@@ -236,6 +365,25 @@ body.is-dragging * {
 /* 先頭の見出しは、1枚のときのプレビューと上端をそろえる */
 .gallery__detail > .detail__name:first-child {
   margin-top: 0;
+}
+
+.detail__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.detail__title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+}
+
+.detail__meta {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
 }
 
 .detail__empty {
@@ -357,6 +505,23 @@ body.is-dragging * {
   outline: var(--select-outline);
 }
 
+/* 選んだ画像の左上の印（docs/design.md「選択中の画像」）。表示だけなので、押しても下の画像に届く */
+.list__check {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-check);
+  height: var(--size-check);
+  margin: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-text);
+  background: var(--color-text);
+  pointer-events: none;
+}
+
 .detail__preview {
   display: flex;
   justify-content: center;
@@ -372,7 +537,7 @@ body.is-dragging * {
 }
 
 .detail__name {
-  margin: var(--space-4) 0;
+  margin: var(--space-4) 0 var(--space-1);
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-bold);
   overflow-wrap: anywhere;
@@ -402,17 +567,16 @@ body.is-dragging * {
 }
 
 .detail__fields {
-  display: grid;
-  /* ラベル（小さい文字）と値の文字の下端をそろえる */
-  align-items: baseline;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-3) var(--space-4);
   margin: 0;
 }
 
+/* 項目の見出しは値の上に置き、項目の間に線を引く */
 .detail__fields dt {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-faint);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--border);
+  margin-bottom: var(--space-2);
+  font-weight: var(--font-weight-bold);
 }
 
 .detail__fields dd {
@@ -604,7 +768,7 @@ body.is-dragging * {
 /* 押して絞り込む行（すべての画像、未分類、タグ） */
 .sidebar__button {
   width: 100%;
-  gap: var(--space-1);
+  gap: var(--space-3);
   border: none;
   background: none;
   text-align: left;
@@ -673,8 +837,13 @@ body.is-dragging * {
   color: var(--color-text-faint);
 }
 
-.detail__trash {
+.detail__fields + .detail__actions {
   margin-top: var(--space-5);
+}
+
+.button--bare {
+  border-color: transparent;
+  background: none;
 }
 
 .detail__note {

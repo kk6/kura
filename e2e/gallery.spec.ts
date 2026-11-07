@@ -281,7 +281,8 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   await expect(category.locator('option:checked')).toHaveText('未分類')
   await expect(detail.getByRole('listitem')).toHaveText(['あおり', '座り'])
   await expect(detail).toContainText('元URLhttps://example.com/gallery/pose')
-  await expect(detail).toContainText(/サイズ\d+ × \d+、177 KB/)
+  await expect(detail).toContainText(/JPEG ・ \d+ × \d+ ・ 177 KB/)
+  await expect(detail).toContainText(/取り込み日\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)
   await expect(detail).toContainText('腕の角度と')
   expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
   await page.screenshot({ path: 'test-results/detail.png' })
@@ -457,7 +458,7 @@ test('Escape で選択を外す。拡大表示中は先に拡大表示を閉じ�
   await thumb(page, 3).click({ modifiers: ['Meta'] })
   await page.keyboard.press('Escape')
   expect(await selectedNames(page)).toEqual([])
-  await expect(detail).toHaveText('画像を選ぶと、ここに詳細が出ます')
+  await expect(detail).toContainText('画像を選ぶと、ここに詳細が出ます')
 
   await thumb(page, 2).dblclick()
   await page.keyboard.press('Escape')
@@ -877,8 +878,10 @@ test('サイドバーのタグは一覧の画像と同じく、押すとそれ�
   expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
 
   // サイドバーの余白を押すとタグの選択を外す
+  // 下端はライブラリの場所のボタンなので、その少し上を押す
   const box = (await sidebar.boundingBox())!
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height - 10)
+  const location = (await sidebar.getByRole('button', { name: /ライブラリの場所/ }).boundingBox())!
+  await page.mouse.click(box.x + box.width / 2, location.y - 10)
   expect(await pressed()).toEqual([])
 })
 
@@ -1078,7 +1081,7 @@ test('検索バーに入れると名前の合うカテゴリとタグを候補�
   for (let i = 0; i < 2; i++) await search.press('Tab')
   await expect(options.nth(2)).toHaveAttribute('aria-selected', 'true')
   await search.press('Tab')
-  await expect(page.getByRole('combobox', { name: '並べ替え' })).toBeFocused()
+  await expect(page.getByRole('button', { name: '画像を取り込む' })).toBeFocused()
 
   // 自動修正（cat を Cat にする提案）を出さない
   await expect(search).toHaveAttribute('autocorrect', 'off')
@@ -1337,5 +1340,68 @@ test('検索・選択・拡大表示・タグ付け・ゴミ箱・設定をキ�
   // ⌘, で設定を開く
   await page.keyboard.press('Meta+,')
   await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('UIのリニューアルで足した、ライブラリのメニュー、一覧の上の帯、詳細パネルの開閉、選択の印、Finder で開く操作', async ({
+  page,
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  const finder: string[] = []
+  page.on('console', (m) => m.text().startsWith('finder: ') && finder.push(m.text()))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  // 帯の見出しはサイドバーで選んだもの。枚数は今の一覧の枚数
+  const toolbar = page.locator('.gallery__toolbar')
+  await expect(toolbar.getByRole('heading')).toHaveText('すべての画像')
+  await page
+    .getByRole('navigation', { name: 'サイドバー' })
+    .getByRole('button', { name: /未分類/ })
+    .click()
+  await expect(toolbar.getByRole('heading')).toHaveText('未分類')
+  await expect(toolbar).toContainText('500枚')
+  await page
+    .getByRole('navigation', { name: 'サイドバー' })
+    .getByRole('button', { name: /すべての画像/ })
+    .click()
+
+  // 選んだ画像だけに印を出し、ステータスバーに選んでいる枚数を出す
+  await thumb(page, 1).click()
+  await thumb(page, 2).click({ modifiers: ['Meta'] })
+  await expect(page.locator('.list__check')).toHaveCount(2)
+  await expect(page.getByRole('contentinfo')).toContainText('2枚を選択')
+
+  // Finder で開く。画像は1枚のときだけ、ライブラリの場所はサイドバーの下から
+  await thumb(page, 1).click()
+  await detail.getByRole('button', { name: 'Finderで表示' }).click()
+  await page.getByRole('button', { name: /ライブラリの場所/ }).click()
+  await expect.poll(() => finder).toEqual(['finder: 1', 'finder: root'])
+
+  // × と ⌘I で閉じ、帯のボタンで開く。閉じている間に選び直しても開かない
+  await detail.getByRole('button', { name: '詳細パネルを閉じる' }).click()
+  await expect(detail).toHaveCount(0)
+  await thumb(page, 2).click()
+  await expect(detail).toHaveCount(0)
+  await page.getByRole('button', { name: '詳細パネルを開く' }).click()
+  await expect(detail.getByRole('heading')).toHaveText('ref_00002.jpg')
+  await page.keyboard.press('Meta+i')
+  await expect(detail).toHaveCount(0)
+  await page.keyboard.press('Meta+i')
+  await expect(detail).toBeVisible()
+  await page.screenshot({ path: 'test-results/renewal.png' })
+
+  // ライブラリのメニューで別のライブラリを選ぶと、選択画面を通らずに開く。見つからなければ選択画面に出す
+  const library = page.getByRole('combobox', { name: 'ライブラリ' })
+  await expect(library.locator('option:checked')).toHaveText('Kura ライブラリ')
+  await library.selectOption({ label: '参考資料' })
+  const screen = page.getByRole('main', { name: 'ライブラリ選択' })
+  await expect(screen.getByRole('alert')).toBeVisible()
+  await screen.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
+  await library.selectOption({ label: 'ほかのライブラリを開く…' })
+  await expect(screen.getByRole('alert')).toHaveCount(0)
   expect(errors).toEqual([])
 })

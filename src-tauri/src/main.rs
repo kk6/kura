@@ -117,6 +117,25 @@ fn image_detail(current: State<Current>, id: i64) -> Result<gallery::Detail, Str
     current.0.with(|lib| gallery::detail(lib, id))
 }
 
+/// Finder で画像を選んだ状態で開く。id がなければライブラリのフォルダを開く。
+/// 画面からはパスを受け取らず DB から組み立てる。開いたライブラリの外を開かせないため
+#[tauri::command]
+fn show_in_finder(current: State<Current>, id: Option<i64>) -> Result<(), String> {
+    let args = current.0.with(|lib| match id {
+        Some(id) => Ok(vec!["-R".into(), gallery::detail(lib, id)?.path]),
+        None => Ok(vec![lib.root.clone()]),
+    })?;
+    let status = std::process::Command::new("open")
+        .args(args)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Finder で開けません（{status}）"))
+    }
+}
+
 #[tauri::command]
 fn set_memo(current: State<Current>, id: i64, memo: String) -> Result<(), String> {
     current.0.with(|lib| gallery::set_memo(lib, id, &memo))
@@ -354,6 +373,7 @@ fn main() {
             import_paths,
             load_gallery,
             image_detail,
+            show_in_finder,
             set_memo,
             set_rating,
             set_category,

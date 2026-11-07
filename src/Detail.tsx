@@ -28,10 +28,25 @@ type Props = {
   onMemo: (id: number, memo: string) => void
   // 選んだ画像をゴミ箱へ移す（FR-511）
   onTrash: (ids: number[]) => void
+  // 画像を Finder で選んだ状態で開く
+  onReveal: (id: number) => void
+  onClose: () => void
 }
 
 function fileSize(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+// 拡張子から形式の名前を出す。jpg と jpeg はどちらも JPEG
+const format = (fileName: string) => {
+  const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toUpperCase()
+  return ext === 'JPG' ? 'JPEG' : ext
+}
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const dateTime = (ms: number) => {
+  const d = new Date(ms)
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 // 詳細パネル（FR-507）。1枚だけ選んでいるときに詳細を出す
@@ -190,20 +205,33 @@ export default function Detail(props: Props) {
   )
   // 元に戻せるので確認は出さない
   const trash = (
-    <button type="button" className="button detail__trash" onClick={() => props.onTrash(ids)}>
+    <button type="button" className="button" onClick={() => props.onTrash(ids)}>
       <Icon d={ICONS.trash} />
       ゴミ箱へ移す
     </button>
   )
   return (
     <aside className="gallery__detail" aria-label="詳細">
+      <div className="detail__header">
+        {/* 見出しにはしない。パネルは aside の名前で読み上げ、見出しはファイル名にするため */}
+        <span className="detail__title">画像の詳細</span>
+        <button
+          type="button"
+          className="button button--icon button--bare"
+          aria-label="詳細パネルを閉じる"
+          title="詳細パネルを閉じる（⌘I）"
+          onClick={props.onClose}
+        >
+          <Icon d={ICONS.x} />
+        </button>
+      </div>
       {!selected.length ? (
         <p className="detail__empty">画像を選ぶと、ここに詳細が出ます</p>
       ) : !image ? (
         <>
           <h2 className="detail__name">{selected.length}枚を選んでいます</h2>
           <dl className="detail__fields">{classify}</dl>
-          {trash}
+          <div className="detail__actions">{trash}</div>
         </>
       ) : (
         <>
@@ -221,21 +249,17 @@ export default function Detail(props: Props) {
           </div>
           {/* key：別の画像に移ったら入力中の名前を捨てる */}
           <FileName key={image.id} image={image} onRename={onRename} />
+          <p className="detail__meta">
+            {format(image.file_name)} ・ {image.width} × {image.height}
+            {detail && ` ・ ${fileSize(detail.file_size)}`}
+          </p>
+          <Rating image={image} onRate={onRate} />
           {error && <Status kind="error">詳細を読めません（{error}）</Status>}
           <dl className="detail__fields">
             {classify}
             <dt>元URL</dt>
             {/* shortcut: 文字として出すだけで、ブラウザでは開けない。ダウンロード元の記録（FR-208、フェーズ2）で元URLが入るようになったら開けるようにする */}
             <dd className="detail__url">{detail && (detail.source?.page_url ?? detail.source?.image_url ?? 'なし')}</dd>
-            <dt>サイズ</dt>
-            <dd>
-              {image.width} × {image.height}
-              {detail && `、${fileSize(detail.file_size)}`}
-            </dd>
-            <dt>評価</dt>
-            <dd>
-              <Rating image={image} onRate={onRate} />
-            </dd>
             <dt>
               <label htmlFor="detail-memo">メモ</label>
             </dt>
@@ -248,8 +272,16 @@ export default function Detail(props: Props) {
                 onSaved={(memo) => props.onMemo(image.id, memo)}
               />
             </dd>
+            <dt>取り込み日</dt>
+            <dd>{dateTime(image.imported_at)}</dd>
           </dl>
-          {trash}
+          <div className="detail__actions">
+            <button type="button" className="button" onClick={() => props.onReveal(image.id)}>
+              <Icon d={ICONS.folder} />
+              Finderで表示
+            </button>
+            {trash}
+          </div>
         </>
       )}
     </aside>

@@ -39,11 +39,14 @@ export default function App() {
   if (screen.kind === 'loading' || !settings) return null
   if (screen.kind === 'gallery')
     return (
+      // key：別のライブラリへ切り替えたら、一覧と選択を作り直す
       <Gallery
+        key={screen.path}
         root={screen.path}
+        recent={recent}
         settings={settings}
         onSettings={saveSettings}
-        onSwitch={() => setScreen({ kind: 'select' })}
+        onSwitch={(path) => (path ? openLibrary('open_library', path) : setScreen({ kind: 'select' }))}
       />
     )
   return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} />
