@@ -365,7 +365,7 @@ const forgetImages: Handler = (args) => {
 // 本物は設定を settings.json に、カテゴリの開閉を DB に残す。開き直し（page.goto）でも残るよう sessionStorage に置く
 const stored = <T>(key: string, init: T): T => JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? init
 const store = (key: string, value: unknown) => sessionStorage.setItem(key, JSON.stringify(value))
-const DEFAULT_SETTINGS: Settings = { confirm_category_move: true, thumb_width: 200 }
+const DEFAULT_SETTINGS: Settings = { confirm_category_move: true, thumb_width: 200, tags_collapsed: false }
 
 const loadGallery: Handler = () => {
   if (created) return { images: [], categories: [], tags: [] }
@@ -394,6 +394,8 @@ const handlers: Record<string, Handler> = {
   import_paths: importPaths,
   load_gallery: loadGallery,
   image_detail: imageDetail,
+  // e2e が確かめられるように、開いたものをコンソールに出す
+  show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),
   set_memo: setMemo,
   set_rating: setRating,
   set_category: setCategory,

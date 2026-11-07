@@ -1,3 +1,4 @@
+import { Icon, ICONS } from './icons'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { Image } from './galleryTypes'
@@ -110,7 +111,7 @@ export default function Masonry({
       ) : (
         l && (
           <div className="list__canvas" style={{ height: l.height + gap * 2 }}>
-            {shown.map((i) => (
+            {shown.map((i) => [
               <img
                 key={images[i].id}
                 className={selected.has(images[i].id) ? 'list__thumb list__thumb--selected' : 'list__thumb'}
@@ -125,8 +126,19 @@ export default function Masonry({
                   // 読み込むまでは代表色で埋めて、空白に見えないようにする
                   background: images[i].color,
                 }}
-              />
-            ))}
+              />,
+              // 枠だけでは選択中かが見分けにくいので、左上に印を重ねる。表示だけで、押しても何も起きない
+              selected.has(images[i].id) && (
+                <span
+                  key={`check${images[i].id}`}
+                  className="list__check"
+                  aria-hidden="true"
+                  style={{ transform: `translate(${l.x[i] + gap}px, ${l.y[i] + gap}px)` }}
+                >
+                  <Icon d={ICONS.check} size={12} />
+                </span>
+              ),
+            ])}
           </div>
         )
       )}

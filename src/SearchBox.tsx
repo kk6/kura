@@ -75,6 +75,7 @@ export default function SearchBox({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
       />
+      {!filter.text && <kbd className="search__key">⌘F</kbd>}
       {shown.length > 0 && (
         <ul id={listId} className="tag-input__list" role="listbox" aria-label="絞り込みの候補">
           {shown.map((c, i) => (

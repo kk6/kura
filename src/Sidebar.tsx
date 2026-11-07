@@ -12,7 +12,7 @@ import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import type { countImages, Filter } from './filter'
 import type { Category, Gallery } from './galleryTypes'
-import { Icon } from './icons'
+import { Icon, ICONS } from './icons'
 import { select } from './selection'
 
 type Props = {
@@ -40,6 +40,18 @@ type Props = {
   // 差分検出（FR-104）。scanning の間はボタンを押せない
   scanning: boolean
   onScan: () => void
+  // ライブラリの場所。押すと Finder で開く
+  root: string
+  onReveal: () => void
+  // タグ一覧を閉じているか（アプリ全体の設定）。閉じていても、選んでいるタグは出す
+  tagsCollapsed: boolean
+  onTagsCollapse: (collapsed: boolean) => void
+}
+
+// 長いパスは途中を … で省き、先頭のフォルダと最後の2つを残す（全体は title で出す）
+const shortPath = (path: string) => {
+  const parts = path.split('/').filter(Boolean)
+  return parts.length <= 3 ? path : `/${parts[0]}/…/${parts.slice(-2).join('/')}`
 }
 
 // ドロップ先の目印。ROOT は見出しに落としたとき（ルート直下へ移す）
@@ -240,6 +252,9 @@ export default function Sidebar(props: Props) {
               ) : (
                 <span className="sidebar__toggle" />
               )}
+              <span className="sidebar__folder">
+                <Icon d={ICONS.folder} />
+              </span>
               <button
                 type="button"
                 className="sidebar__name"
@@ -298,7 +313,10 @@ export default function Sidebar(props: Props) {
         if (e.target === e.currentTarget && e.button === 0 && filter.tags.length) setTags([], null)
       }}
     >
-      <ul className="sidebar__list">
+      <h2 className="sidebar__heading" id="sidebar-library">
+        ライブラリ
+      </h2>
+      <ul className="sidebar__list" aria-labelledby="sidebar-library">
         <li>
           <button
             type="button"
@@ -306,7 +324,9 @@ export default function Sidebar(props: Props) {
             aria-current={current === 'all'}
             onClick={() => scope('all')}
           >
-            すべての画像<span className="sidebar__count">{gallery.images.length}</span>
+            <Icon d={ICONS.images} />
+            <span className="sidebar__name">すべての画像</span>
+            <span className="sidebar__count">{gallery.images.length}</span>
           </button>
         </li>
         <li>
@@ -316,7 +336,9 @@ export default function Sidebar(props: Props) {
             aria-current={current === 'uncategorized'}
             onClick={() => scope('uncategorized')}
           >
-            未分類<span className="sidebar__count">{counts.uncategorized}</span>
+            <Icon d={ICONS.inbox} />
+            <span className="sidebar__name">未分類</span>
+            <span className="sidebar__count">{counts.uncategorized}</span>
           </button>
         </li>
         <li>
@@ -326,7 +348,9 @@ export default function Sidebar(props: Props) {
             aria-current={props.aside === 'trash'}
             onClick={() => props.onAside('trash')}
           >
-            ゴミ箱<span className="sidebar__count">{props.trashCount}</span>
+            <Icon d={ICONS.trash} />
+            <span className="sidebar__name">ゴミ箱</span>
+            <span className="sidebar__count">{props.trashCount}</span>
           </button>
         </li>
         {/* 見つからない画像があるときだけ出す。開いている間は0枚になっても残す */}
@@ -338,7 +362,9 @@ export default function Sidebar(props: Props) {
               aria-current={props.aside === 'missing'}
               onClick={() => props.onAside('missing')}
             >
-              見つからない<span className="sidebar__count">{props.missingCount}</span>
+              <Icon d={ICONS.imageOff} />
+              <span className="sidebar__name">見つからない</span>
+              <span className="sidebar__count">{props.missingCount}</span>
             </button>
           </li>
         )}
@@ -384,7 +410,17 @@ export default function Sidebar(props: Props) {
         {tree(null, 0)}
       </ul>
       <h2 className="sidebar__heading" id="sidebar-tags">
-        タグ
+        <button
+          type="button"
+          className="sidebar__section"
+          aria-expanded={!props.tagsCollapsed}
+          onClick={() => props.onTagsCollapse(!props.tagsCollapsed)}
+        >
+          タグ
+          <span className="sidebar__toggle">
+            <Icon d={props.tagsCollapsed ? 'M9 6l6 6-6 6' : 'M6 9l6 6 6-6'} />
+          </span>
+        </button>
         {/* 選んだタグをすべて含む（AND）か、どれかを含む（OR）か */}
         <span className="sidebar__actions" role="group" aria-label="タグの組み合わせ">
           {(['and', 'or'] as const).map((mode) => (
@@ -405,20 +441,30 @@ export default function Sidebar(props: Props) {
         </span>
       </h2>
       <ul className="sidebar__list" aria-labelledby="sidebar-tags" onKeyDown={onTagKey}>
-        {gallery.tags.map((t) => (
-          <li key={t.id}>
-            <button
-              type="button"
-              className={`sidebar__item sidebar__button${filter.tags.includes(t.id) ? ' sidebar__item--selected' : ''}`}
-              aria-pressed={filter.tags.includes(t.id)}
-              onClick={(e) => pickTag(e, t.id)}
-            >
-              <span className="sidebar__name">{t.name}</span>
-              <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
-            </button>
-          </li>
-        ))}
+        {/* 閉じていても選んでいるタグは出す。何で絞り込んでいるかが見えなくならないように */}
+        {gallery.tags
+          .filter((t) => !props.tagsCollapsed || filter.tags.includes(t.id))
+          .map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                className={`sidebar__item sidebar__button${filter.tags.includes(t.id) ? ' sidebar__item--selected' : ''}`}
+                aria-pressed={filter.tags.includes(t.id)}
+                onClick={(e) => pickTag(e, t.id)}
+              >
+                <span className="sidebar__name">{t.name}</span>
+                <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
+              </button>
+            </li>
+          ))}
       </ul>
+      <button type="button" className="sidebar__location" title={props.root} onClick={props.onReveal}>
+        <Icon d={ICONS.folder} />
+        <span className="sidebar__location-text">
+          <span className="sidebar__location-label">ライブラリの場所</span>
+          <span className="sidebar__path">{shortPath(props.root)}</span>
+        </span>
+      </button>
       {drag && press && (
         <div className="sidebar__drag" style={{ left: drag.x, top: drag.y }} role="status">
           {dragLabel(drag.hit)}

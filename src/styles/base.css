@@ -103,3 +103,23 @@ textarea[aria-invalid='true']:focus-visible {
     transform: none;
   }
 }
+
+/* スクロールバー（docs/design.md「スクロールバー」）。OS の初期の太い灰色のバーは、画像の横で目立ちすぎるため */
+::-webkit-scrollbar {
+  width: var(--size-scrollbar);
+  height: var(--size-scrollbar);
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-md);
+  background: var(--color-line);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-faint);
+}

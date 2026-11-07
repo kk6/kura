@@ -42,14 +42,16 @@ const THUMB_MAX = 320
 
 type Props = {
   root: string
+  // 最近使ったライブラリ。ヘッダーのライブラリのメニューに出す（FR-105）
+  recent: string[]
   // アプリ全体の設定。onSettings は保存に失敗したら理由の文字列で reject する
   settings: Settings
   onSettings: (settings: Settings) => Promise<void>
-  // ライブラリ選択画面へ戻る（FR-105）。メニューの「ライブラリを切り替える…」で呼ぶ
-  onSwitch: () => void
+  // path のライブラリへ切り替える。path がなければライブラリ選択画面へ戻る（FR-105）
+  onSwitch: (path?: string) => void
 }
 
-export default function Gallery({ root, settings, onSettings, onSwitch }: Props) {
+export default function Gallery({ root, recent, settings, onSettings, onSwitch }: Props) {
   const [data, setData] = useState(EMPTY)
   const [sort, setSort] = useState<SortKey>('imported')
   const [filter, setFilter] = useState(NO_FILTER)
@@ -60,6 +62,8 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // 詳細パネルを開いているか。保存せず、起動すると開いた状態に戻る
+  const [detailOpen, setDetailOpen] = useState(true)
   // 読み込んだ詳細。id は、別の画像に移った直後に前の画像の詳細を使わないため
   const [detail, setDetail] = useState<{ id: number; detail?: DetailData; error?: string } | null>(null)
   const busy = useRef(false)
@@ -212,6 +216,11 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
     }
     // 入力中の文字の操作は奪わない
     if ((e.target as Element).closest('input, textarea, select')) return
+    if (e.metaKey && key === 'i') {
+      e.preventDefault()
+      setDetailOpen((o) => !o)
+      return
+    }
     const by = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
     if (e.key === 'Escape') {
       if (zoomed) setZoom(false)
@@ -263,7 +272,7 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
   startRef.current = start
 
   // 取り込みと差分検出の途中では戻らない。どちらも開いているライブラリを1枚ずつ読み書きするため
-  function leave() {
+  function leave(path?: string) {
     // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
     if (document.querySelector('dialog[open]')) return
     // ステータスバーは処理の間は進み具合を出すので、断る理由はダイアログで知らせる
@@ -276,7 +285,7 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
     }
     // 入力中のメモは blur で保存される。ライブラリは次に開くまで Rust 側に残るので、保存は前のライブラリに届く
     ;(document.activeElement as HTMLElement | null)?.blur()
-    onSwitch()
+    onSwitch(path)
   }
   const leaveRef = useRef(leave)
   leaveRef.current = leave
@@ -478,35 +487,50 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
     dropTag(id, null)
   }
 
+  const reveal = (id?: number) =>
+    invoke('show_in_finder', { id }).catch((e) => setResult({ kind: 'error', message: `Finder で開けません（${e}）` }))
+
+  const title = inTrash
+    ? 'ゴミ箱'
+    : inMissing
+      ? '見つからない'
+      : filter.category === 'all'
+        ? 'すべての画像'
+        : filter.category === 'uncategorized'
+          ? '未分類'
+          : (data.categories.find((c) => c.id === filter.category)?.name ?? '')
+
   const skipped = result?.kind === 'report' || result?.kind === 'scan' ? result.report.skipped : []
 
   return (
-    <div className="gallery">
+    <div className={detailOpen ? 'gallery' : 'gallery gallery--no-detail'}>
       <header className="gallery__header">
-        <span className="gallery__logo">Kura</span>
+        <span className="gallery__brand">
+          <span className="gallery__mark">
+            <Icon d={ICONS.kura} size={28} />
+          </span>
+          <span className="gallery__brand-text">
+            <span className="gallery__logo">Kura</span>
+            {/* ネイティブのメニューにすると、今のライブラリに macOS のチェックが付く */}
+            <select
+              className="gallery__library"
+              aria-label="ライブラリ"
+              title={root}
+              value={root}
+              onChange={(e) => leave(e.target.value || undefined)}
+            >
+              <optgroup label="最近使ったライブラリ">
+                {(recent.includes(root) ? recent : [root, ...recent]).map((path) => (
+                  <option key={path} value={path}>
+                    {baseName(path)}
+                  </option>
+                ))}
+              </optgroup>
+              <option value="">ほかのライブラリを開く…</option>
+            </select>
+          </span>
+        </span>
         <SearchBox filter={filter} categories={data.categories} tags={data.tags} onFilter={changeFilter} />
-        <select
-          className="gallery__sort"
-          aria-label="並べ替え"
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortKey)}
-        >
-          {Object.entries(SORTS).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <input
-          className="gallery__size"
-          type="range"
-          aria-label="サムネイルの大きさ"
-          min={THUMB_MIN}
-          max={THUMB_MAX}
-          step={10}
-          value={thumbWidth}
-          onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
-        />
         {/* 取り込みと差分検出の間は、押せないボタンを残さず処理中であることを出す。押せない理由がわからないと壊れたと思われるため。
             ボタンは見えないまま場所を取り、ヘッダーの幅が変わらないようにする */}
         <span className="gallery__import">
@@ -557,7 +581,51 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
         onAside={openAside}
         scanning={!!scanning || !!progress}
         onScan={scan}
+        root={root}
+        onReveal={() => reveal()}
+        tagsCollapsed={settings.tags_collapsed}
+        onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
       />
+
+      <div className="gallery__toolbar">
+        <h1 className="toolbar__title">{title}</h1>
+        <span className="toolbar__count">{listed.length}枚</span>
+        <span className="toolbar__spacer" />
+        {!aside && (
+          <select
+            className="gallery__sort"
+            aria-label="並べ替え"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+          >
+            {Object.entries(SORTS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        )}
+        <input
+          className="gallery__size"
+          type="range"
+          aria-label="サムネイルの大きさ"
+          min={THUMB_MIN}
+          max={THUMB_MAX}
+          step={10}
+          value={thumbWidth}
+          onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
+        />
+        <button
+          type="button"
+          className="button button--icon"
+          aria-label={detailOpen ? '詳細パネルを閉じる' : '詳細パネルを開く'}
+          aria-pressed={detailOpen}
+          title={`詳細パネルを${detailOpen ? '閉じる' : '開く'}（⌘I）`}
+          onClick={() => setDetailOpen((o) => !o)}
+        >
+          <Icon d={ICONS.panelRight} />
+        </button>
+      </div>
 
       <Masonry
         root={root}
@@ -615,7 +683,7 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
         </section>
       )}
 
-      {inTrash ? (
+      {!detailOpen ? null : inTrash ? (
         <TrashPanel
           count={trash.length}
           selected={ids.length}
@@ -651,6 +719,8 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
           onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
           onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
           onTrash={trashImages}
+          onReveal={reveal}
+          onClose={() => setDetailOpen(false)}
         />
       )}
 
@@ -663,6 +733,7 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
               : filtered
                 ? `${images.length} / ${data.images.length}枚`
                 : `${data.images.length}枚`}
+          {ids.length > 0 && ` ・ ${ids.length}枚を選択`}
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <StatusbarResult
@@ -716,6 +787,8 @@ export default function Gallery({ root, settings, onSettings, onSwitch }: Props)
     </div>
   )
 }
+
+const baseName = (path: string) => path.split('/').filter(Boolean).pop() ?? path
 
 const sortTags = (tags: Tag[]) => tags.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
 
