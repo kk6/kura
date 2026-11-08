@@ -90,11 +90,72 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE images ADD COLUMN category_deleted INTEGER NOT NULL DEFAULT 0",
     // サイドバーで閉じたカテゴリ（FR-503）。カテゴリと一緒に消え、ライブラリを移しても DB のバックアップ（NFR-07）でも残る
     "ALTER TABLE categories ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE boards(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        name_key TEXT NOT NULL UNIQUE,
+        viewport_x REAL NOT NULL DEFAULT 0,
+        viewport_y REAL NOT NULL DEFAULT 0,
+        viewport_scale REAL NOT NULL DEFAULT 1 CHECK(viewport_scale > 0),
+        updated_at INTEGER NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0)
+    );
+    CREATE TABLE board_sources(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        image_id INTEGER UNIQUE REFERENCES images(id) ON DELETE SET NULL,
+        file_name TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL
+    );
+    INSERT INTO board_sources(image_id, file_name, width, height)
+        SELECT id, file_name, width, height FROM images ORDER BY id;
+    CREATE TRIGGER board_source_insert AFTER INSERT ON images BEGIN
+        INSERT INTO board_sources(image_id, file_name, width, height)
+        VALUES (NEW.id, NEW.file_name, NEW.width, NEW.height);
+    END;
+    CREATE TRIGGER board_source_update AFTER UPDATE OF file_name, width, height ON images BEGIN
+        UPDATE board_sources SET file_name = NEW.file_name, width = NEW.width, height = NEW.height
+        WHERE image_id = OLD.id;
+    END;
+    CREATE TRIGGER board_source_delete BEFORE DELETE ON images BEGIN
+        UPDATE board_sources SET image_id = NULL, file_name = OLD.file_name,
+            width = OLD.width, height = OLD.height WHERE image_id = OLD.id;
+    END;
+    CREATE TABLE board_items(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+        source_id INTEGER NOT NULL REFERENCES board_sources(id),
+        active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+        width REAL NOT NULL CHECK(width > 0),
+        height REAL NOT NULL CHECK(height > 0),
+        x REAL NOT NULL,
+        y REAL NOT NULL,
+        scale REAL NOT NULL CHECK(scale > 0),
+        rotation REAL NOT NULL,
+        flipped INTEGER NOT NULL CHECK(flipped IN (0, 1)),
+        grayscale INTEGER NOT NULL CHECK(grayscale IN (0, 1)),
+        crop_x REAL,
+        crop_y REAL,
+        crop_width REAL,
+        crop_height REAL,
+        stack_order INTEGER NOT NULL,
+        CHECK((crop_x IS NULL AND crop_y IS NULL AND crop_width IS NULL AND crop_height IS NULL)
+           OR (crop_x IS NOT NULL AND crop_y IS NOT NULL AND crop_width IS NOT NULL AND crop_height IS NOT NULL
+               AND crop_x >= 0 AND crop_y >= 0 AND crop_width > 0 AND crop_height > 0
+               AND crop_x + crop_width <= 1 AND crop_y + crop_height <= 1))
+    );
+    CREATE INDEX board_items_board ON board_items(board_id, active, stack_order, id);
+    CREATE TABLE board_state(
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        last_board_id INTEGER REFERENCES boards(id) ON DELETE SET NULL
+    );
+    INSERT INTO board_state(id) VALUES (1)",
 ];
 
 pub struct Library {
     pub root: PathBuf,
     pub conn: Connection,
+    pub(crate) board_session: crate::board::Session,
 }
 
 pub(crate) fn err(e: impl Display) -> String {
@@ -151,6 +212,7 @@ fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
     let mut lib = Library {
         root: root.to_path_buf(),
         conn,
+        board_session: crate::board::Session::new(),
     };
     for op in fileops::recover(&mut lib, &apply_op)? {
         // shortcut: ログに残すだけで画面には出さない。不整合を画面に出す差分検出（FR-104）で利用者に知らせる
@@ -451,6 +513,55 @@ mod tests {
 
         assert!(err.contains("ライブラリではありません"), "{err}");
         assert_eq!(entries(dir.path()), ["a.jpg"]);
+    }
+
+    #[test]
+    fn フェーズ1のdbを移行しても画像とカテゴリとタグと元urlを残す() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut lib = create_with(dir.path(), &MIGRATIONS[..7]).unwrap();
+        let category = crate::category::create(&mut lib, None, "服飾").unwrap();
+        crate::category::set_collapsed(&lib, &[category], true).unwrap();
+        let image = crate::category::tests::put(&lib, Some(category), "参考.png", "画像の内容");
+        crate::tag::add(&mut lib, &[image], "資料").unwrap();
+        lib.conn
+            .execute(
+                "UPDATE images SET memo = '覚え書き', rating = 4 WHERE id = ?1",
+                [image],
+            )
+            .unwrap();
+        lib.conn.execute("INSERT INTO image_sources(image_id, image_url, page_url, fetched_at) VALUES (?1, 'https://example.test/image', NULL, 123)", [image]).unwrap();
+        assert_eq!(user_version(&lib.conn), 7);
+        drop(lib);
+        let lib = open(dir.path()).unwrap();
+        assert_eq!(user_version(&lib.conn), MIGRATIONS.len() as i64);
+        assert_eq!(
+            crate::category::tests::row(&lib, image),
+            ("参考.png".into(), Some(category))
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("服飾/参考.png")).unwrap(),
+            "画像の内容"
+        );
+        assert_eq!(crate::tag::of(&lib, &[image]).unwrap()[0].name, "資料");
+        let metadata: (String, i64, String) = lib.conn.query_row(
+            "SELECT memo, rating, image_url FROM images JOIN image_sources ON image_id = images.id WHERE images.id = ?1",
+            [image], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        assert_eq!(
+            metadata,
+            ("覚え書き".into(), 4, "https://example.test/image".into())
+        );
+        let s = crate::board::session(&lib);
+        assert!(crate::board::list(&lib, s).unwrap().boards.is_empty());
+        assert!(crate::board::last(&lib, s).unwrap().is_none());
+        let sources = crate::board::sources(&lib, s, &[image]).unwrap();
+        assert_eq!(sources[0].file_name, "参考.png");
+        drop(lib);
+        let lib = open(dir.path()).unwrap();
+        assert_eq!(
+            crate::board::sources(&lib, crate::board::session(&lib), &[image]).unwrap(),
+            sources
+        );
     }
 
     #[test]

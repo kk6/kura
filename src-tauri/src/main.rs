@@ -1,3 +1,4 @@
+pub mod board;
 mod category;
 mod fileops;
 mod gallery;
