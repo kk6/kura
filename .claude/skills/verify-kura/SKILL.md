@@ -63,13 +63,13 @@ $V doctor <id>
 
 ## Drive
 
-computer-use を使う。準備：
-- `request_access` に `dev.kk6.kura`（取り込み元を Finder で見せるときは Finder も）。
-- **WKWebView の中のボタンは、背景操作（`app_click`）では押せない**（「canvas/custom view」と断られる）。画面の中を押すには `request_full_control` で全画面操作の承認をもらい、`computer_batch` を使う。承認を求める前に、どの手順のためかを利用者に1行で伝える。
-- 背景操作でできること：`app_screenshot`（AX の要約にボタン名が出る。位置確認に使う）、`app_menu`（メニューバー）。メニューは `app_menu` を優先する：
-  - `["ファイル", "ライブラリを切り替える…"]`（⌘⇧O）
+画面を操作する前に、実行環境に対応する手順を読む。操作・画面の保存・UI ツールの終了処理はこのファイルに従う。
 
-座標は毎回 `computer_batch` の `screenshot` から読む。ウインドウの位置は起動ごとに変わる。押す相手は画面の文字（ボタン名、aria-label）で探す。主な目印：
+- Claude Code：[drivers/claude.md](drivers/claude.md)
+- Codex：[drivers/codex.md](drivers/codex.md)
+
+必要な UI ツールが使えない場合は、画面操作を未検証として報告する。
+座標は直前のスクリーンショットから読み、押す相手は画面の文字（ボタン名、aria-label）で探す。主な目印：
 
 | 場所 | 目印 |
 | --- | --- |
@@ -87,7 +87,7 @@ computer-use を使う。準備：
 
 置き場所：`.claude/tmp/verify-kura/runs/<id>/evidence/`。`stop` してもここは消えない。
 
-- 画面：`computer_batch` に `save_to_disk: true` をつけて `screenshot` する。結果に出る `source:` のパス（`~/.claude/projects/…/tool-results/…jpg`）を `evidence/<feature>-<step>.jpg` に `cp` する。操作の前と後の両方を撮る。
+- 画面：選択した環境の手順で、操作の前後のスクリーンショットを `evidence/<feature>-<step>.png` または `.jpg` に保存する。
 - DB：`$V db <id> "<SQL>"`（読み取り専用で開く）。例：`select id, file_name, category_id, rating, memo, deleted_at from images`。結果を `evidence/<feature>-db.txt` に保存する。
 - ファイル：`ls -R .claude/tmp/verify-kura/runs/<id>/lib` で実ファイルの位置と名前を確かめる（カテゴリはフォルダ、ゴミ箱は `lib/.kura/trash/`）。
 - ログ：`app.log`（`stop` で `evidence/app.log` に写る）。
@@ -103,7 +103,7 @@ computer-use を使う。準備：
 ```bash
 $V stop <id>
 ```
-自分が起動した pid だけを止め（名前で kill しない。pid、起動時刻、実行ファイル、HOME がすべて合うときだけシグナルを送る。この run の HOME で動く Kura が残っていれば、何も消さずにエラーにする）、`home/`、`lib/`、`src/`、`app.log` を消す。`evidence/` は残す。全画面操作を使ったら `release_full_control`、最後に `app_release` を呼ぶ。失敗した試行のあとも必ず `stop` する。run のフォルダごと消すのは、証跡が要らなくなってから利用者が決める。
+自分が起動した pid だけを止め（名前で kill しない。pid、起動時刻、実行ファイル、HOME がすべて合うときだけシグナルを送る。この run の HOME で動く Kura が残っていれば、何も消さずにエラーにする）、`home/`、`lib/`、`src/`、`app.log` を消す。`evidence/` は残す。UI ツールの終了処理は、選択した環境の手順に従う。失敗した試行のあとも必ず `stop` する。run のフォルダごと消すのは、証跡が要らなくなってから利用者が決める。
 
 ## Helpers
 

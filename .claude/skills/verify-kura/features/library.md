@@ -23,10 +23,10 @@ Preconditions:
 - `library-create` は `$V launch <id> empty`。選択画面に「まだありません」が出ている。
 - `library-autoopen` と `library-switch` は `$V launch <id>`（見本）。
 
-- **作る。** 「新しいライブラリを作る」を押す。`computer_batch`：その座標を `left_click` → `wait 1.5` → `key cmd+shift+g` → `type <リポジトリ>/.claude/tmp/verify-kura/runs/<id>/lib` → `key Return` → 「開く」を `left_click`。ツールバーに「画像を取り込む」、一覧に「画像がありません。…」、ステータスバーに「完了・Finder での変更はありません」が出る。
+- **作る。** 「新しいライブラリを作る」を押す。環境別手順のクリックで押し、ダイアログを確認 → ⌘⇧G → `<リポジトリ>/.claude/tmp/verify-kura/runs/<id>/lib` を入力 → Return → 「開く」を押す。ツールバーに「画像を取り込む」、一覧に「画像がありません。…」、ステータスバーに「完了・Finder での変更はありません」が出る。
 - **作った物を確かめる。** `ls -a runs/<id>/lib` に `.kura` と `_未分類`。`$V db <id> "select count(*) from images"` が 0。`runs/<id>/home/Library/Application Support/dev.kk6.kura/recent-libraries.json` の先頭が `runs/<id>/lib`。
 - **自動で開く。** 見本で起動しただけで一覧が出る。`app.log` に `ライブラリを開きました：…/runs/<id>/lib`。
-- **切り替える。** `app_menu` の `path: ["ファイル", "ライブラリを切り替える…"]`。選択画面に戻り、「最近使ったライブラリ」に `lib` と run のパスが出る。それを押すと一覧に戻る。
+- **切り替える。** メニュー「ファイル」→「ライブラリを切り替える…」（⌘⇧O）。選択画面に戻り、「最近使ったライブラリ」に `lib` と run のパスが出る。それを押すと一覧に戻る。
 - **中身のあるフォルダ。** `empty` で起動し、`$V src <id> 5` の `runs/<id>/src` を「新しいライブラリを作る」で選ぶ。選択画面に「空のフォルダを選んでください」のエラーが出る。`ls -a runs/<id>/src` に `.kura` と `_未分類` がない。
 
 ## Gotchas
