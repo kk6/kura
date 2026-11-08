@@ -693,7 +693,7 @@ ReferenceLibrary/          ← ルートフォルダ
 
 ### 主なテーブル
 
-フェーズ1で作ったのは pending_ops、categories、images、tags、image_tags、image_sources です。embeddings、boards、board_items と、tags のグループの列は、使うフェーズで足します。列の名前と型は `src-tauri/src/library.rs` の `MIGRATIONS` にあります。
+フェーズ1で作ったのは pending_ops、categories、images、tags、image_tags、image_sources です。フェーズ2のタスク1で boards、board_items、board_sources、board_state を追加しました。ボードの画面とIPCは後続タスクで接続します。embeddings と tags のグループの列は、使うフェーズで足します。列の名前と型は `src-tauri/src/library.rs` の `MIGRATIONS` にあります。
 
 | テーブル | 主な項目 | 備考 |
 | --- | --- | --- |
@@ -704,7 +704,9 @@ ReferenceLibrary/          ← ルートフォルダ
 | image_tags | image_id、tag_id | 画像とタグの多対多 |
 | embeddings | image_id、観点（pose / composition / content）、モデル名、ベクトル、計算日時 | モデルを変えたときに再計算が必要な画像を判別できる |
 | boards | id、名前、表示位置、倍率、更新日時 | 保存済みのアイデアボード |
-| board_items | id、board_id、image_id（削除後は参照なし）、削除前のファイル名、枠の寸法、x、y、倍率、回転、反転、グレースケール、トリミング範囲、重なり順 | 配置ごとの独立したIDを持つ。同じ画像を複数置ける。画像削除後も元の大きさの枠を再現できる情報を残し、元ファイルは変更しない |
+| board_items | id、board_id、source_id、表示対象か、枠の寸法、x、y、倍率、回転、反転、グレースケール、トリミング範囲、重なり順 | 配置ごとの独立したIDを持つ。同じ画像を複数置ける。配置を外してもIDと画像参照の組を残し、Undoで別画像へ結び付くのを防ぐ。ボード削除時にその配置情報も消す |
+| board_sources | id、image_id（完全削除後は参照なし）、ファイル名、画像の幅と高さ | 画像の登録ごとに再利用しない参照IDを持つ。完全削除後も最後の名前と寸法を残す。画像IDの再利用や同じ画像の再取り込みで、古い配置を結び直さない |
+| board_state | 最後に使ったボードのID | ライブラリごとに1行。最後のボードを削除したら空にする。ボード、配置、画像参照とともにDBバックアップに含まれる |
 | pending_ops | id、操作の種類、対象のid、コピーかどうか、移動元、移動先 | ファイルを動かす操作の予定。操作が終わると消える。起動時に残っていれば、途中で止まった操作として後始末する（4章「移動の途中で止まった場合」） |
 
 ## 8. 画面一覧
