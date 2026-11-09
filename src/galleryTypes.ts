@@ -47,4 +47,10 @@ export type Done = { done: number[]; failed: { id: number; message: string }[] }
 export type Restored = Assigned & { uncategorized: number[] }
 
 // src-tauri/src/settings.rs の Settings（アプリ全体の設定。load_settings と save_settings）
-export type Settings = { confirm_category_move: boolean; thumb_width: number; tags_collapsed: boolean }
+export type Settings = {
+  confirm_category_move: boolean
+  thumb_width: number
+  tags_collapsed: boolean
+  // アイデアボードを使う（FR-711）
+  board_enabled: boolean
+}

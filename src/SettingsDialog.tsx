@@ -47,6 +47,16 @@ export default function SettingsDialog({
         />
         サイドバーでカテゴリを移すときに確認する
       </label>
+      <h3 className="dialog__section">アイデアボード</h3>
+      <label className="dialog__check">
+        <input
+          type="checkbox"
+          checked={settings.board_enabled}
+          onChange={(e) => onSettings({ board_enabled: e.target.checked })}
+        />
+        アイデアボードを使う
+      </label>
+      <p>オフにするとボタンとメニューが消え、開いているボードは閉じます。作ったボードは消えません。</p>
       <h3 className="dialog__section">バックアップ</h3>
       <p>ライブラリの管理情報（カテゴリ、タグ、メモなど）を1つのファイルに書き出します。画像ファイルは含みません。</p>
       <div>

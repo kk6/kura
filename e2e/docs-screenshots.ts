@@ -72,3 +72,19 @@ test('設定', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
   await shot(page, 'settings')
 })
+
+test('アイデアボード', async ({ page }) => {
+  // 専用ウィンドウの初めの大きさで撮る
+  await page.setViewportSize({ width: 960, height: 640 })
+  await page.addInitScript(() => {
+    const board = (id: number, name: string) => ({ id, name, placement_count: 0, updated_at: id })
+    sessionStorage.setItem(
+      'mock.boards',
+      JSON.stringify({ boards: [board(1, '構図'), board(2, '服のしわ')], last: 1, next: 3 }),
+    )
+  })
+  await page.goto('/?board')
+  await page.getByRole('button', { name: 'ボードの操作' }).click()
+  await expect(page.getByRole('menuitem', { name: '削除…' })).toBeVisible()
+  await shot(page, 'board')
+})

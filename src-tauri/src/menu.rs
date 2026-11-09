@@ -1,16 +1,21 @@
 //! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
-//! 足したのは「ファイル」の「ライブラリを切り替える…」だけ
+//! 足したのは「ファイル」の「ライブラリを切り替える…」と「ウインドウ」の「アイデアボードを開く」だけ
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
 use tauri::menu::{
-    AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
+    AboutMetadata, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID,
+    WINDOW_SUBMENU_ID,
 };
 use tauri::{AppHandle, Runtime};
 
 /// ライブラリ選択画面へ戻る項目（FR-105）。選ぶと main.rs が画面へ switch-library イベントを送る
 pub const SWITCH_LIBRARY: &str = "switch-library";
 
-pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+/// アイデアボードの専用ウィンドウを開く項目（FR-701）。選ぶと main.rs が画面へ open-board イベントを送る
+pub const OPEN_BOARD: &str = "open-board";
+
+/// board が false（アイデアボードが OFF。FR-711）なら、ボードの項目とショートカットを入れない
+pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<R>> {
     let name = app.package_info().name.clone();
     let about = AboutMetadata {
         name: Some(name.clone()),
@@ -18,6 +23,29 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         ..Default::default()
     };
     let sep = || PredefinedMenuItem::separator(app);
+    let switch = MenuItem::with_id(
+        app,
+        SWITCH_LIBRARY,
+        "ライブラリを切り替える…",
+        true,
+        Some("CmdOrCtrl+Shift+O"),
+    )?;
+    let open_board = MenuItem::with_id(
+        app,
+        OPEN_BOARD,
+        "アイデアボードを開く",
+        true,
+        Some("CmdOrCtrl+B"),
+    )?;
+    let minimize = PredefinedMenuItem::minimize(app, Some("しまう"))?;
+    let maximize = PredefinedMenuItem::maximize(app, Some("拡大／縮小"))?;
+    let separators = [sep()?, sep()?];
+    let close = PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?;
+    let mut window: Vec<&dyn IsMenuItem<R>> = vec![&minimize, &maximize, &separators[0]];
+    if board {
+        window.extend([&open_board as &dyn IsMenuItem<R>, &separators[1]]);
+    }
+    window.push(&close);
 
     Menu::with_items(
         app,
@@ -46,13 +74,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 "ファイル",
                 true,
                 &[
-                    &MenuItem::with_id(
-                        app,
-                        SWITCH_LIBRARY,
-                        "ライブラリを切り替える…",
-                        true,
-                        Some("CmdOrCtrl+Shift+O"),
-                    )?,
+                    &switch,
                     &sep()?,
                     &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
                 ],
@@ -81,18 +103,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 )?],
             )?,
             // この id のメニューを macOS がウインドウのメニューとみなし、整列などの項目を足す
-            &Submenu::with_id_and_items(
-                app,
-                WINDOW_SUBMENU_ID,
-                "ウインドウ",
-                true,
-                &[
-                    &PredefinedMenuItem::minimize(app, Some("しまう"))?,
-                    &PredefinedMenuItem::maximize(app, Some("拡大／縮小"))?,
-                    &sep()?,
-                    &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
-                ],
-            )?,
+            &Submenu::with_id_and_items(app, WINDOW_SUBMENU_ID, "ウインドウ", true, &window)?,
             &Submenu::with_id_and_items(app, HELP_SUBMENU_ID, "ヘルプ", true, &[])?,
         ],
     )

@@ -12,9 +12,16 @@ export default function App() {
   // アプリ全体の設定。読み終わるまで画面を出さない（サムネイルの大きさが途中で変わらないように）
   const [settings, setSettings] = useState<Settings | null>(null)
 
+  // 保存できなければ元の値に戻す。アイデアボードの OFF に失敗したら ON のままにするため（FR-711）
   async function saveSettings(next: Settings) {
+    const before = settings
     setSettings(next)
-    await invoke('save_settings', { settings: next })
+    try {
+      await invoke('save_settings', { settings: next })
+    } catch (e) {
+      setSettings(before)
+      throw e
+    }
   }
 
   async function openLibrary(command: OpenCommand, path: string) {

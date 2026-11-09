@@ -14,6 +14,8 @@ pub struct Settings {
     pub thumb_width: u32,
     /// サイドバーのタグ一覧を閉じている（FR-503）。タグが多いとサイドバーのスクロールが長くなるため
     pub tags_collapsed: bool,
+    /// アイデアボードを使う（FR-711）。前の版の設定ファイルにはないので、更新した人も ON で始まる
+    pub board_enabled: bool,
 }
 
 impl Default for Settings {
@@ -22,6 +24,7 @@ impl Default for Settings {
             confirm_category_move: true,
             thumb_width: 200,
             tags_collapsed: false,
+            board_enabled: true,
         }
     }
 }
@@ -36,6 +39,22 @@ pub fn load(file: &Path) -> Settings {
 
 pub fn save(file: &Path, settings: &Settings) -> std::io::Result<()> {
     write_json(file, settings)
+}
+
+/// 保存してから apply(前の設定, 新しい設定) で画面以外への反映（メニューなど）を行う。
+/// 反映に失敗したらファイルを前の設定に戻す。画面は失敗を受けて前の値に戻るので、ファイルもそろえる
+pub fn save_and_apply(
+    file: &Path,
+    settings: &Settings,
+    apply: impl FnOnce(&Settings, &Settings) -> Result<(), String>,
+) -> Result<(), String> {
+    let before = load(file);
+    save(file, settings).map_err(|e| format!("設定を保存できません（{e}）"))?;
+    apply(&before, settings).inspect_err(|_| {
+        if let Err(e) = save(file, &before) {
+            log::error!("設定を前の値に戻せません：{e}");
+        }
+    })
 }
 
 /// 書き込みの途中で止まっても前の内容が壊れないよう、別名に書いてから置き換える
@@ -62,6 +81,7 @@ mod tests {
         assert_eq!(s, Settings::default());
         assert!(s.confirm_category_move);
         assert_eq!(s.thumb_width, 200);
+        assert!(s.board_enabled);
     }
 
     #[test]
@@ -72,6 +92,7 @@ mod tests {
             confirm_category_move: false,
             thumb_width: 140,
             tags_collapsed: true,
+            board_enabled: false,
         };
 
         save(&file, &s).unwrap();
@@ -91,6 +112,55 @@ mod tests {
         assert!(s.confirm_category_move);
         // タグ一覧の開閉は後の版で足したので、前の版のファイルには項目がない。開いた状態で始める
         assert!(!s.tags_collapsed);
+        // アイデアボードもフェーズ2で足した。前の版から更新した人も ON で始める
+        assert!(s.board_enabled);
+    }
+
+    #[test]
+    fn アイデアボードを切った選択は保存して読み直しても残る() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        let s = Settings {
+            board_enabled: false,
+            ..Settings::default()
+        };
+
+        save(&file, &s).unwrap();
+
+        assert!(!load(&file).board_enabled);
+    }
+
+    #[test]
+    fn 保存の後の反映に失敗したらファイルを前の設定に戻す() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        save(&file, &Settings::default()).unwrap();
+        let off = Settings {
+            board_enabled: false,
+            ..Settings::default()
+        };
+
+        let r = save_and_apply(&file, &off, |before, after| {
+            assert!(before.board_enabled && !after.board_enabled);
+            Err("メニューを変えられません".into())
+        });
+
+        assert_eq!(r, Err("メニューを変えられません".into()));
+        assert!(load(&file).board_enabled);
+    }
+
+    #[test]
+    fn 反映できたら保存した設定が残る() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        let off = Settings {
+            board_enabled: false,
+            ..Settings::default()
+        };
+
+        save_and_apply(&file, &off, |_, _| Ok(())).unwrap();
+
+        assert!(!load(&file).board_enabled);
     }
 
     #[test]
@@ -112,6 +182,7 @@ mod tests {
             confirm_category_move: false,
             thumb_width: 120,
             tags_collapsed: false,
+            board_enabled: true,
         };
         save(&file, &before).unwrap();
         if !lock(dir.path()) {

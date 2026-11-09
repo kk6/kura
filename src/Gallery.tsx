@@ -290,12 +290,21 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const leaveRef = useRef(leave)
   leaveRef.current = leave
 
+  // 画像を選んでいても追加はせず、専用ウィンドウを開くだけにする（FR-701）
+  function openBoard() {
+    if (!settings.board_enabled) return
+    invoke('show_board_window').catch((e) => setResult({ kind: 'error', message: String(e) }))
+  }
+  const openBoardRef = useRef(openBoard)
+  openBoardRef.current = openBoard
+
   useEffect(() => {
     const unlisten = [
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
       listen('switch-library', () => leaveRef.current()),
+      listen('open-board', () => openBoardRef.current()),
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === 'drop') startRef.current(e.payload.paths)
       }),
@@ -551,6 +560,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             </span>
           )}
         </span>
+        {settings.board_enabled && (
+          <button type="button" className="button button--primary" title="アイデアボード（⌘B）" onClick={openBoard}>
+            <Icon d={ICONS.board} />
+            アイデアボード
+          </button>
+        )}
         <button
           type="button"
           className="button button--icon"
