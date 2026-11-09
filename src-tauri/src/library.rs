@@ -28,6 +28,8 @@ pub fn remove_thumb(root: &Path, hash: &str) {
     }
 }
 pub const UNCATEGORIZED_DIR: &str = "_未分類";
+/// DB を移行する直前の kura.db の写し（`kura-v<移行前の版>-<日時>.db`）を置く。古い版のアプリに戻すときに使う。消さずにすべて残す
+pub const BACKUP_DIR: &str = ".kura/backups";
 /// 削除したカテゴリのフォルダに残った管理外のファイル（FR-404）と、削除した画像（FR-511、`<画像のid>.<拡張子>`）を置く
 pub const TRASH_DIR: &str = ".kura/trash";
 
@@ -208,7 +210,7 @@ fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
     // WAL：取り込み中も一覧を読めるようにするため。FULL：電源断でも直前のコミットを失わないため
     conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")
         .map_err(err)?;
-    migrate(&mut conn, migrations)?;
+    migrate(&mut conn, migrations, &root.join(BACKUP_DIR))?;
     let mut lib = Library {
         root: root.to_path_buf(),
         conn,
@@ -236,7 +238,8 @@ fn apply_op(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
     }
 }
 
-fn migrate(conn: &mut Connection, migrations: &[&str]) -> Result<(), String> {
+/// 移行が要るときは、最初の移行の前に今の DB の写しを backups に書く。写しを書けなければ移行しない
+fn migrate(conn: &mut Connection, migrations: &[&str], backups: &Path) -> Result<(), String> {
     let current: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(err)?;
@@ -245,6 +248,21 @@ fn migrate(conn: &mut Connection, migrations: &[&str]) -> Result<(), String> {
         return Err(
             "このライブラリはアプリより新しい版で作られています。アプリを更新してください".into(),
         );
+    }
+    // 版 0 は作ったばかりの空の DB なので、戻す先として残す意味がない
+    if current > 0 && current < migrations.len() {
+        // 日時は SQLite で作る。日時のためだけにクレートを足さないため
+        let stamp: String = conn
+            .query_row(
+                "SELECT strftime('%Y%m%d-%H%M%S', 'now', 'localtime')",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(err)?;
+        fs::create_dir_all(backups)
+            .map_err(err)
+            .and_then(|()| write_copy(conn, &backups.join(format!("kura-v{current}-{stamp}.db"))))
+            .map_err(|e| format!("移行前の写しを書けないので、ライブラリを開きません（{e}）"))?;
     }
     for (i, sql) in migrations.iter().enumerate().skip(current) {
         // user_version もトランザクションに含まれるので、失敗した版は丸ごと取り消される
@@ -260,14 +278,17 @@ fn migrate(conn: &mut Connection, migrations: &[&str]) -> Result<(), String> {
 /// DB を dst に書き出す（NFR-07）。SQLite のバックアップ機能を使うので、開いたままでも整った写しになる。
 /// 別名に書いてから置き換え、途中で失敗しても dst にあった前のファイルを壊さない
 pub fn backup(lib: &Library, dst: &Path) -> Result<(), String> {
+    write_copy(&lib.conn, dst).map_err(|e| format!("バックアップを書き出せません（{e}）"))
+}
+
+fn write_copy(conn: &Connection, dst: &Path) -> Result<(), String> {
     let mut name = dst
         .file_name()
         .ok_or("保存先のファイル名がありません")?
         .to_owned();
     name.push(".tmp");
     let tmp = dst.with_file_name(name);
-    let result = lib
-        .conn
+    let result = conn
         .backup(
             rusqlite::MAIN_DB,
             &tmp,
@@ -278,7 +299,7 @@ pub fn backup(lib: &Library, dst: &Path) -> Result<(), String> {
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
-    result.map_err(|e| format!("バックアップを書き出せません（{e}）"))
+    result
 }
 
 pub fn location_warning(path: &Path) -> Option<String> {
@@ -567,10 +588,16 @@ mod tests {
     #[test]
     fn 古い版のdbを開くと残りのマイグレーションだけを流す() {
         let mut conn = Connection::open_in_memory().unwrap();
-        migrate(&mut conn, &["CREATE TABLE a(x)"]).unwrap();
+        let backups = out_dir();
+        migrate(&mut conn, &["CREATE TABLE a(x)"], backups.path()).unwrap();
         conn.execute("INSERT INTO a VALUES (1)", []).unwrap();
 
-        migrate(&mut conn, &["CREATE TABLE a(x)", "CREATE TABLE b(y)"]).unwrap();
+        migrate(
+            &mut conn,
+            &["CREATE TABLE a(x)", "CREATE TABLE b(y)"],
+            backups.path(),
+        )
+        .unwrap();
 
         assert_eq!(user_version(&conn), 2);
         let n: i64 = conn
@@ -585,7 +612,8 @@ mod tests {
 
         assert!(migrate(
             &mut conn,
-            &["CREATE TABLE a(x)", "CREATE TABLE b(y); NOT SQL"]
+            &["CREATE TABLE a(x)", "CREATE TABLE b(y); NOT SQL"],
+            Path::new("/nonexistent")
         )
         .is_err());
 
@@ -600,12 +628,77 @@ mod tests {
         assert_eq!(b, 0);
     }
 
+    // 1つ前の版のライブラリを作って閉じる
+    fn previous_version() -> (tempfile::TempDir, PathBuf) {
+        let d = out_dir();
+        drop(create_with(d.path(), &MIGRATIONS[..MIGRATIONS.len() - 1]).unwrap());
+        let backups = d.path().join(BACKUP_DIR);
+        (d, backups)
+    }
+
+    #[test]
+    fn 古い版のライブラリを開くと移行前の写しを残す() {
+        let (d, backups) = previous_version();
+
+        let lib = open(d.path()).unwrap();
+
+        assert_eq!(user_version(&lib.conn), MIGRATIONS.len() as i64);
+        let names = entries(&backups);
+        assert_eq!(names.len(), 1);
+        let prefix = format!("kura-v{}-", MIGRATIONS.len() - 1);
+        assert!(
+            names[0].starts_with(&prefix) && names[0].ends_with(".db"),
+            "{names:?}"
+        );
+        let copy = Connection::open(backups.join(&names[0])).unwrap();
+        assert_eq!(user_version(&copy), MIGRATIONS.len() as i64 - 1);
+    }
+
+    #[test]
+    fn 最新の版のライブラリを開いても写しを作らない() {
+        let (d, backups) = previous_version();
+        drop(open(d.path()).unwrap());
+        fs::remove_dir_all(&backups).unwrap();
+
+        drop(open(d.path()).unwrap());
+
+        assert!(!backups.exists());
+    }
+
+    #[test]
+    fn 新しく作ったライブラリには写しを作らない() {
+        let d = out_dir();
+
+        drop(create(d.path()).unwrap());
+
+        assert!(!d.path().join(BACKUP_DIR).exists());
+    }
+
+    #[test]
+    fn 移行前の写しを書けなければ移行せずにエラーにする() {
+        let (d, backups) = previous_version();
+        fs::create_dir(&backups).unwrap();
+        if !crate::category::tests::lock(&backups) {
+            return;
+        }
+
+        let result = open(d.path());
+
+        crate::category::tests::unlock(&backups);
+        assert!(result.err().unwrap().contains("移行前の写し"));
+        let conn = Connection::open(d.path().join(KURA_DIR).join("kura.db")).unwrap();
+        assert_eq!(user_version(&conn), MIGRATIONS.len() as i64 - 1);
+        assert!(entries(&backups).is_empty());
+    }
+
     #[test]
     fn アプリより新しい版のdbは変更せずにエラーにする() {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("PRAGMA user_version = 99").unwrap();
 
-        let err = migrate(&mut conn, &["CREATE TABLE a(x)"]).err().unwrap();
+        let err = migrate(&mut conn, &["CREATE TABLE a(x)"], Path::new("/nonexistent"))
+            .err()
+            .unwrap();
 
         assert!(err.contains("新しい版"), "{err}");
         assert_eq!(user_version(&conn), 99);
