@@ -4,6 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
+import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
 import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
@@ -298,9 +299,22 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       })
       return
     }
-    // 入力中のメモは blur で保存される。ライブラリは次に開くまで Rust 側に残るので、保存は前のライブラリに届く
-    ;(document.activeElement as HTMLElement | null)?.blur()
-    onSwitch(path)
+    // 入力中のメモとボードを保存し終えてから切り替える。ライブラリは次に開くまで Rust 側に残るので、
+    // 保存は前のライブラリに届く。保存できなければ切り替えない（FR-105、FR-411）。メモの失敗は入力欄の下に出す
+    flushAll()
+      .then(
+        () =>
+          invoke('close_board_window').catch((e) => {
+            throw `ボードを保存できないため、ライブラリを切り替えられません（${e}）`
+          }),
+        () => {
+          throw 'メモを保存できないため、ライブラリを切り替えられません'
+        },
+      )
+      .then(
+        () => onSwitch(path),
+        (e) => setResult({ kind: 'error', message: String(e) }),
+      )
   }
   const leaveRef = useRef(leave)
   leaveRef.current = leave

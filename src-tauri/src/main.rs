@@ -7,16 +7,22 @@ mod library;
 mod menu;
 mod recent;
 mod settings;
+mod settle;
 mod sync;
 mod tag;
+mod terminate;
 mod trash;
 
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
 
 use library::{Access, Library};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder, Window,
+    WindowEvent,
+};
 
 /// アイデアボードの専用ウィンドウのラベル。同時に開くのは1つだけ（FR-701）
 const BOARD: &str = "board";
@@ -97,7 +103,13 @@ fn load_settings(app: AppHandle) -> settings::Settings {
 }
 
 #[tauri::command]
-fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(), String> {
+async fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(), String> {
+    // OFF にする前にボードの保存を待つ。保存できなければ ON のままにし、ボードを開いたままにする（FR-711）
+    let _held = if settings.board_enabled {
+        None
+    } else {
+        Some(settle(&app, &[BOARD]).await?)
+    };
     settings::save_and_apply(&settings_file(&app)?, &settings, |before, after| {
         if after.board_enabled == before.board_enabled {
             return Ok(());
@@ -111,6 +123,98 @@ fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(), Str
         }
         Ok(())
     })
+}
+
+/// 画面が保存を終えるのを待つ上限。超えたら保存できなかったとして遷移を止める
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// labels のウィンドウに未保存の変更を保存させ、すべて終わるまで待つ（FR-704、FR-105、FR-411）。
+/// 失敗した画面はその場でエラーを出すので、ここは遷移を止める理由だけを返す。
+/// 返り値を drop すると画面へ release を送り、止めていた編集を戻させる
+async fn settle(app: &AppHandle, labels: &[&str]) -> Result<Held, String> {
+    let round = app.state::<settle::Settle>().begin(labels)?;
+    log::info!(
+        "保存を待ちます：{:?}",
+        round.requests.iter().map(|(l, _)| l).collect::<Vec<_>>()
+    );
+    let held = Held {
+        app: app.clone(),
+        labels: round.requests.iter().map(|(l, _)| l.clone()).collect(),
+    };
+    for (label, id) in &round.requests {
+        app.emit_to(label.as_str(), "flush", id)
+            .map_err(|e| format!("保存を頼めません（{e}）"))?;
+    }
+    tauri::async_runtime::spawn_blocking(move || round.wait(SETTLE_TIMEOUT))
+        .await
+        .map_err(|e| e.to_string())?
+        .inspect_err(|e| log::warn!("保存を待てなかったので操作を中止しました：{e}"))?;
+    Ok(held)
+}
+
+struct Held {
+    app: AppHandle,
+    labels: Vec<String>,
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        for label in &self.labels {
+            // 閉じたウィンドウには届かなくてよい
+            let _ = self.app.emit_to(label.as_str(), "release", ());
+        }
+    }
+}
+
+/// 画面が保存の依頼を受け取れるようになった
+#[tauri::command]
+fn flush_ready(window: Window, settle: State<settle::Settle>) {
+    settle.ready(window.label());
+}
+
+/// 画面が保存の依頼に答える。error が None なら保存できた
+#[tauri::command]
+fn flush_done(window: Window, settle: State<settle::Settle>, id: u64, error: Option<String>) {
+    settle.reply(window.label(), id, error.map_or(Ok(()), Err));
+}
+
+/// ボードの保存を待ってから閉じる。ライブラリ選択画面へ戻るときにギャラリーが呼ぶ（FR-105）
+#[tauri::command]
+async fn close_board_window(app: AppHandle) -> Result<(), String> {
+    let _held = settle(&app, &[BOARD]).await?;
+    close_board(&app);
+    Ok(())
+}
+
+/// ボードとメモの保存を待ってから終了する。失敗したら終了しない（FR-704、FR-411）
+fn quit(app: &AppHandle) {
+    quit_then(app, |app, ok| {
+        if ok {
+            app.exit(0);
+        }
+    });
+}
+
+/// ボードとメモの保存を待ち、終了してよいかを done に渡す。Dock からの終了（terminate.rs）とも共有する
+fn quit_then(app: &AppHandle, done: impl FnOnce(&AppHandle, bool) + Send + 'static) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let ok = settle(&app, &[BOARD, "main"]).await.is_ok();
+        if ok {
+            log::info!("保存を終えたので終了します");
+        }
+        done(&app, ok);
+    });
+}
+
+/// ボードの保存を待ってから閉じる。ギャラリーは残す（FR-704）
+fn close_board_after_save(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Ok(_held) = settle(&app, &[BOARD]).await {
+            close_board(&app);
+        }
+    });
 }
 
 fn close_board(app: &AppHandle) {
@@ -226,6 +330,11 @@ async fn add_to_board(
     target: board::Target,
     images: Vec<i64>,
 ) -> Result<(), String> {
+    // 追加はボードの編集を終わらせるので、先に開いているボードの保存を待つ。待たないと、追加の後に届いた
+    // 保存が断られて動かした位置が消える。開き直すまでボードは編集を止めている
+    let _held = settle(&app, &[BOARD])
+        .await
+        .map_err(|e| format!("ボードを保存できないため、追加できません（{e}）"))?;
     let added = app
         .state::<Current>()
         .0
@@ -530,6 +639,10 @@ fn main() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            terminate::install(app.handle());
+            Ok(())
+        })
         .menu(|app| {
             let enabled = settings_file(app)
                 .map(|file| settings::load(&file).board_enabled)
@@ -537,6 +650,10 @@ fn main() {
             menu::build(app, enabled)
         })
         .on_menu_event(|app, event| {
+            if event.id() == menu::QUIT {
+                quit(app);
+                return;
+            }
             // 開いているライブラリ（Current）は次のライブラリを開くまで残す。戻るかどうかは画面が決める。
             // ボードもギャラリーの画面が開く。ライブラリ選択画面ではボードを開かないため
             for id in [menu::SWITCH_LIBRARY, menu::OPEN_BOARD, menu::ADD_TO_BOARD] {
@@ -547,14 +664,27 @@ fn main() {
                 }
             }
         })
-        .on_window_event(|window, event| {
-            // ギャラリーを閉じたらボードだけを残さず終了する。ボードだけを閉じたときはギャラリーを残す
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
-                window.app_handle().exit(0);
+        .on_window_event(|window, event| match event {
+            // 閉じる前に保存を待つ。ギャラリーを閉じたらボードも保存して終了し、ボードだけならギャラリーを残す
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                if window.label() == BOARD {
+                    close_board_after_save(window.app_handle());
+                } else {
+                    quit(window.app_handle());
+                }
             }
+            WindowEvent::Destroyed => {
+                window.state::<settle::Settle>().gone(window.label());
+                if window.label() == "main" {
+                    window.app_handle().exit(0);
+                }
+            }
+            _ => {}
         })
         .manage(Current::default())
         .manage(Reveal::default())
+        .manage(settle::Settle::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
             load_settings,
@@ -598,7 +728,10 @@ fn main() {
             delete_board,
             save_board,
             add_to_board,
-            take_board_reveal
+            take_board_reveal,
+            flush_ready,
+            flush_done,
+            close_board_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

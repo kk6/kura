@@ -470,7 +470,9 @@ const saveBoard: Handler = (args) => {
   const data = boardStore()
   const board = data.boards.find((b) => b.id === (args?.edit as EditingBoard['edit']).board_id)
   if (!board) throw 'このボードの編集は終了しています'
-  if (board.name === '保存できない') throw 'attempt to write a readonly database'
+  // e2e で失敗と再試行を確かめるため、名前が「保存できない」のボードか mock.failBoardSave があれば保存しない
+  if (board.name === '保存できない' || sessionStorage.getItem('mock.failBoardSave'))
+    throw 'attempt to write a readonly database'
   const snapshot = args?.snapshot as Snapshot
   const old = new Map((board.items ?? []).map((i) => [i.id, i]))
   board.items = snapshot.items.map((d) => ({ ...old.get(d.id!)!, geometry: d.geometry }))
@@ -617,6 +619,11 @@ const handlers: Record<string, Handler> = {
   add_to_board: addToBoard,
   take_board_reveal: takeBoardReveal,
   show_board_window: showBoardWindow,
+  // 本物では Rust がボードの保存を待ってから閉じる。モックには閉じるウィンドウがない
+  close_board_window: () => null,
+  flush_ready: () => null,
+  // e2e が保存待ちの結果を確かめられるように、コンソールに出す
+  flush_done: (args) => console.info(`flush_done: ${args?.error ?? 'ok'}`),
   'plugin:dialog|save': (args) => `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
   // e2e が中身を確かめられるように、出したダイアログの文をコンソールに出す
   'plugin:dialog|message': (args) => console.info(`dialog: ${args?.message}`),

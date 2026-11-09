@@ -1,4 +1,5 @@
 //! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
+//! 終了は保存を待つ項目に置き換えた。
 //! 足したのは「ファイル」の「ライブラリを切り替える…」「ボードに追加…」と「ウインドウ」の「アイデアボードを開く」だけ
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
@@ -17,6 +18,10 @@ pub const OPEN_BOARD: &str = "open-board";
 /// 選んだ画像をボードに追加する項目（FR-701）。選ぶと main.rs がギャラリーへ add-to-board イベントを送る
 pub const ADD_TO_BOARD: &str = "add-to-board";
 
+/// 終了の項目。既定の終了は AppKit の terminate: を直接呼び、保存待ちを通らないので置き換える
+/// （spikes/board-native）。選ぶと main.rs がボードとメモの保存を待ってから終了する（FR-704、FR-411）
+pub const QUIT: &str = "quit";
+
 /// board が false（アイデアボードが OFF。FR-711）なら、ボードの項目とショートカットを入れない
 pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<R>> {
     let name = app.package_info().name.clone();
@@ -26,6 +31,13 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
         ..Default::default()
     };
     let sep = || PredefinedMenuItem::separator(app);
+    let quit = MenuItem::with_id(
+        app,
+        QUIT,
+        format!("{name} を終了"),
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
     let switch = MenuItem::with_id(
         app,
         SWITCH_LIBRARY,
@@ -83,7 +95,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
                     &PredefinedMenuItem::hide(app, Some(&format!("{name} を隠す")))?,
                     &PredefinedMenuItem::hide_others(app, Some("ほかを隠す"))?,
                     &sep()?,
-                    &PredefinedMenuItem::quit(app, Some(&format!("{name} を終了")))?,
+                    &quit,
                 ],
             )?,
             &Submenu::with_items(app, "ファイル", true, &file)?,

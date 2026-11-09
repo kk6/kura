@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { CategorySelect, TagEditor } from './Classify'
+import { useFlush } from './flush'
 import { Icon, ICONS } from './icons'
 import Status from './Status'
 import type { Category, Detail as DetailData, Image, Tag } from './galleryTypes'
@@ -142,21 +143,24 @@ function FileName({ image, onRename }: { image: Image; onRename: Props['onRename
   )
 }
 
-// メモ（FR-411）。入力欄から離れたときに保存する
+// メモ（FR-411）。入力欄から離れたときと、閉じる・終了・切り替えの前に保存する
 function Memo({ id, initial, onSaved }: { id: number; initial: string; onSaved: (memo: string) => void }) {
   const [saved, setSaved] = useState(initial)
   const [error, setError] = useState<string | null>(null)
-  const save = (memo: string) => {
+  const input = useRef<HTMLTextAreaElement>(null)
+  const save = async (memo: string) => {
     if (memo === saved) return
-    invoke('set_memo', { id, memo }).then(
-      () => {
-        setSaved(memo)
-        setError(null)
-        onSaved(memo)
-      },
-      (e) => setError(String(e)),
-    )
+    try {
+      await invoke('set_memo', { id, memo })
+    } catch (e) {
+      setError(String(e))
+      throw `メモを保存できません（${e}）`
+    }
+    setSaved(memo)
+    setError(null)
+    onSaved(memo)
   }
+  useFlush(() => (input.current ? save(input.current.value) : Promise.resolve()))
   return (
     <>
       <textarea
@@ -164,8 +168,10 @@ function Memo({ id, initial, onSaved }: { id: number; initial: string; onSaved: 
         autoCapitalize="off"
         id="detail-memo"
         className={error ? 'detail__memo detail__memo--error' : 'detail__memo'}
+        ref={input}
         defaultValue={initial}
-        onBlur={(e) => save(e.target.value)}
+        // 失敗は入力欄の下に出す
+        onBlur={(e) => save(e.target.value).catch(() => {})}
         aria-invalid={!!error}
         aria-describedby={error ? 'detail-memo-error' : undefined}
       />
