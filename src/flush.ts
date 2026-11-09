@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useEffect, useRef } from 'react'
 
 // 閉じる・終了・切り替えの前に保存するもの（ボードの配置、入力中のメモ）。保存できなければ reject する
@@ -28,8 +28,10 @@ export function useFlush(save: Saver) {
 
 // Rust の保存待ち（src-tauri/src/settle.rs）に答える。受け取れるようになってから Rust に知らせる。
 // 知らせる前のウィンドウには保存するものがないので、Rust は待たずに進める
+// listen は宛先に関係なくイベントを受けるので、このウィンドウ宛ての依頼だけを受ける。
+// ギャラリーがボード宛ての依頼に答えると、ボードが保存できなくても閉じてしまう
 export async function serveFlush() {
-  await listen<number>('flush', (e) =>
+  await getCurrentWindow().listen<number>('flush', (e) =>
     flushAll().then(
       () => invoke('flush_done', { id: e.payload, error: null }),
       (error) => invoke('flush_done', { id: e.payload, error: String(error) }),

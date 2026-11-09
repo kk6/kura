@@ -14,7 +14,8 @@ struct State {
     /// 保存の依頼を受け取れるウィンドウ。画面を読み込む前のウィンドウには、保存するものがない
     ready: HashSet<String>,
     next: u64,
-    waiting: HashMap<u64, Sender<Reply>>,
+    /// 依頼の id から、頼んだウィンドウのラベルと応答の送り先
+    waiting: HashMap<u64, (String, Sender<Reply>)>,
     /// 待っている遷移があるか。2つの遷移を重ねると、片方の結果で他方を進めてしまうため1つずつにする
     busy: bool,
 }
@@ -55,7 +56,7 @@ impl Settle {
         for label in labels.iter().filter(|l| s.ready.contains(**l)) {
             s.next += 1;
             let id = s.next;
-            s.waiting.insert(id, tx.clone());
+            s.waiting.insert(id, (label.to_string(), tx.clone()));
             requests.push((label.to_string(), id));
         }
         Ok(Round {
@@ -65,9 +66,16 @@ impl Settle {
         })
     }
 
-    /// 画面からの応答。待っていない id（遅れて届いた応答）は捨てる
-    pub fn reply(&self, id: u64, result: Reply) {
-        if let Some(tx) = self.lock().waiting.remove(&id) {
+    /// 画面からの応答。待っていない id（遅れて届いた応答）と、頼んでいないウィンドウからの応答は捨てる。
+    /// JS の listen は宛先に関係なくイベントを受けるので、別のウィンドウが代わりに答えて成功にしないため
+    pub fn reply(&self, label: &str, id: u64, result: Reply) {
+        let mut s = self.lock();
+        if s.waiting.get(&id).is_none_or(|(asked, _)| asked != label) {
+            log::warn!("頼んでいない保存の応答を捨てました：{label}、{id}");
+            return;
+        }
+        log::info!("保存の応答：{label}、{result:?}");
+        if let Some((_, tx)) = s.waiting.remove(&id) {
             // 受け手が先に終わっていても、遅れて届いた応答と同じく捨ててよい
             let _ = tx.send(result);
         }
@@ -118,8 +126,8 @@ mod tests {
     fn すべてのウィンドウが保存できたら進める() {
         let s = ready(&["main", "board"]);
         let round = s.begin(&["board", "main"]).unwrap();
-        for (_, id) in &round.requests {
-            s.reply(*id, Ok(()));
+        for (label, id) in &round.requests {
+            s.reply(label, *id, Ok(()));
         }
         assert_eq!(round.wait(SHORT), Ok(()));
     }
@@ -129,10 +137,11 @@ mod tests {
         let s = ready(&["main", "board"]);
         let round = s.begin(&["board", "main"]).unwrap();
         s.reply(
+            "board",
             round.requests[0].1,
             Err("ボードを保存できませんでした".into()),
         );
-        s.reply(round.requests[1].1, Ok(()));
+        s.reply("main", round.requests[1].1, Ok(()));
         assert_eq!(
             round.wait(SHORT),
             Err("ボードを保存できませんでした".into())
@@ -171,7 +180,21 @@ mod tests {
         let late = old.requests[0].1;
         drop(old);
         let round = s.begin(&["board"]).unwrap();
-        s.reply(late, Ok(()));
+        s.reply("board", late, Ok(()));
         assert!(round.wait(SHORT).is_err());
+    }
+
+    #[test]
+    fn 頼んだのと別のウィンドウの応答は受け取らない() {
+        // JS の listen は宛先に関係なくイベントを受けるので、ギャラリーがボード宛ての依頼に答えることがある
+        let s = ready(&["main", "board"]);
+        let round = s.begin(&["board"]).unwrap();
+        let id = round.requests[0].1;
+        s.reply("main", id, Ok(()));
+        s.reply("board", id, Err("ボードを保存できませんでした".into()));
+        assert_eq!(
+            round.wait(SHORT),
+            Err("ボードを保存できませんでした".into())
+        );
     }
 }

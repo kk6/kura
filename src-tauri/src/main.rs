@@ -132,6 +132,10 @@ const SETTLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// 返り値を drop すると画面へ release を送り、止めていた編集を戻させる
 async fn settle(app: &AppHandle, labels: &[&str]) -> Result<Held, String> {
     let round = app.state::<settle::Settle>().begin(labels)?;
+    log::info!(
+        "保存を待ちます：{:?}",
+        round.requests.iter().map(|(l, _)| l).collect::<Vec<_>>()
+    );
     let held = Held {
         app: app.clone(),
         labels: round.requests.iter().map(|(l, _)| l.clone()).collect(),
@@ -169,8 +173,8 @@ fn flush_ready(window: Window, settle: State<settle::Settle>) {
 
 /// 画面が保存の依頼に答える。error が None なら保存できた
 #[tauri::command]
-fn flush_done(settle: State<settle::Settle>, id: u64, error: Option<String>) {
-    settle.reply(id, error.map_or(Ok(()), Err));
+fn flush_done(window: Window, settle: State<settle::Settle>, id: u64, error: Option<String>) {
+    settle.reply(window.label(), id, error.map_or(Ok(()), Err));
 }
 
 /// ボードの保存を待ってから閉じる。ライブラリ選択画面へ戻るときにギャラリーが呼ぶ（FR-105）

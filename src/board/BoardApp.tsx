@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ConfirmDialog from '../ConfirmDialog'
 import { Icon, ICONS } from '../icons'
@@ -123,9 +123,9 @@ export default function BoardApp() {
       })
     // 開いている間の追加。ボードが増えたかもしれないので一覧も読み直す
     const unlisten = [
-      listen('board-reveal', () => revealAfterAdd()),
-      // Rust の保存待ちが終わった（遷移を中止した、または追加し終えた）
-      listen('release', () => (held.current = false)),
+      getCurrentWindow().listen('board-reveal', () => revealAfterAdd()),
+      // Rust の保存待ちが終わった（遷移を中止した、または追加し終えた）。ギャラリー宛ての release では戻さない
+      getCurrentWindow().listen('release', () => (held.current = false)),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
     // 開いたときに1度だけ読む
