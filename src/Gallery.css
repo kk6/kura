@@ -7,8 +7,8 @@
     "status status status" var(--size-statusbar)
     / var(--size-sidebar) minmax(0, 1fr) var(--size-detail);
   height: 100%;
-  /* 滑り出る詳細パネルで、ウィンドウに横のスクロールを出さない */
-  overflow: hidden;
+  /* 滑り出る詳細パネルで、ウィンドウに横のスクロールを出さない。hidden はスクロールの箱を作り、2万枚の絞り込みが遅くなった（NFR-02） */
+  overflow: clip;
 }
 
 .gallery__header {
