@@ -88,3 +88,21 @@ test('アイデアボード', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: '削除…' })).toBeVisible()
   await shot(page, 'board')
 })
+
+test('ボードに追加', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('mock.boards')) return
+    const board = (id: number, name: string) => ({ id, name, placement_count: 0, updated_at: id })
+    sessionStorage.setItem(
+      'mock.boards',
+      JSON.stringify({ boards: [board(1, '構図'), board(2, '服のしわ')], last: 1, next: 3 }),
+    )
+  })
+  await openGallery(page)
+  const thumbs = page.getByRole('main', { name: '画像の一覧' }).getByRole('img')
+  await thumbs.nth(0).click()
+  await thumbs.nth(1).click({ modifiers: ['Meta'] })
+  await page.getByRole('complementary', { name: '詳細' }).getByRole('button', { name: 'ボードに追加' }).click()
+  await expect(page.getByRole('dialog', { name: 'ボードに追加' }).getByRole('combobox')).toHaveValue('1')
+  await shot(page, 'board-add')
+})
