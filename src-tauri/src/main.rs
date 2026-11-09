@@ -10,6 +10,7 @@ mod settings;
 mod settle;
 mod sync;
 mod tag;
+mod terminate;
 mod trash;
 
 use std::path::PathBuf;
@@ -187,12 +188,22 @@ async fn close_board_window(app: AppHandle) -> Result<(), String> {
 
 /// ボードとメモの保存を待ってから終了する。失敗したら終了しない（FR-704、FR-411）
 fn quit(app: &AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        if settle(&app, &[BOARD, "main"]).await.is_ok() {
-            log::info!("保存を終えたので終了します");
+    quit_then(app, |app, ok| {
+        if ok {
             app.exit(0);
         }
+    });
+}
+
+/// ボードとメモの保存を待ち、終了してよいかを done に渡す。Dock からの終了（terminate.rs）とも共有する
+fn quit_then(app: &AppHandle, done: impl FnOnce(&AppHandle, bool) + Send + 'static) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let ok = settle(&app, &[BOARD, "main"]).await.is_ok();
+        if ok {
+            log::info!("保存を終えたので終了します");
+        }
+        done(&app, ok);
     });
 }
 
@@ -628,6 +639,10 @@ fn main() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            terminate::install(app.handle());
+            Ok(())
+        })
         .menu(|app| {
             let enabled = settings_file(app)
                 .map(|file| settings::load(&file).board_enabled)

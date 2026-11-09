@@ -1826,6 +1826,8 @@ dependencies = [
  "image",
  "libc",
  "log",
+ "objc2",
+ "objc2-app-kit",
  "rusqlite",
  "serde",
  "serde_json",
