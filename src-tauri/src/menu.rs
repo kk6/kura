@@ -1,5 +1,5 @@
 //! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
-//! 足したのは「ファイル」の「ライブラリを切り替える…」と「アイデアボードを開く」だけ
+//! 足したのは「ファイル」の「ライブラリを切り替える…」と「ウインドウ」の「アイデアボードを開く」だけ
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
 use tauri::menu::{
@@ -37,13 +37,15 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
         true,
         Some("CmdOrCtrl+B"),
     )?;
-    let separator = sep()?;
+    let minimize = PredefinedMenuItem::minimize(app, Some("しまう"))?;
+    let maximize = PredefinedMenuItem::maximize(app, Some("拡大／縮小"))?;
+    let separators = [sep()?, sep()?];
     let close = PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?;
-    let mut file: Vec<&dyn IsMenuItem<R>> = vec![&switch];
+    let mut window: Vec<&dyn IsMenuItem<R>> = vec![&minimize, &maximize, &separators[0]];
     if board {
-        file.push(&open_board);
+        window.extend([&open_board as &dyn IsMenuItem<R>, &separators[1]]);
     }
-    file.extend([&separator as &dyn IsMenuItem<R>, &close]);
+    window.push(&close);
 
     Menu::with_items(
         app,
@@ -67,7 +69,16 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
                     &PredefinedMenuItem::quit(app, Some(&format!("{name} を終了")))?,
                 ],
             )?,
-            &Submenu::with_items(app, "ファイル", true, &file)?,
+            &Submenu::with_items(
+                app,
+                "ファイル",
+                true,
+                &[
+                    &switch,
+                    &sep()?,
+                    &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
+                ],
+            )?,
             &Submenu::with_items(
                 app,
                 "編集",
@@ -92,18 +103,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
                 )?],
             )?,
             // この id のメニューを macOS がウインドウのメニューとみなし、整列などの項目を足す
-            &Submenu::with_id_and_items(
-                app,
-                WINDOW_SUBMENU_ID,
-                "ウインドウ",
-                true,
-                &[
-                    &PredefinedMenuItem::minimize(app, Some("しまう"))?,
-                    &PredefinedMenuItem::maximize(app, Some("拡大／縮小"))?,
-                    &sep()?,
-                    &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
-                ],
-            )?,
+            &Submenu::with_id_and_items(app, WINDOW_SUBMENU_ID, "ウインドウ", true, &window)?,
             &Submenu::with_id_and_items(app, HELP_SUBMENU_ID, "ヘルプ", true, &[])?,
         ],
     )
