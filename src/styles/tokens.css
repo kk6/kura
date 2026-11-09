@@ -49,6 +49,8 @@
   --duration-spin: 1s;
   --duration-fast: 120ms;
   --duration-base: 160ms;
+  /* 詳細パネルが滑り込む・滑り出る時間 */
+  --duration-panel: 240ms;
   --motion-press: 0.96;
   --motion-rise: 4px;
   --size-board-toolbar: 40px;

@@ -295,6 +295,34 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   expect(errors).toEqual([])
 })
 
+test('詳細パネルは滑り出てから外れ、滑り出る間はフォーカスを受けない。動きを減らす設定ではすぐ切り替える', async ({
+  page,
+}) => {
+  await openGallery(page)
+  // 閉じる動きの間は inert で読み上げの木から外れるので、役割ではなく要素で探す
+  const detail = page.locator('aside[aria-label="詳細"]')
+  const toggle = page.locator('button[aria-pressed][title*="⌘I"]')
+
+  // 動きの途中を確かめるため、テストの中だけ動きを長くする
+  await page.addStyleTag({ content: ':root { --duration-panel: 2s }' })
+  await page.keyboard.press('Meta+i')
+  // 閉じる動きの間はパネルが残り、中に入れない
+  await expect(detail).toHaveCount(1)
+  expect(await detail.evaluate((e) => e.closest('[inert]') !== null)).toBe(true)
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(detail).toHaveCount(0)
+  await page.keyboard.press('Meta+i')
+  await expect(page.locator('.gallery--detail-opening')).toHaveCount(1)
+  await expect(page.locator('.gallery--detail-opening')).toHaveCount(0)
+  await expect(detail).toBeVisible()
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.keyboard.press('Meta+i')
+  expect(await detail.count()).toBe(0)
+  await page.keyboard.press('Meta+i')
+  expect(await detail.count()).toBe(1)
+})
+
 test('詳細パネルで画像のファイル名を変える。拡張子は変えず、同名はエラーにする', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
