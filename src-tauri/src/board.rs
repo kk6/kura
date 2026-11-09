@@ -1,5 +1,5 @@
-//! Library-local board storage. Call through `Access::with` so the opening session
-//! is checked under the same Current lock as the database write.
+//! ライブラリの中に置くボードの保存。`Access::with` から呼ぶ。開いたライブラリのトークンの検査と
+//! DB への書き込みを同じ Current のロックの中で行い、切り替えの途中で別のライブラリへ書かないため
 
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -77,7 +77,7 @@ impl Default for Viewport {
     }
 }
 
-/// Normalized rectangle in the original source, before flip and rotation.
+/// 元画像に対する0〜1の範囲。反転と回転の前の向きで持ち、加工を変えても切り抜く場所がずれないようにする
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Crop {
     pub x: f64,
@@ -128,7 +128,7 @@ pub struct Item {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ItemDraft {
-    /// None allocates a placement. Keep the returned ID in later saves and Undo.
+    /// None なら新しい配置として採番する。返った ID を以後の保存と Undo で使い続け、同じ配置として扱う
     pub id: Option<PlacementId>,
     pub source_id: SourceId,
     pub geometry: Geometry,
@@ -347,7 +347,7 @@ fn source(conn: &Connection, id: SourceId) -> Result<Source, String> {
     .ok_or_else(|| format!("ボードの画像参照が見つかりません（{}）", id.0))
 }
 
-/// Resolve trusted source identities for new placements. Unavailable images cannot be added.
+/// 新しい配置の画像参照は画面から受け取らず DB から引く。ゴミ箱・見つからない画像は追加させない
 pub fn sources(
     lib: &Library,
     expected: LibrarySession,
@@ -418,7 +418,7 @@ fn begin(lib: &mut Library, board: Board) -> EditingBoard {
     EditingBoard { edit, board }
 }
 
-/// Creation and initial placements commit together. New placements have no ID yet.
+/// 作成と初期配置をまとめて確定し、途中で失敗しても空のボードだけを残さない
 pub fn create(
     lib: &mut Library,
     expected: LibrarySession,
@@ -447,7 +447,7 @@ pub fn create(
     Ok(begin(lib, board))
 }
 
-/// Reopening the same board also invalidates its preceding edit token.
+/// 同じボードを開き直しても前の編集トークンを失効させる。前に開いた画面の遅れた保存で上書きさせないため
 pub fn open(
     lib: &mut Library,
     expected: LibrarySession,
@@ -530,7 +530,7 @@ pub fn delete(lib: &mut Library, expected: LibrarySession, id: BoardId) -> Resul
     Ok(())
 }
 
-/// Where "ボードに追加" puts the images. JSON: `{"board": 3}` or `{"new": "名前"}`.
+/// 「ボードに追加」の追加先。JSON では `{"board": 3}` か `{"new": "名前"}`
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Target {
@@ -538,23 +538,21 @@ pub enum Target {
     New(String),
 }
 
-/// The board that received the images and the new placements, in stacking order.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Added {
     pub board_id: BoardId,
     pub placements: Vec<PlacementId>,
 }
 
-/// Side of the square cell every added image is fitted into, in board units.
+/// 追加した画像を収める正方形の枠の辺。ボード上の長さ
 const CELL: f64 = 240.0;
 const GAP: f64 = 24.0;
-/// Space between the existing placements and the added grid.
+/// 既存の配置と追加分の間。追加分のまとまりを見分けやすくするため
 const MARGIN: f64 = 96.0;
 
-/// Add images from the gallery as independent placements. The board, the placements and
-/// the last-board pointer commit together, so a failure leaves neither a half-made board nor
-/// partial placements. The open edit of that board is ended because its snapshot no longer
-/// has the added placements; the board window reopens it.
+/// ボードと配置と最後のボードをまとめて確定し、途中で失敗しても半端なボードや配置を残さない（FR-701）。
+/// そのボードの編集は終わらせる。画面が持つ配置には追加分がなく、そのまま保存すると追加分を消すため。
+/// ボードのウィンドウは開き直して追加分を読む
 pub fn add(
     lib: &mut Library,
     expected: LibrarySession,
@@ -611,8 +609,7 @@ pub fn add(
     }
 }
 
-/// Grid of new placements: each image fitted into a CELL square with its aspect ratio kept,
-/// right of everything already on the board, or centred on the origin when the board is empty.
+/// 既存の配置を動かさないよう、追加分はその右に並べる。空のボードでは原点を中心にする（FR-701）
 fn place(existing: &[Item], sources: &[Source]) -> Vec<ItemDraft> {
     let columns = (sources.len() as f64).sqrt().ceil() as usize;
     let rows = sources.len().div_ceil(columns);
@@ -654,8 +651,7 @@ fn place(existing: &[Item], sources: &[Source]) -> Vec<ItemDraft> {
         .collect()
 }
 
-/// Left, top, right, bottom of all placements, each frame rotated about its centre.
-/// Crop is ignored, so the box can only be larger than what is drawn.
+/// 配置全体の外枠。切り抜きは見ないので、描いた範囲より大きくはなっても小さくはならず、追加分が重ならない
 fn bounds(items: &[Item]) -> Option<(f64, f64, f64, f64)> {
     items
         .iter()
@@ -673,8 +669,8 @@ fn bounds(items: &[Item]) -> Option<(f64, f64, f64, f64)> {
         .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))
 }
 
-/// Revisions must increase within the current edit token. Failed saves consume no revision.
-/// A successful result echoes the edit and revision so callers can discard delayed responses.
+/// revision は同じ編集トークンの中で増やす。失敗した保存は revision を使わず、同じ値で再試行できる。
+/// 成功の応答に編集と revision を返し、画面が遅れて届いた応答を捨てられるようにする
 pub fn save(
     lib: &mut Library,
     edit: Edit,

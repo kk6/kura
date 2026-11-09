@@ -528,7 +528,6 @@ fn sized(lib: &Library, name: &str, width: i64, height: i64) -> i64 {
     id
 }
 
-/// Displayed rectangle of an unrotated placement: left, top, right, bottom.
 fn rect(g: &Geometry) -> (f64, f64, f64, f64) {
     (g.x, g.y, g.x + g.width * g.scale, g.y + g.height * g.scale)
 }
