@@ -52,7 +52,7 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 
 `check.sh` の `DRIFT` は、上の関数の本体（空白を詰めたもの）が `coverage.tsv` の指紋と違うことを示す。整形だけの変更でも出る。
 
-**同期したコミット：`cf32120`**（このコミットのコードを読み、モデルがそれを写していることを確かめた。`fileops.rs` と `library.rs` を最後に変えたコミットは `324c60d`）
+**同期したコミット：`7ba2d66`**（このコミットのコードを読み、モデルがそれを写していることを確かめた。`fileops.rs` と `library.rs` を最後に変えたコミットは `7ba2d66`）
 
 ## DRIFT や FAIL が出たとき
 
