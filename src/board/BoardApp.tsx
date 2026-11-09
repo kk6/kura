@@ -3,11 +3,13 @@ import { listen } from '@tauri-apps/api/event'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ConfirmDialog from '../ConfirmDialog'
 import { Icon, ICONS } from '../icons'
+import { useFlush } from '../flush'
 import Status from '../Status'
 import Canvas from './Canvas'
 import NameDialog from './NameDialog'
 import { defaultName } from './names'
-import type { Added, BoardSummary, Boards, EditingBoard, Item, Viewport } from './types'
+import { saveQueue, type SaveState } from './saveQueue'
+import type { Added, BoardSummary, Boards, Edit, EditingBoard, Item, Snapshot, Viewport } from './types'
 import './Board.css'
 
 // 開いたボード。ボードがなければ「ボードを作成」、最後のボードが削除済みなら選択画面（FR-701）
@@ -29,8 +31,23 @@ export default function BoardApp() {
   const fitted = useCallback(() => setFit(null), [])
   // 画像 ID から元画像のパス
   const [paths, setPaths] = useState<Record<number, string>>({})
-  // 次の保存の revision。保存が重なっても同じ値を2度送らない
+  // 最後に保存できた revision。次の保存はこれより1つ大きい値で送る。失敗では進めない
   const revision = useRef(0)
+  const [save, setSave] = useState<SaveState>({ kind: 'saved' })
+  const queue = useRef(
+    saveQueue<{ edit: Edit; snapshot: Snapshot }>(async ({ edit, snapshot }) => {
+      const saved = await invoke<EditingBoard>('save_board', { edit, revision: revision.current + 1, snapshot })
+      revision.current = saved.board.revision
+    }, setSave),
+  ).current
+  // 閉じる・終了・追加の保存待ちの間（held）と、追加の後に開き直す間（revealing）は編集を受け付けない。
+  // 受け付けると、Rust が保存を確かめた後の変更が、閉じたボードや終わった編集へ送られて消える
+  const held = useRef(false)
+  const revealing = useRef(0)
+  useFlush(async () => {
+    held.current = true
+    await queue.flush()
+  })
 
   const current = view.kind === 'board' ? view.board.board : null
   const summary = boards.find((b) => b.id === current?.id)
@@ -49,9 +66,15 @@ export default function BoardApp() {
     revision.current = board.board.revision
   }
 
-  // 開けたかを返す。開けなければ今の表示のままエラーを出す
+  // 開けたかを返す。開けなければ今の表示のままエラーを出す。
+  // 今のボードを保存できなければ切り替えない（FR-704）。失敗は保存の状態に出す
   async function open(id: number, s = session, select: number[] = []) {
     setError(null)
+    try {
+      await queue.flush()
+    } catch {
+      return false
+    }
     try {
       show(await invoke<EditingBoard>('open_board', { session: s, id }), select)
       return true
@@ -71,6 +94,17 @@ export default function BoardApp() {
     if (await open(added.board_id, s, added.placements)) setFit(added.placements)
     return true
   }
+  // 追加の後に開き直し終わるまで、編集を止める。Rust の release はこれより先に届く
+  async function revealAfterAdd() {
+    revealing.current++
+    try {
+      await revealRef.current((await reload()).session)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      revealing.current--
+    }
+  }
   const revealRef = useRef(reveal)
   revealRef.current = reveal
 
@@ -88,14 +122,12 @@ export default function BoardApp() {
         setView({ kind: 'choose' })
       })
     // 開いている間の追加。ボードが増えたかもしれないので一覧も読み直す
-    const unlisten = listen('board-reveal', () =>
-      reload()
-        .then((list) => revealRef.current(list.session))
-        .catch((e) => setError(String(e))),
-    )
-    return () => {
-      unlisten.then((f) => f())
-    }
+    const unlisten = [
+      listen('board-reveal', () => revealAfterAdd()),
+      // Rust の保存待ちが終わった（遷移を中止した、または追加し終えた）
+      listen('release', () => (held.current = false)),
+    ]
+    return () => unlisten.forEach((p) => p.then((f) => f()))
     // 開いたときに1度だけ読む
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -118,33 +150,23 @@ export default function BoardApp() {
     ).then((found) => setPaths((p) => ({ ...p, ...Object.fromEntries(found) })))
   }, [items, paths])
 
-  // 1枚の移動を保存する（FR-702、FR-704）。保存中も動かした位置のまま見せる。
-  // shortcut: 失敗はエラーを出すだけで、再試行と保存の状態の表示は自動保存のタスク（D）で作る
-  async function move(id: number, x: number, y: number) {
-    if (view.kind !== 'board') return
+  // 1枚の移動を保存する（FR-702、FR-704）。保存中も失敗しても、動かした位置のまま見せる
+  function move(id: number, x: number, y: number) {
+    if (view.kind !== 'board' || held.current || revealing.current) return
     const { edit, board } = view.board
     const moved = board.items.map((i): Item => (i.id === id ? { ...i, geometry: { ...i.geometry, x, y } } : i))
     setView({ kind: 'board', board: { edit, board: { ...board, items: moved } } })
-    const snapshot = {
-      viewport,
-      items: moved.map((i) => ({ id: i.id, source_id: i.source.id, geometry: i.geometry })),
-    }
-    const next = ++revision.current
-    try {
-      const saved = await invoke<EditingBoard>('save_board', { edit, revision: next, snapshot })
-      setError(null)
-      // 後から送った保存の応答だけを使う
-      if (revision.current === next)
-        setView((v) =>
-          v.kind === 'board' && v.board.edit.token === saved.edit.token ? { kind: 'board', board: saved } : v,
-        )
-    } catch (e) {
-      revision.current = Math.min(revision.current, next - 1)
-      setError(`ボードを保存できませんでした（${e}）`)
-    }
+    queue.push({
+      edit,
+      snapshot: { viewport, items: moved.map((i) => ({ id: i.id, source_id: i.source.id, geometry: i.geometry })) },
+    })
   }
 
   async function create(name: string) {
+    // 今のボードを保存できなければ新しいボードに移らない
+    await queue.flush().catch(() => {
+      throw '今のボードを保存できないため、新しいボードを作れません'
+    })
     const board = await invoke<EditingBoard>('create_board', { session, name })
     setDialog(null)
     setError(null)
@@ -173,6 +195,7 @@ export default function BoardApp() {
       return
     }
     setError(null)
+    queue.clear()
     const list = await reload().catch(() => ({ boards: boards.filter((b) => b.id !== current!.id) }))
     setView({ kind: list.boards.length ? 'choose' : 'empty' })
   }
@@ -255,7 +278,20 @@ export default function BoardApp() {
               <Icon d={ICONS.plus} />
               新しいボード
             </button>
+            {current && save.kind !== 'failed' && (
+              <span className="board__save" role="status">
+                {save.kind === 'saving' ? '保存中…' : '保存済み'}
+              </span>
+            )}
           </header>
+          {current && save.kind === 'failed' && (
+            <div className="board__error" role="alert">
+              <Status kind="error">保存できませんでした（{save.error}）</Status>
+              <button type="button" className="button" onClick={() => queue.retry()}>
+                再試行
+              </button>
+            </div>
+          )}
           {error && (
             <div className="board__error" role="alert">
               <Status kind="error">{error}</Status>

@@ -29,8 +29,18 @@
   font-weight: var(--font-weight-bold);
 }
 
-.board__error {
+.board__save {
   flex: none;
+  margin-left: auto;
+  color: var(--color-text-faint);
+  font-size: var(--font-size-sm);
+}
+
+.board__error {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-bottom: var(--border);
   background: var(--color-surface);

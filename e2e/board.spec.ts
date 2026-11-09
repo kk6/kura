@@ -414,3 +414,50 @@ test('ボードで1枚をドラッグすると、その配置だけが動いて�
   expect(after[1].geometry).toEqual(before[1].geometry)
   await page.screenshot({ path: 'test-results/board-moved.png' })
 })
+
+test('保存の状態を示し、保存できなければ位置を残して再試行でき、それまで閉じる前の保存待ちに失敗を返す', async ({
+  page,
+}) => {
+  await openGallery(page)
+  await page.locator('.list__thumb').nth(0).click()
+  await page.getByRole('complementary', { name: '詳細' }).getByRole('button', { name: 'ボードに追加' }).click()
+  await page.getByRole('dialog', { name: 'ボードに追加' }).getByRole('button', { name: '追加' }).click()
+  const before = (await storedBoards(page)).boards[0].items![0].geometry
+
+  const flushed: string[] = []
+  page.on('console', (m) => m.text().startsWith('flush_done') && flushed.push(m.text()))
+  await page.goto('/?board')
+  await expect(page.getByRole('status')).toHaveText('保存済み')
+  await page.evaluate(() => sessionStorage.setItem('mock.failBoardSave', '1'))
+  const item = page.getByRole('main', { name: /キャンバス/ }).getByRole('img')
+  const box = (await item.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 4 })
+  await page.mouse.up()
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('エラー：保存できませんでした（attempt to write a readonly database）')
+  await expect.poll(async () => (await item.boundingBox())!.x).toBeGreaterThan(box.x + 30)
+  expect((await storedBoards(page)).boards[0].items![0].geometry).toEqual(before)
+
+  // Rust の保存待ち（閉じる・終了・切り替え）は、保存できないので失敗を受け取る
+  const emitFlush = (id: number) =>
+    page.evaluate(
+      (id) =>
+        (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('plugin:event|emit', {
+          event: 'flush',
+          payload: id,
+        }),
+      id,
+    )
+  await emitFlush(1)
+  await expect.poll(() => flushed).toEqual(['flush_done: attempt to write a readonly database'])
+
+  await page.evaluate(() => sessionStorage.removeItem('mock.failBoardSave'))
+  await alert.getByRole('button', { name: '再試行' }).click()
+  await expect(page.getByRole('status')).toHaveText('保存済み')
+  await expect.poll(async () => (await storedBoards(page)).boards[0].items![0].geometry.x).toBeGreaterThan(before.x)
+  await emitFlush(2)
+  await expect.poll(() => flushed).toHaveLength(2)
+  expect(flushed[1]).toBe('flush_done: ok')
+})

@@ -135,6 +135,13 @@ test('ライブラリを切り替えると選択画面に戻り、入力中の�
   await page.keyboard.press('Escape')
   await memo.click()
 
+  // メモを保存できなければ切り替えず、入力欄の下とステータスバーにエラーを出す
+  await memo.fill('失敗するメモ')
+  await switchLibrary(page)
+  await expect(page.getByRole('contentinfo')).toContainText('メモを保存できないため、ライブラリを切り替えられません')
+  await expect(page.getByRole('complementary', { name: '詳細' })).toContainText('エラー：メモを保存できません')
+  await memo.fill('切り替える前に書いたメモ')
+
   await switchLibrary(page)
   const screen = page.getByRole('main', { name: 'ライブラリ選択' })
   await expect(screen.getByRole('button', { name: '新しいライブラリを作る' })).toBeVisible()
