@@ -31,20 +31,24 @@ export default function BoardApp() {
     return list
   }
 
+  // 開けたかを返す。開けなければ今の表示のままエラーを出す
   async function open(id: number, s = session) {
     setError(null)
     try {
       setView({ kind: 'board', board: await invoke<EditingBoard>('open_board', { session: s, id }) })
+      return true
     } catch (e) {
       setError(String(e))
+      return false
     }
   }
 
   // 開いただけでは空のボードを作らない
   useEffect(() => {
     reload()
-      .then((list) => {
-        if (list.last_board_id !== null) return open(list.last_board_id, list.session)
+      .then(async (list) => {
+        // 最後のボードを開けなければ、ほかのボードを選べるよう選択画面にする
+        if (list.last_board_id !== null && (await open(list.last_board_id, list.session))) return
         setView({ kind: list.boards.length ? 'choose' : 'empty' })
       })
       .catch((e) => {

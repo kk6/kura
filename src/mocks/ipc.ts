@@ -374,7 +374,7 @@ const DEFAULT_SETTINGS: Settings = {
 }
 
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
-// e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できない
+// e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない
 type MockBoards = { boards: BoardSummary[]; last: number | null; next: number }
 const boardStore = () => stored<MockBoards>('mock.boards', { boards: [], last: null, next: 1 })
 const SESSION = 1
@@ -407,6 +407,7 @@ const listBoards: Handler = () => {
 const openBoard: Handler = (args) => {
   const data = boardStore()
   const board = boardOf(data, args)
+  if (board.name === '開けない') throw 'database disk image is malformed'
   store('mock.boards', { ...data, last: board.id })
   return editing(board)
 }

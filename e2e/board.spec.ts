@@ -203,3 +203,21 @@ test('ボードの削除は名前と配置の件数を示し、キャンセル�
   await confirm.getByRole('button', { name: '削除する' }).click()
   await expect(page.getByRole('button', { name: 'ボードを作成' })).toBeVisible()
 })
+
+test('最後に使ったボードを開けなければ、選択画面にしてエラーを出す', async ({ page }) => {
+  await page.addInitScript(() => {
+    const board = (id: number, name: string) => ({ id, name, placement_count: 0, updated_at: id })
+    sessionStorage.setItem(
+      'mock.boards',
+      JSON.stringify({ boards: [board(1, '構図'), board(2, '開けない')], last: 2, next: 3 }),
+    )
+  })
+  await page.goto('/?board')
+
+  await expect(page.getByRole('alert')).toHaveText('エラー：database disk image is malformed')
+  const choose = page.getByRole('main', { name: 'ボードを選ぶ' })
+  await expect(choose.getByRole('button')).toHaveText(['開けない0枚', '構図0枚'])
+  await choose.getByRole('button', { name: /構図/ }).click()
+  await expect(page.getByRole('main', { name: 'キャンバス：構図' })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+})
