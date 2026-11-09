@@ -1,5 +1,5 @@
 //! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
-//! 足したのは「ファイル」の「ライブラリを切り替える…」と「ウインドウ」の「アイデアボードを開く」だけ
+//! 足したのは「ファイル」の「ライブラリを切り替える…」「ボードに追加…」と「ウインドウ」の「アイデアボードを開く」だけ
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
 use tauri::menu::{
@@ -13,6 +13,9 @@ pub const SWITCH_LIBRARY: &str = "switch-library";
 
 /// アイデアボードの専用ウィンドウを開く項目（FR-701）。選ぶと main.rs が画面へ open-board イベントを送る
 pub const OPEN_BOARD: &str = "open-board";
+
+/// 選んだ画像をボードに追加する項目（FR-701）。選ぶと main.rs がギャラリーへ add-to-board イベントを送る
+pub const ADD_TO_BOARD: &str = "add-to-board";
 
 /// board が false（アイデアボードが OFF。FR-711）なら、ボードの項目とショートカットを入れない
 pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<R>> {
@@ -37,6 +40,20 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
         true,
         Some("CmdOrCtrl+B"),
     )?;
+    let add_to_board = MenuItem::with_id(
+        app,
+        ADD_TO_BOARD,
+        "ボードに追加…",
+        true,
+        Some("CmdOrCtrl+Shift+B"),
+    )?;
+    let file_close = PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?;
+    let file_seps = [sep()?, sep()?];
+    let mut file: Vec<&dyn IsMenuItem<R>> = vec![&switch, &file_seps[0]];
+    if board {
+        file.extend([&add_to_board as &dyn IsMenuItem<R>, &file_seps[1]]);
+    }
+    file.push(&file_close);
     let minimize = PredefinedMenuItem::minimize(app, Some("しまう"))?;
     let maximize = PredefinedMenuItem::maximize(app, Some("拡大／縮小"))?;
     let separators = [sep()?, sep()?];
@@ -69,16 +86,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
                     &PredefinedMenuItem::quit(app, Some(&format!("{name} を終了")))?,
                 ],
             )?,
-            &Submenu::with_items(
-                app,
-                "ファイル",
-                true,
-                &[
-                    &switch,
-                    &sep()?,
-                    &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
-                ],
-            )?,
+            &Submenu::with_items(app, "ファイル", true, &file)?,
             &Submenu::with_items(
                 app,
                 "編集",

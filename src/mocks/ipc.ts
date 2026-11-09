@@ -3,7 +3,7 @@ import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
 import type { Report, ScanReport } from '../importTypes'
-import type { BoardSummary, EditingBoard } from '../board/types'
+import type { Added, BoardSummary, EditingBoard, Item, Snapshot, Target, Viewport } from '../board/types'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
 
@@ -374,8 +374,10 @@ const DEFAULT_SETTINGS: Settings = {
 }
 
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
-// e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない
-type MockBoards = { boards: BoardSummary[]; last: number | null; next: number }
+// e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない。
+// 「保存できない」という名前のボードは配置を保存できない
+type MockBoard = BoardSummary & { items?: Item[]; viewport?: Viewport; revision?: number }
+type MockBoards = { boards: MockBoard[]; last: number | null; next: number; reveal?: Added | null }
 const boardStore = () => stored<MockBoards>('mock.boards', { boards: [], last: null, next: 1 })
 const SESSION = 1
 
@@ -386,21 +388,39 @@ const checkBoardName = (data: MockBoards, raw: unknown, except?: number) => {
   return name
 }
 
-const boardOf = (data: MockBoards, args: Record<string, unknown> | undefined) => {
+const checkSession = (args: Record<string, unknown> | undefined) => {
   if (args?.session !== SESSION) throw 'ライブラリが切り替わったため、ボードの操作を中止しました'
+}
+
+const boardOf = (data: MockBoards, args: Record<string, unknown> | undefined) => {
+  checkSession(args)
   const board = data.boards.find((b) => b.id === args?.id)
   if (!board) throw `ボードが見つかりません（${args?.id}）`
   return board
 }
 
-const editing = (b: BoardSummary): EditingBoard => ({
+const summary = ({ id, name, items, placement_count, updated_at }: MockBoard): BoardSummary => ({
+  id,
+  name,
+  placement_count: items?.length ?? placement_count,
+  updated_at,
+})
+
+const editing = (b: MockBoard): EditingBoard => ({
   edit: { library_session: SESSION, board_id: b.id, token: 1 },
-  board: { id: b.id, name: b.name, revision: 0, items: [] },
+  board: {
+    id: b.id,
+    name: b.name,
+    viewport: b.viewport ?? { x: 0, y: 0, scale: 1 },
+    updated_at: b.updated_at,
+    revision: b.revision ?? 0,
+    items: b.items ?? [],
+  },
 })
 
 const listBoards: Handler = () => {
   const data = boardStore()
-  const boards = [...data.boards].sort((a, b) => b.updated_at - a.updated_at || b.id - a.id)
+  const boards = [...data.boards].sort((a, b) => b.updated_at - a.updated_at || b.id - a.id).map(summary)
   return { session: SESSION, boards, last_board_id: data.last }
 }
 
@@ -412,11 +432,18 @@ const openBoard: Handler = (args) => {
   return editing(board)
 }
 
+const newBoard = (data: MockBoards, name: unknown): MockBoard => ({
+  id: data.next,
+  name: checkBoardName(data, name),
+  placement_count: 0,
+  updated_at: Date.now(),
+})
+
 const createBoard: Handler = (args) => {
   const data = boardStore()
-  if (args?.session !== SESSION) throw 'ライブラリが切り替わったため、ボードの操作を中止しました'
-  const board = { id: data.next, name: checkBoardName(data, args?.name), placement_count: 0, updated_at: Date.now() }
-  store('mock.boards', { boards: [...data.boards, board], last: board.id, next: data.next + 1 })
+  checkSession(args)
+  const board = newBoard(data, args?.name)
+  store('mock.boards', { ...data, boards: [...data.boards, board], last: board.id, next: data.next + 1 })
   return editing(board)
 }
 
@@ -425,7 +452,7 @@ const renameBoard: Handler = (args) => {
   const board = boardOf(data, args)
   board.name = checkBoardName(data, args?.name, board.id)
   store('mock.boards', data)
-  return board
+  return summary(board)
 }
 
 const deleteBoard: Handler = (args) => {
@@ -437,6 +464,87 @@ const deleteBoard: Handler = (args) => {
     boards: data.boards.filter((b) => b !== board),
     last: data.last === board.id ? null : data.last,
   })
+}
+
+const saveBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = data.boards.find((b) => b.id === (args?.edit as EditingBoard['edit']).board_id)
+  if (!board) throw 'このボードの編集は終了しています'
+  if (board.name === '保存できない') throw 'attempt to write a readonly database'
+  const snapshot = args?.snapshot as Snapshot
+  const old = new Map((board.items ?? []).map((i) => [i.id, i]))
+  board.items = snapshot.items.map((d) => ({ ...old.get(d.id!)!, geometry: d.geometry }))
+  board.viewport = snapshot.viewport
+  board.revision = args?.revision as number
+  store('mock.boards', data)
+  return editing(board)
+}
+
+// src-tauri/src/board.rs の place と同じ並べ方。空のボードでは原点を中心に、あれば右側に、縦横比を保って格子状に並べる
+const CELL = 240
+const GAP = 24
+const MARGIN = 96
+const addToBoard: Handler = (args) => {
+  const data = boardStore()
+  checkSession(args)
+  const ids = args?.images as number[]
+  if (!ids.length) throw 'ボードに追加する画像を選んでください'
+  const images = ids.map((id) => {
+    const image = IMAGES.find((i) => i.id === id)
+    if (!image) throw 'ゴミ箱・見つからない・削除された画像はボードに追加できません'
+    return image
+  })
+  const target = args?.target as Target
+  const board = 'new' in target ? newBoard(data, target.new) : data.boards.find((b) => b.id === target.board)
+  if (!board) throw `ボードが見つかりません（${(target as { board: number }).board}）`
+  const items = board.items ?? []
+  const columns = Math.ceil(Math.sqrt(images.length))
+  const span = (n: number) => n * CELL + (n - 1) * GAP
+  const left = items.length
+    ? Math.max(...items.map((i) => i.geometry.x + i.geometry.width * i.geometry.scale)) + MARGIN
+    : -span(columns) / 2
+  const top = items.length ? Math.min(...items.map((i) => i.geometry.y)) : -span(Math.ceil(images.length / columns)) / 2
+  let next = Math.max(0, ...data.boards.flatMap((b) => (b.items ?? []).map((i) => i.id))) + 1
+  const order = Math.max(-1, ...items.map((i) => i.geometry.stack_order)) + 1
+  const added = images.map((image, n): Item => {
+    const scale = CELL / Math.max(image.width, image.height)
+    return {
+      id: next++,
+      source: {
+        id: image.id,
+        image_id: image.id,
+        file_name: image.file_name,
+        width: image.width,
+        height: image.height,
+        status: 'available',
+      },
+      geometry: {
+        width: image.width,
+        height: image.height,
+        x: left + (n % columns) * (CELL + GAP) + (CELL - image.width * scale) / 2,
+        y: top + Math.floor(n / columns) * (CELL + GAP) + (CELL - image.height * scale) / 2,
+        scale,
+        rotation: 0,
+        flipped: false,
+        grayscale: false,
+        crop: null,
+        stack_order: order + n,
+      },
+    }
+  })
+  board.items = [...items, ...added]
+  board.revision = (board.revision ?? 0) + 1
+  const boards = 'new' in target ? [...data.boards, board] : data.boards
+  const reveal = { board_id: board.id, placements: added.map((i) => i.id) }
+  store('mock.boards', { boards, last: board.id, next: 'new' in target ? data.next + 1 : data.next, reveal })
+  // 本物はここで専用ウィンドウを開く。モックは e2e が確かめられるようにコンソールに出す
+  console.info('board window')
+}
+
+const takeBoardReveal: Handler = () => {
+  const data = boardStore()
+  store('mock.boards', { ...data, reveal: null })
+  return data.reveal ?? null
 }
 
 // e2e が確かめられるように、開いたことをコンソールに出す。別ウィンドウはモックでは開けない
@@ -505,6 +613,9 @@ const handlers: Record<string, Handler> = {
   create_board: createBoard,
   rename_board: renameBoard,
   delete_board: deleteBoard,
+  save_board: saveBoard,
+  add_to_board: addToBoard,
+  take_board_reveal: takeBoardReveal,
   show_board_window: showBoardWindow,
   'plugin:dialog|save': (args) => `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
   // e2e が中身を確かめられるように、出したダイアログの文をコンソールに出す

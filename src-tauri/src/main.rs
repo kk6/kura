@@ -114,6 +114,12 @@ fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(), Str
 }
 
 fn close_board(app: &AppHandle) {
+    // 前のライブラリのボード ID を、次のライブラリのボードとして開かせない
+    app.state::<Reveal>()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
     if let Some(w) = app.get_webview_window(BOARD) {
         if let Err(e) = w.destroy() {
             log::warn!("アイデアボードを閉じられません：{e}");
@@ -192,6 +198,61 @@ fn rename_board(
     name: String,
 ) -> Result<board::Summary, String> {
     current.0.with(|lib| board::rename(lib, session, id, &name))
+}
+
+/// 配置を動かしたボードを保存する（FR-702、FR-704）。edit と revision の検査は board::save が行う
+#[tauri::command]
+fn save_board(
+    current: State<Current>,
+    edit: board::Edit,
+    revision: u64,
+    snapshot: board::Snapshot,
+) -> Result<board::EditingBoard, String> {
+    current
+        .0
+        .with(|lib| board::save(lib, edit, revision, &snapshot))
+}
+
+/// ギャラリーから追加した結果。ボードのウィンドウが開いて読み取り、追加分を選んで表示する（FR-701）。
+/// ウィンドウを新しく作るときはイベントが画面の準備より先に届くので、ここに残して取りに来させる
+#[derive(Default)]
+struct Reveal(Mutex<Option<board::Added>>);
+
+/// 選んだ画像をボードに追加し、そのボードを専用ウィンドウで開いて手前に出す（FR-701）
+#[tauri::command]
+async fn add_to_board(
+    app: AppHandle,
+    session: board::LibrarySession,
+    target: board::Target,
+    images: Vec<i64>,
+) -> Result<(), String> {
+    let added = app
+        .state::<Current>()
+        .0
+        .with(|lib| board::add(lib, session, &target, &images))?;
+    log::info!(
+        "ボードに追加しました：ボード {}、{}枚",
+        added.board_id.0,
+        added.placements.len()
+    );
+    *app.state::<Reveal>()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = Some(added);
+    show_board_window(app.clone()).await?;
+    if let Err(e) = app.emit_to(BOARD, "board-reveal", ()) {
+        log::warn!("ボードに追加を知らせられません：{e}");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn take_board_reveal(reveal: State<Reveal>) -> Option<board::Added> {
+    reveal
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take()
 }
 
 /// ボードと配置だけを消す。元画像はライブラリに残す（FR-701）
@@ -478,7 +539,7 @@ fn main() {
         .on_menu_event(|app, event| {
             // 開いているライブラリ（Current）は次のライブラリを開くまで残す。戻るかどうかは画面が決める。
             // ボードもギャラリーの画面が開く。ライブラリ選択画面ではボードを開かないため
-            for id in [menu::SWITCH_LIBRARY, menu::OPEN_BOARD] {
+            for id in [menu::SWITCH_LIBRARY, menu::OPEN_BOARD, menu::ADD_TO_BOARD] {
                 if event.id() == id {
                     if let Err(e) = app.emit_to("main", id, ()) {
                         log::warn!("メニューの操作を画面に送れません（{id}）：{e}");
@@ -493,6 +554,7 @@ fn main() {
             }
         })
         .manage(Current::default())
+        .manage(Reveal::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
             load_settings,
@@ -533,7 +595,10 @@ fn main() {
             open_board,
             create_board,
             rename_board,
-            delete_board
+            delete_board,
+            save_board,
+            add_to_board,
+            take_board_reveal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

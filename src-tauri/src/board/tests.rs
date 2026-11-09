@@ -516,3 +516,232 @@ fn 名前変更とボード削除のsql失敗は名前と配置と最後のボ�
         .unwrap();
     assert!(save(&mut lib, created.edit, 1, &created.board.snapshot()).is_ok());
 }
+
+fn sized(lib: &Library, name: &str, width: i64, height: i64) -> i64 {
+    let id = put(lib, None, name, name);
+    lib.conn
+        .execute(
+            "UPDATE images SET width = ?1, height = ?2 WHERE id = ?3",
+            params![width, height, id],
+        )
+        .unwrap();
+    id
+}
+
+fn rect(g: &Geometry) -> (f64, f64, f64, f64) {
+    (g.x, g.y, g.x + g.width * g.scale, g.y + g.height * g.scale)
+}
+
+fn overlaps(a: &Geometry, b: &Geometry) -> bool {
+    let (al, at, ar, ab) = rect(a);
+    let (bl, bt, br, bb) = rect(b);
+    al < br && bl < ar && at < bb && bt < ab
+}
+
+fn files(dir: &std::path::Path) -> usize {
+    fs::read_dir(dir.join("_未分類")).unwrap().count()
+}
+
+#[test]
+fn 新しいボードへの追加は名前付きで作り中央付近に縦横比を保って重ならず並べる() {
+    let (dir, mut lib) = setup();
+    let tall = sized(&lib, "縦.png", 600, 1200);
+    let wide = sized(&lib, "横.png", 1600, 900);
+    let square = sized(&lib, "正方形.png", 50, 50);
+    let s = session(&lib);
+    let before = files(dir.path());
+    let added = add(
+        &mut lib,
+        s,
+        &Target::New("  資料  ".into()),
+        &[tall, wide, square],
+    )
+    .unwrap();
+    let board = load(&lib, s, added.board_id).unwrap();
+    assert_eq!(board.name, "資料");
+    assert_eq!(last(&lib, s).unwrap().unwrap().id, added.board_id);
+    assert_eq!(
+        added.placements,
+        board.items.iter().map(|i| i.id).collect::<Vec<_>>()
+    );
+    let sizes: Vec<_> = board
+        .items
+        .iter()
+        .map(|i| {
+            let g = &i.geometry;
+            assert_eq!(
+                (g.width, g.height),
+                (i.source.width as f64, i.source.height as f64)
+            );
+            (g.width * g.scale, g.height * g.scale)
+        })
+        .collect();
+    // 共通の枠に収める。長い辺が枠と同じになる
+    for (w, h) in &sizes {
+        assert!((w.max(*h) - sizes[0].0.max(sizes[0].1)).abs() < 1e-9);
+    }
+    for (i, a) in board.items.iter().enumerate() {
+        for b in &board.items[i + 1..] {
+            assert!(!overlaps(&a.geometry, &b.geometry));
+        }
+    }
+    let (l, t, r, b) = board.items.iter().fold(
+        (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+        |(l, t, r, b), i| {
+            let (il, it, ir, ib) = rect(&i.geometry);
+            (l.min(il), t.min(it), r.max(ir), b.max(ib))
+        },
+    );
+    assert!(((l + r) / 2.0).abs() < sizes[0].0.max(sizes[0].1));
+    assert!(((t + b) / 2.0).abs() < sizes[0].0.max(sizes[0].1));
+    assert_eq!(files(dir.path()), before);
+}
+
+#[test]
+fn 既存のボードへの追加は既存配置を動かさず右側に並べ同じ画像も独立した配置にする() {
+    let (dir, mut lib) = setup();
+    let image = sized(&lib, "画像.png", 800, 600);
+    let other = sized(&lib, "別.png", 300, 900);
+    let s = session(&lib);
+    let mut draft = snapshot(&lib, image);
+    draft.items[0].geometry.rotation = 0.0;
+    let created = create(&mut lib, s, "既存", &draft).unwrap();
+    let existing = created.board.items[0].clone();
+    let before = files(dir.path());
+    let first = add(
+        &mut lib,
+        s,
+        &Target::Board(created.board.id),
+        &[image, image],
+    )
+    .unwrap();
+    let second = add(
+        &mut lib,
+        s,
+        &Target::Board(created.board.id),
+        &[other, image],
+    )
+    .unwrap();
+    let board = load(&lib, s, created.board.id).unwrap();
+    assert_eq!(board.items.len(), 5);
+    assert_eq!(board.items[0], existing);
+    assert_eq!(first.placements.len(), 2);
+    assert_eq!(second.placements.len(), 2);
+    let all: HashSet<_> = board.items.iter().map(|i| i.id).collect();
+    assert_eq!(all.len(), 5);
+    let (_, _, right, _) = rect(&existing.geometry);
+    let new: Vec<_> = board
+        .items
+        .iter()
+        .filter(|i| second.placements.contains(&i.id))
+        .collect();
+    for item in &new {
+        assert!(item.geometry.x > right);
+        assert!(item.geometry.stack_order > existing.geometry.stack_order);
+    }
+    for (i, a) in board.items.iter().enumerate() {
+        for b in &board.items[i + 1..] {
+            assert!(!overlaps(&a.geometry, &b.geometry), "{:?} {:?}", a.id, b.id);
+        }
+    }
+    assert!(board.revision > created.board.revision);
+    assert_eq!(files(dir.path()), before);
+}
+
+#[test]
+fn ゴミ箱と見つからない画像と空の選択と同名は追加せず新しいボードも作らない() {
+    let (_dir, mut lib) = setup();
+    let ok = put(&lib, None, "ok.png", "ok");
+    let trashed = put(&lib, None, "trashed.png", "trashed");
+    let missing = put(&lib, None, "missing.png", "missing");
+    lib.conn
+        .execute("UPDATE images SET deleted_at = 1 WHERE id = ?1", [trashed])
+        .unwrap();
+    lib.conn
+        .execute("UPDATE images SET missing_at = 1 WHERE id = ?1", [missing])
+        .unwrap();
+    let s = session(&lib);
+    let created = create(&mut lib, s, "既存", &empty()).unwrap();
+    for ids in [vec![ok, trashed], vec![missing, ok], vec![], vec![9999]] {
+        assert!(add(&mut lib, s, &Target::New("新規".into()), &ids).is_err());
+        assert!(add(&mut lib, s, &Target::Board(created.board.id), &ids).is_err());
+    }
+    assert!(add(&mut lib, s, &Target::New("既存".into()), &[ok]).is_err());
+    assert!(add(&mut lib, s, &Target::New(" ".into()), &[ok]).is_err());
+    assert!(add(&mut lib, s, &Target::Board(BoardId(999)), &[ok]).is_err());
+    assert_eq!(list(&lib, s).unwrap().boards.len(), 1);
+    assert_eq!(load(&lib, s, created.board.id).unwrap(), created.board);
+}
+
+#[test]
+fn 追加の途中で書けなければ新しいボードも既存の配置も残さない() {
+    let (_dir, mut lib) = setup();
+    let image = put(&lib, None, "画像.png", "画像");
+    let s = session(&lib);
+    let draft = snapshot(&lib, image);
+    let created = create(&mut lib, s, "既存", &draft).unwrap();
+    lib.conn.execute_batch("CREATE TRIGGER fail_item BEFORE INSERT ON board_items BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;").unwrap();
+    assert!(add(&mut lib, s, &Target::New("半端".into()), &[image])
+        .unwrap_err()
+        .contains("injected write failure"));
+    assert!(add(&mut lib, s, &Target::Board(created.board.id), &[image])
+        .unwrap_err()
+        .contains("injected write failure"));
+    assert_eq!(list(&lib, s).unwrap().boards.len(), 1);
+    assert_eq!(load(&lib, s, created.board.id).unwrap(), created.board);
+    assert_eq!(last(&lib, s).unwrap(), Some(created.board.clone()));
+    lib.conn.execute_batch("DROP TRIGGER fail_item").unwrap();
+    assert!(add(&mut lib, s, &Target::New("半端".into()), &[image]).is_ok());
+}
+
+#[test]
+fn 読み取り専用dbでは追加せずロック解除後に追加できる() {
+    let (dir, mut lib) = setup();
+    let image = put(&lib, None, "画像.png", "画像");
+    let s = session(&lib);
+    let created = create(&mut lib, s, "既存", &empty()).unwrap();
+    let kura = dir.path().join(KURA_DIR);
+    if !lock(&kura) {
+        return;
+    }
+    lib.conn = rusqlite::Connection::open_with_flags(
+        kura.join("kura.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let existing = add(&mut lib, s, &Target::Board(created.board.id), &[image]);
+    let new = add(&mut lib, s, &Target::New("新規".into()), &[image]);
+    unlock(&kura);
+    assert!(existing.unwrap_err().contains("readonly"));
+    assert!(new.unwrap_err().contains("readonly"));
+    drop(lib);
+    let mut lib = library::open(dir.path()).unwrap();
+    let s = session(&lib);
+    assert_eq!(list(&lib, s).unwrap().boards.len(), 1);
+    assert!(load(&lib, s, created.board.id).unwrap().items.is_empty());
+    add(&mut lib, s, &Target::Board(created.board.id), &[image]).unwrap();
+    assert_eq!(load(&lib, s, created.board.id).unwrap().items.len(), 1);
+}
+
+#[test]
+fn 追加は開いている編集を失効させ古いライブラリの要求を拒む() {
+    let (_dir, mut lib) = setup();
+    let image = put(&lib, None, "画像.png", "画像");
+    let s = session(&lib);
+    let created = create(&mut lib, s, "編集中", &empty()).unwrap();
+    add(&mut lib, s, &Target::Board(created.board.id), &[image]).unwrap();
+    // 追加前の内容で上書きして追加分を消さない
+    assert!(save(&mut lib, created.edit, 1, &empty()).is_err());
+    assert_eq!(load(&lib, s, created.board.id).unwrap().items.len(), 1);
+    let reopened = open(&mut lib, s, created.board.id).unwrap();
+    let revision = reopened.board.revision + 1;
+    assert!(save(
+        &mut lib,
+        reopened.edit,
+        revision,
+        &reopened.board.snapshot()
+    )
+    .is_ok());
+    let (_other, mut other) = setup();
+    assert!(add(&mut other, s, &Target::New("遅延".into()), &[image]).is_err());
+}

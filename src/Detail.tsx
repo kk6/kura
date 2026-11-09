@@ -28,6 +28,8 @@ type Props = {
   onMemo: (id: number, memo: string) => void
   // 選んだ画像をゴミ箱へ移す（FR-511）
   onTrash: (ids: number[]) => void
+  // 選んだ画像の「ボードに追加」。アイデアボードが OFF ならなく、ボタンを出さない（FR-711）
+  onAddToBoard?: () => void
   // 画像を Finder で選んだ状態で開く
   onReveal: (id: number) => void
   onClose: () => void
@@ -203,6 +205,12 @@ export default function Detail(props: Props) {
       </dd>
     </>
   )
+  const add = props.onAddToBoard && (
+    <button type="button" className="button" title="ボードに追加（⇧⌘B）" onClick={props.onAddToBoard}>
+      <Icon d={ICONS.board} />
+      ボードに追加
+    </button>
+  )
   // 元に戻せるので確認は出さない
   const trash = (
     <button type="button" className="button" onClick={() => props.onTrash(ids)}>
@@ -231,7 +239,10 @@ export default function Detail(props: Props) {
         <>
           <h2 className="detail__name">{selected.length}枚を選んでいます</h2>
           <dl className="detail__fields">{classify}</dl>
-          <div className="detail__actions">{trash}</div>
+          <div className="detail__actions">
+            {add}
+            {trash}
+          </div>
         </>
       ) : (
         <>
@@ -276,6 +287,7 @@ export default function Detail(props: Props) {
             <dd>{dateTime(image.imported_at)}</dd>
           </dl>
           <div className="detail__actions">
+            {add}
             <button type="button" className="button" onClick={() => props.onReveal(image.id)}>
               <Icon d={ICONS.folder} />
               Finderで表示
