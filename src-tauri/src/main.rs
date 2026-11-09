@@ -22,11 +22,15 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 struct Current(Mutex<Option<Library>>);
 
 fn app_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
-    Ok(app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join(name))
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    // 開発版（tauri dev とデバッグビルド）はリリース版と ID が同じなので、データフォルダを分けないと
+    // リリース版の「最近使ったライブラリ」から本物のライブラリを自動で開き、DB を新しい版に移行してしまう
+    let dir = if cfg!(debug_assertions) {
+        dir.join("debug")
+    } else {
+        dir
+    };
+    Ok(dir.join(name))
 }
 
 fn recent_file(app: &AppHandle) -> Result<PathBuf, String> {

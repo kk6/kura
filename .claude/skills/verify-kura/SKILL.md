@@ -16,7 +16,7 @@ V=.claude/skills/verify-kura/kura-verify.sh
 ## 絶対に守ること
 
 - 本物の資料フォルダに触れない。読み取りもしない。`launch` に渡すライブラリは、この手順で作ったものだけにする。
-- アプリは起動時に「最近使ったライブラリ」の先頭を自動で開く。利用者の `~/Library/Application Support/dev.kk6.kura/` には本物のライブラリの場所が入っている。だから `Kura.app` を `open` や Finder で起動しない。必ず `$V launch` で起動する。`launch` は HOME を run のフォルダに差し替えるので、アプリのデータ（recent-libraries.json、settings.json）は run の中に置かれる。
+- アプリは起動時に「最近使ったライブラリ」の先頭を自動で開く。利用者の `~/Library/Application Support/dev.kk6.kura/` には本物のライブラリの場所が入っている。デバッグビルドはその下の `debug/` を使うのでリリース版の一覧は読まないが、念のため HOME も差し替える。だから `Kura.app` を `open` や Finder で起動しない。必ず `$V launch` で起動する。`launch` は HOME を run のフォルダに差し替えるので、アプリのデータ（recent-libraries.json、settings.json）は run の中に置かれる。
 - 同時に動かす検証用の Kura は1つだけ。`launch` は、別の検証用 Kura が動いていれば止まる。利用者が自分で開いた Kura は操作しない。
 
 ## Launch
