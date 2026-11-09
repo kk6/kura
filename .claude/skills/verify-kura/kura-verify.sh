@@ -12,8 +12,8 @@ die() { echo "error: $*" >&2; exit 1; }
 # run id は runs/ の直下の1つの名前に限る。stop が run の中を rm -rf するので、../ などで外を指させない
 valid_id() { [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 run_dir() { valid_id "${1:-}" || die "run id は英数字と . _ - だけ（'${1:-}'）"; echo "$BASE/runs/$1"; }
-# 偽の HOME の中のアプリのデータフォルダ（recent-libraries.json と settings.json の置き場所）
-data_dir() { echo "$(run_dir "$1")/home/Library/Application Support/dev.kk6.kura"; }
+# 偽の HOME の中のアプリのデータフォルダ（recent-libraries.json と settings.json の置き場所）。デバッグビルドは debug/ の下を使う
+data_dir() { echo "$(run_dir "$1")/home/Library/Application Support/dev.kk6.kura/debug"; }
 # pid ファイルは「pid<TAB>起動時刻」。pid が別のプロセスに使い回されても、起動時刻が違えば自分のものと見なさない
 pid_of() { cut -f1 "$(run_dir "$1")/pid" 2>/dev/null || true; }
 started_of() { cut -f2 "$(run_dir "$1")/pid" 2>/dev/null || true; }

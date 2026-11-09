@@ -1,0 +1,63 @@
+/* docs/design.md の「2. デザイントークン」。値を変えるときは先に design.md を変える */
+:root {
+  --color-bg: #f3f3f1;
+  --color-surface: #fafaf9;
+  --color-input: #ffffff;
+  --color-raise: #ecece9;
+  --color-selected: #e6e6e2;
+  --color-line: #dcdcd8;
+  --color-text: #1c1c1a;
+  --color-text-sub: #55554f;
+  --color-text-faint: #6a6a64;
+  --color-on-text: #fafaf9;
+  --color-board: #e6e6e3;
+  --color-error: #b42318;
+  --color-warning: #8a5300;
+  --color-success: #18703a;
+  --color-info: #1f5fb0;
+
+  --font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --font-weight-regular: 400;
+  --font-weight-bold: 600;
+  --line-height: 1.5;
+
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --border: 1px solid var(--color-line);
+  --focus-ring: 2px solid var(--color-text);
+  --select-outline: 2px solid var(--color-text);
+  --select-inner: 1px solid var(--color-bg);
+
+  --size-header: 56px;
+  --size-sidebar: 232px;
+  --size-detail: 320px;
+  --size-statusbar: 32px;
+  --size-toolbar: 48px;
+  --size-sidebar-item: 32px;
+  --size-control: 32px;
+  --size-control-sm: 24px;
+  /* 処理中のアイコンが1回転する時間 */
+  --duration-spin: 1s;
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --motion-press: 0.96;
+  --motion-rise: 4px;
+  --size-board-toolbar: 40px;
+  --size-select-panel: 480px;
+  --size-progress: 3px;
+  --size-progress-bar: 160px;
+  --size-dialog: 560px;
+  --size-icon: 15px;
+  --size-slider-thumb: 12px;
+  --size-check: 18px;
+  --size-scrollbar: 8px;
+}
