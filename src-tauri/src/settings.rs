@@ -14,6 +14,8 @@ pub struct Settings {
     pub thumb_width: u32,
     /// サイドバーのタグ一覧を閉じている（FR-503）。タグが多いとサイドバーのスクロールが長くなるため
     pub tags_collapsed: bool,
+    /// アイデアボードを使う（FR-711）。前の版の設定ファイルにはないので、更新した人も ON で始まる
+    pub board_enabled: bool,
 }
 
 impl Default for Settings {
@@ -22,6 +24,7 @@ impl Default for Settings {
             confirm_category_move: true,
             thumb_width: 200,
             tags_collapsed: false,
+            board_enabled: true,
         }
     }
 }
@@ -62,6 +65,7 @@ mod tests {
         assert_eq!(s, Settings::default());
         assert!(s.confirm_category_move);
         assert_eq!(s.thumb_width, 200);
+        assert!(s.board_enabled);
     }
 
     #[test]
@@ -72,6 +76,7 @@ mod tests {
             confirm_category_move: false,
             thumb_width: 140,
             tags_collapsed: true,
+            board_enabled: false,
         };
 
         save(&file, &s).unwrap();
@@ -91,6 +96,22 @@ mod tests {
         assert!(s.confirm_category_move);
         // タグ一覧の開閉は後の版で足したので、前の版のファイルには項目がない。開いた状態で始める
         assert!(!s.tags_collapsed);
+        // アイデアボードもフェーズ2で足した。前の版から更新した人も ON で始める
+        assert!(s.board_enabled);
+    }
+
+    #[test]
+    fn アイデアボードを切った選択は保存して読み直しても残る() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        let s = Settings {
+            board_enabled: false,
+            ..Settings::default()
+        };
+
+        save(&file, &s).unwrap();
+
+        assert!(!load(&file).board_enabled);
     }
 
     #[test]
@@ -112,6 +133,7 @@ mod tests {
             confirm_category_move: false,
             thumb_width: 120,
             tags_collapsed: false,
+            board_enabled: true,
         };
         save(&file, &before).unwrap();
         if !lock(dir.path()) {

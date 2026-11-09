@@ -3,6 +3,7 @@ import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
 import type { Report, ScanReport } from '../importTypes'
+import type { BoardSummary, EditingBoard } from '../board/types'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
 
@@ -365,7 +366,80 @@ const forgetImages: Handler = (args) => {
 // 本物は設定を settings.json に、カテゴリの開閉を DB に残す。開き直し（page.goto）でも残るよう sessionStorage に置く
 const stored = <T>(key: string, init: T): T => JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? init
 const store = (key: string, value: unknown) => sessionStorage.setItem(key, JSON.stringify(value))
-const DEFAULT_SETTINGS: Settings = { confirm_category_move: true, thumb_width: 200, tags_collapsed: false }
+const DEFAULT_SETTINGS: Settings = {
+  confirm_category_move: true,
+  thumb_width: 200,
+  tags_collapsed: false,
+  board_enabled: true,
+}
+
+// アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
+// e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できない
+type MockBoards = { boards: BoardSummary[]; last: number | null; next: number }
+const boardStore = () => stored<MockBoards>('mock.boards', { boards: [], last: null, next: 1 })
+const SESSION = 1
+
+const checkBoardName = (data: MockBoards, raw: unknown, except?: number) => {
+  const name = String(raw).trim().normalize('NFC')
+  if (name.length < 1 || [...name].length > 100) throw 'ボード名は前後の空白を除いて1〜100文字で入力してください'
+  if (data.boards.some((b) => b.id !== except && key(b.name) === key(name))) throw '同じ名前のボードがあります'
+  return name
+}
+
+const boardOf = (data: MockBoards, args: Record<string, unknown> | undefined) => {
+  if (args?.session !== SESSION) throw 'ライブラリが切り替わったため、ボードの操作を中止しました'
+  const board = data.boards.find((b) => b.id === args?.id)
+  if (!board) throw `ボードが見つかりません（${args?.id}）`
+  return board
+}
+
+const editing = (b: BoardSummary): EditingBoard => ({
+  edit: { library_session: SESSION, board_id: b.id, token: 1 },
+  board: { id: b.id, name: b.name, revision: 0, items: [] },
+})
+
+const listBoards: Handler = () => {
+  const data = boardStore()
+  const boards = [...data.boards].sort((a, b) => b.updated_at - a.updated_at || b.id - a.id)
+  return { session: SESSION, boards, last_board_id: data.last }
+}
+
+const openBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = boardOf(data, args)
+  store('mock.boards', { ...data, last: board.id })
+  return editing(board)
+}
+
+const createBoard: Handler = (args) => {
+  const data = boardStore()
+  if (args?.session !== SESSION) throw 'ライブラリが切り替わったため、ボードの操作を中止しました'
+  const board = { id: data.next, name: checkBoardName(data, args?.name), placement_count: 0, updated_at: Date.now() }
+  store('mock.boards', { boards: [...data.boards, board], last: board.id, next: data.next + 1 })
+  return editing(board)
+}
+
+const renameBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = boardOf(data, args)
+  board.name = checkBoardName(data, args?.name, board.id)
+  store('mock.boards', data)
+  return board
+}
+
+const deleteBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = boardOf(data, args)
+  if (board.name === '削除できない') throw 'database is locked'
+  store('mock.boards', {
+    ...data,
+    boards: data.boards.filter((b) => b !== board),
+    last: data.last === board.id ? null : data.last,
+  })
+}
+
+// e2e が確かめられるように、開いたことをコンソールに出す。別ウィンドウはモックでは開けない
+const showBoardWindow: Handler = () => console.info('board window')
 
 const loadGallery: Handler = () => {
   if (created) return { images: [], categories: [], tags: [] }
@@ -387,7 +461,11 @@ const setCollapsed: Handler = (args) => {
 const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
-  save_settings: (args) => store('mock.settings', args?.settings),
+  // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない
+  save_settings: (args) => {
+    if (sessionStorage.getItem('mock.failSettings')) throw '設定を保存できません（Permission denied）'
+    store('mock.settings', args?.settings)
+  },
   location_warning: () => null,
   open_library: openLibrary,
   create_library: createLibrary,
@@ -421,6 +499,12 @@ const handlers: Record<string, Handler> = {
   scan_library: scanLibrary,
   forget_images: forgetImages,
   backup_library: () => null,
+  list_boards: listBoards,
+  open_board: openBoard,
+  create_board: createBoard,
+  rename_board: renameBoard,
+  delete_board: deleteBoard,
+  show_board_window: showBoardWindow,
   'plugin:dialog|save': (args) => `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
   // e2e が中身を確かめられるように、出したダイアログの文をコンソールに出す
   'plugin:dialog|message': (args) => console.info(`dialog: ${args?.message}`),
@@ -432,7 +516,9 @@ const handlers: Record<string, Handler> = {
 
 export function installMockIPC() {
   // ドラッグ＆ドロップは getCurrentWebview() で受けるので、ウィンドウの情報も用意する
-  mockWindows('main')
+  // ボードの画面は ?board で開く。本物では専用ウィンドウ（ラベル board）で開く
+  if (new URLSearchParams(location.search).has('board')) mockWindows('board', 'main')
+  else mockWindows('main')
   // listen と emit を IPC なしで動かす。e2e ではドロップを tauri://drag-drop の emit で起こす
   mockIPC(
     (cmd, args) => {

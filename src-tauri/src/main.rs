@@ -16,7 +16,10 @@ use std::sync::{Mutex, PoisonError};
 
 use library::{Access, Library};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder};
+
+/// アイデアボードの専用ウィンドウのラベル。同時に開くのは1つだけ（FR-701）
+const BOARD: &str = "board";
 
 // 開いているライブラリ。後のタスクのコマンドはここから DB を使う
 #[derive(Default)]
@@ -32,6 +35,10 @@ fn app_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
         dir
     };
     Ok(dir.join(name))
+}
+
+fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
+    app_file(app, "settings.json")
 }
 
 fn recent_file(app: &AppHandle) -> Result<PathBuf, String> {
@@ -65,6 +72,8 @@ fn activate(
         log::error!("最近使ったライブラリを保存できません：{e}");
     }
     *current.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(lib);
+    // ボードは開いたライブラリの中にあるので、前のライブラリのボードを出したままにしない
+    close_board(app);
     log::info!("ライブラリを開きました：{}", root.display());
     Ok(root)
 }
@@ -81,7 +90,7 @@ fn list_recent_libraries(app: AppHandle) -> Vec<PathBuf> {
 #[tauri::command]
 fn load_settings(app: AppHandle) -> settings::Settings {
     // list_recent_libraries と同じく、失敗は壊れた設定のファイルと同じく初期値として扱う
-    app_file(&app, "settings.json")
+    settings_file(&app)
         .inspect_err(|e| log::error!("設定を読めません：{e}"))
         .map(|file| settings::load(&file))
         .unwrap_or_default()
@@ -89,8 +98,110 @@ fn load_settings(app: AppHandle) -> settings::Settings {
 
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(), String> {
-    settings::save(&app_file(&app, "settings.json")?, &settings)
-        .map_err(|e| format!("設定を保存できません（{e}）"))
+    let file = settings_file(&app)?;
+    let before = settings::load(&file).board_enabled;
+    settings::save(&file, &settings).map_err(|e| format!("設定を保存できません（{e}）"))?;
+    if settings.board_enabled != before {
+        // OFF ではボードの項目と ⌘B をメニューから外し、開いているボードを閉じる（FR-711）
+        menu::build(&app, settings.board_enabled)
+            .and_then(|m| app.set_menu(m))
+            .map_err(|e| format!("メニューを変えられません（{e}）"))?;
+        if !settings.board_enabled {
+            close_board(&app);
+        }
+    }
+    Ok(())
+}
+
+fn close_board(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(BOARD) {
+        if let Err(e) = w.destroy() {
+            log::warn!("アイデアボードを閉じられません：{e}");
+        }
+    }
+}
+
+/// アイデアボードの専用ウィンドウを開く。開いていれば手前に出す（FR-701）。
+/// 同期のコマンドでウィンドウを作ると止まる環境があるので async にする
+#[tauri::command]
+async fn show_board_window(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(BOARD) {
+        return w
+            .unminimize()
+            .and_then(|_| w.show())
+            .and_then(|_| w.set_focus())
+            .map_err(|e| e.to_string());
+    }
+    WebviewWindowBuilder::new(&app, BOARD, WebviewUrl::App("index.html".into()))
+        .title("アイデアボード")
+        .inner_size(960.0, 640.0)
+        .min_inner_size(480.0, 320.0)
+        .center()
+        .build()
+        .map(|_| ())
+        .map_err(|e| format!("アイデアボードを開けません（{e}）"))
+}
+
+/// ボードの一覧と、以後のボードの操作に添えるライブラリのトークン
+#[derive(Serialize)]
+struct Boards {
+    session: board::LibrarySession,
+    #[serde(flatten)]
+    list: board::List,
+}
+
+#[tauri::command]
+fn list_boards(current: State<Current>) -> Result<Boards, String> {
+    current.0.with(|lib| {
+        let session = board::session(lib);
+        let list = board::list(lib, session)?;
+        Ok(Boards { session, list })
+    })
+}
+
+#[tauri::command]
+fn open_board(
+    current: State<Current>,
+    session: board::LibrarySession,
+    id: board::BoardId,
+) -> Result<board::EditingBoard, String> {
+    current.0.with(|lib| board::open(lib, session, id))
+}
+
+/// 空のボードを作る。作ったボードを最後に使ったボードにする
+#[tauri::command]
+fn create_board(
+    current: State<Current>,
+    session: board::LibrarySession,
+    name: String,
+) -> Result<board::EditingBoard, String> {
+    let empty = board::Snapshot {
+        viewport: board::Viewport::default(),
+        items: vec![],
+    };
+    current
+        .0
+        .with(|lib| board::create(lib, session, &name, &empty))
+}
+
+#[tauri::command]
+fn rename_board(
+    current: State<Current>,
+    session: board::LibrarySession,
+    id: board::BoardId,
+    name: String,
+) -> Result<board::Summary, String> {
+    current.0.with(|lib| board::rename(lib, session, id, &name))
+}
+
+/// ボードと配置だけを消す。元画像はライブラリに残す（FR-701）
+#[tauri::command]
+fn delete_board(
+    current: State<Current>,
+    session: board::LibrarySession,
+    id: board::BoardId,
+) -> Result<(), String> {
+    current.0.with(|lib| board::delete(lib, session, id))
 }
 
 #[tauri::command]
@@ -358,13 +469,27 @@ fn main() {
                 .build(),
         )
         .plugin(tauri_plugin_dialog::init())
-        .menu(menu::build)
+        .menu(|app| {
+            let enabled = settings_file(app)
+                .map(|file| settings::load(&file).board_enabled)
+                .unwrap_or(true);
+            menu::build(app, enabled)
+        })
         .on_menu_event(|app, event| {
-            // 開いているライブラリ（Current）は次のライブラリを開くまで残す。戻るかどうかは画面が決める
-            if event.id() == menu::SWITCH_LIBRARY {
-                if let Err(e) = app.emit(menu::SWITCH_LIBRARY, ()) {
-                    log::warn!("ライブラリの切り替えを画面に送れません：{e}");
+            // 開いているライブラリ（Current）は次のライブラリを開くまで残す。戻るかどうかは画面が決める。
+            // ボードもギャラリーの画面が開く。ライブラリ選択画面ではボードを開かないため
+            for id in [menu::SWITCH_LIBRARY, menu::OPEN_BOARD] {
+                if event.id() == id {
+                    if let Err(e) = app.emit_to("main", id, ()) {
+                        log::warn!("メニューの操作を画面に送れません（{id}）：{e}");
+                    }
                 }
+            }
+        })
+        .on_window_event(|window, event| {
+            // ギャラリーを閉じたらボードだけを残さず終了する。ボードだけを閉じたときはギャラリーを残す
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.app_handle().exit(0);
             }
         })
         .manage(Current::default())
@@ -402,7 +527,13 @@ fn main() {
             load_missing,
             scan_library,
             forget_images,
-            backup_library
+            backup_library,
+            show_board_window,
+            list_boards,
+            open_board,
+            create_board,
+            rename_board,
+            delete_board
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
