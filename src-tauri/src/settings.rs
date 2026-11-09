@@ -41,6 +41,22 @@ pub fn save(file: &Path, settings: &Settings) -> std::io::Result<()> {
     write_json(file, settings)
 }
 
+/// 保存してから apply(前の設定, 新しい設定) で画面以外への反映（メニューなど）を行う。
+/// 反映に失敗したらファイルを前の設定に戻す。画面は失敗を受けて前の値に戻るので、ファイルもそろえる
+pub fn save_and_apply(
+    file: &Path,
+    settings: &Settings,
+    apply: impl FnOnce(&Settings, &Settings) -> Result<(), String>,
+) -> Result<(), String> {
+    let before = load(file);
+    save(file, settings).map_err(|e| format!("設定を保存できません（{e}）"))?;
+    apply(&before, settings).inspect_err(|_| {
+        if let Err(e) = save(file, &before) {
+            log::error!("設定を前の値に戻せません：{e}");
+        }
+    })
+}
+
 /// 書き込みの途中で止まっても前の内容が壊れないよう、別名に書いてから置き換える
 pub fn write_json(file: &Path, value: &impl Serialize) -> std::io::Result<()> {
     if let Some(dir) = file.parent() {
@@ -110,6 +126,39 @@ mod tests {
         };
 
         save(&file, &s).unwrap();
+
+        assert!(!load(&file).board_enabled);
+    }
+
+    #[test]
+    fn 保存の後の反映に失敗したらファイルを前の設定に戻す() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        save(&file, &Settings::default()).unwrap();
+        let off = Settings {
+            board_enabled: false,
+            ..Settings::default()
+        };
+
+        let r = save_and_apply(&file, &off, |before, after| {
+            assert!(before.board_enabled && !after.board_enabled);
+            Err("メニューを変えられません".into())
+        });
+
+        assert_eq!(r, Err("メニューを変えられません".into()));
+        assert!(load(&file).board_enabled);
+    }
+
+    #[test]
+    fn 反映できたら保存した設定が残る() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        let off = Settings {
+            board_enabled: false,
+            ..Settings::default()
+        };
+
+        save_and_apply(&file, &off, |_, _| Ok(())).unwrap();
 
         assert!(!load(&file).board_enabled);
     }

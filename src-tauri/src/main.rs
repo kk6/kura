@@ -98,19 +98,19 @@ fn load_settings(app: AppHandle) -> settings::Settings {
 
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(), String> {
-    let file = settings_file(&app)?;
-    let before = settings::load(&file).board_enabled;
-    settings::save(&file, &settings).map_err(|e| format!("設定を保存できません（{e}）"))?;
-    if settings.board_enabled != before {
+    settings::save_and_apply(&settings_file(&app)?, &settings, |before, after| {
+        if after.board_enabled == before.board_enabled {
+            return Ok(());
+        }
         // OFF ではボードの項目と ⌘B をメニューから外し、開いているボードを閉じる（FR-711）
-        menu::build(&app, settings.board_enabled)
+        menu::build(&app, after.board_enabled)
             .and_then(|m| app.set_menu(m))
             .map_err(|e| format!("メニューを変えられません（{e}）"))?;
-        if !settings.board_enabled {
+        if !after.board_enabled {
             close_board(&app);
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 fn close_board(app: &AppHandle) {
