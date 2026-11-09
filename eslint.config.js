@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 import eslintConfigPrettier from 'eslint-config-prettier/flat'
 
 export default tseslint.config(
-  { ignores: ['dist', 'spikes', 'src-tauri/target', 'playwright-report', 'test-results'] },
+  { ignores: ['dist', 'spikes', '.claude', 'src-tauri/target', 'playwright-report', 'test-results'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
