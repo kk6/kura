@@ -1,43 +1,45 @@
-# フェーズ2のサブセッション分割とブリーフ
+# フェーズ2のまとまりとブリーフ
 
-2026-11-08 作成。実装開始時に使う依頼案です。この文書の作成ではセッションやブランチを作っていません。
+2026-11-08 作成、2026-11-09 にまとまりへまとめ直した。実装開始時に使う依頼案です。
 
-## 分割案
+## まとまり
 
-[phase2.md](phase2.md) の1行を1サブセッションにします。表の順に、前のまとまりをメインセッションで確認・統合してから次へ進みます。共有するDB・保存・ウインドウの変更が多いため、独立した実装を並行させる前提にはしません。
+[phase2.md](phase2.md) のタスク（#0〜#21）を、1回のセッションで頼める大きさのまとまりにまとめています。同じ画面や同じ仕組みに触れる隣り合うタスクを1つにしました。表の順に、前のまとまりをメインセッションで確認・統合してから次へ進みます。共有するDB・保存・ウィンドウの変更が多いため、並行して進める前提にはしません。
 
-| タスク | まとまり | ブランチ |
-| --- | --- | --- |
-| 0 | ネイティブ機能と保存待ちの実証 | `feature/phase2-native-check` |
-| 1 | DBと保存API | `feature/phase2-board-data` |
-| 2 | ON/OFF・入口・専用ウインドウ | `feature/phase2-board-window` |
-| 3 | ボードの作成・切り替え・名前・削除 | `feature/phase2-board-management` |
-| 4 | ギャラリーから追加 | `feature/phase2-board-add` |
-| 5 | 自動保存・切り替え・終了 | `feature/phase2-save-lifecycle` |
-| 6 | 選択・移動・拡縮・配置削除 | `feature/phase2-board-selection` |
-| 7 | パン・ズーム・視点保存 | `feature/phase2-board-viewport` |
-| 8 | 重なり順・Undo/Redo | `feature/phase2-board-history` |
-| 9 | 反転・回転・グレースケール | `feature/phase2-board-transforms` |
-| 10 | トリミング | `feature/phase2-board-crop` |
-| 11 | 最前面・不透明度・位置と大きさ | `feature/phase2-window-display` |
-| 12 | 元画像の状態とギャラリー連携 | `feature/phase2-image-lifecycle` |
-| 13 | 元URLの取得 | `feature/phase2-source-metadata` |
-| 14 | 元URLをブラウザで開く | `feature/phase2-source-link` |
-| 15 | 元URLの手動補完 | `feature/phase2-source-backfill` |
-| 16 | 見つからないライブラリの履歴削除 | `feature/phase2-recent-libraries` |
-| 17 | メニュー・入力・ウインドウ間の操作確認 | `feature/phase2-menu-integration` |
-| 18 | 性能・バックアップ・2ライブラリの検証 | `feature/phase2-integration-check` |
-| 19 | 実アプリの検証手順の整備 | `feature/phase2-verification-guide` |
-| 20 | 利用者向け文書とリリース準備 | `feature/phase2-release-prep` |
+| まとまり | タスク | 内容 | ブランチ |
+| --- | --- | --- | --- |
+| A | 0、1 | ネイティブ機能の確認、DBと保存API（済） | `feat/phase2-idea-board` |
+| B | 2、3 | ON/OFF・入口・専用ウィンドウ、ボードの作成・切り替え・名前・削除 | `feat/phase2-board-window` |
+| C | 4 | ギャラリーからボードに追加 | `feat/phase2-board-add` |
+| D | 5 | 自動保存・切り替え・終了の保存待ち | `feat/phase2-save-lifecycle` |
+| E | 6、7 | 選択・移動・拡縮・配置削除、パン・ズーム・視点の保存 | `feat/phase2-board-canvas` |
+| F | 8 | 重なり順、取り消し・やり直し | `feat/phase2-board-history` |
+| G | 9、10 | 反転・回転・グレースケール、トリミング | `feat/phase2-board-transforms` |
+| H | 11 | 最前面・不透明度・位置と大きさ | `feat/phase2-window-display` |
+| I | 12 | 元画像の状態とギャラリーとの連携 | `feat/phase2-image-lifecycle` |
+| J | 13、14 | 元URLの取得と、ブラウザで開くリンク | `feat/phase2-source-url` |
+| K | 15、16 | 元URLの手動補完、見つからないライブラリを一覧から外す | `feat/phase2-backfill-recent` |
+| L | 17、18 | メニュー・入力・ウィンドウ間の操作、性能・バックアップ・2ライブラリの通しの検証 | `feat/phase2-integration` |
+| M | 19、20 | 実アプリの検証手順、利用者向け文書とリリース準備 | `feat/phase2-release-prep` |
 
-タスク21は利用者とメインセッションで行います。完了条件が大きすぎると分かったタスクは、未検証部分を隠さず報告してから、次の依頼をさらに分けます。各ブランチは途中段階であり、フェーズ2全体の完成を意味しません。
+まとめ方の理由：
+
+- B：専用ウィンドウを開く処理と、その上部のボード管理は同じ画面で、どちらもタスク1の保存APIを初めて画面へつなぐ
+- E：範囲選択とパンはどちらも空白でのドラッグを使うので、衝突しないように1度に作る
+- G：トリミングは回転・反転と組み合わせて確かめるので、加工と一緒に作る
+- J：取り込みで読んだ元URLを詳細パネルに出すまでを1度に確かめられる
+- K：どちらも小さく、ボードの画面に触れない。一緒にしても互いの変更が重ならない
+- L、M：どちらも、作った機能を通して確かめる作業と文書の作業で、新しい機能を足さない
+- C、D、F、H、I はそれぞれ1つで1回分の大きさがあるので、まとめない
+
+タスク21は利用者とメインセッションで行います。まとまりが大きすぎると分かったら、未検証の部分を隠さず報告してから、次の依頼をさらに分けます。各ブランチは途中段階であり、フェーズ2全体の完成を意味しません。
 
 ## 貼り付ける共通ブリーフ
 
-`<番号>` と `<ブランチ>` を上の表から埋め、必要なら前のまとまりの報告と統合済みコミットを添えます。
+`<記号>`、`<番号>`、`<ブランチ>` を上の表から埋め、必要なら前のまとまりの報告と統合済みコミットを添えます。
 
 ```text
-Kura のフェーズ2、docs/tasks/phase2.md のタスク <番号> を担当してください。
+Kura のフェーズ2、docs/tasks/phase2-sessions.md のまとまり <記号>（docs/tasks/phase2.md のタスク <番号>）を担当してください。
 
 最初に ls ~/.claude/plugins/cache/cursor-plugins/pstack/ でインストール済みの版を確認し、
 ~/.claude/plugins/cache/cursor-plugins/pstack/<版>/skills/poteto-mode/SKILL.md を全部読んでください。
@@ -49,11 +51,11 @@ docs/tasks/phase2.md、docs/tasks/phase2-check.md、このブリーフを読ん�
 docs/future-ideas.md は将来の検討材料です。作品管理・見本誌の実装や共通基盤は範囲外です。
 
 最初に git status と現在のブランチを確認し、指定された統合済みの状態を基点に
-ブランチ <ブランチ> で対象タスクだけを進めてください。
+ブランチ <ブランチ> で対象のタスクだけを進めてください。
 既存の変更を捨てず、無関係な変更を含めないでください。
 仕様は要件定義書の確定内容に従い、未決事項を実装で決めないでください。
 必要な変更、対応する検証、利用者向け文書の更新まで行い、結果を報告して止まってください。
-コミットの要否は依頼に明示された範囲に従い、作る場合は対象IDをメッセージに入れてください。
+区切りごとにコミットし、各コミットでテストが通る状態にしてください。コミットメッセージには対象のIDを入れてください。
 
 サブセッションはマージも push もしません。タグの作成・pushやリリースも行いません。
 頼まれても「マージと push はメインセッションに任せます」と答え、報告して止まってください。
@@ -70,7 +72,7 @@ exFAT/FAT32はUnix権限を持たないため、chmodだけで失敗を作らな
 フォルダ名はNFCにそろえて比較してください。
 
 e2e（Playwright＋モック）はRust、メニューバー、ネイティブダイアログ、
-別ウインドウ、最前面表示、不透明度を検証できません。
+別ウィンドウ、最前面表示、不透明度を検証できません。
 RustコマンドやDBを変えたら .claude/skills/verify-kura/SKILL.md を読み、
 実アプリを隔離して操作し、画面・DB・ファイル・ログの証跡を残してください。
 fileops.rs、library.rs のconnect/apply_op、pending_opsに触れたら
