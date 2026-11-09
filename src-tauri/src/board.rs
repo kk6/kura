@@ -48,9 +48,7 @@ pub(crate) struct Session {
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 fn token() -> u64 {
-    NEXT_TOKEN
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-        .expect("board session tokens exhausted")
+    NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Session {
