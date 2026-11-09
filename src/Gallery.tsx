@@ -64,6 +64,18 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const [settingsOpen, setSettingsOpen] = useState(false)
   // 詳細パネルを開いているか。保存せず、起動すると開いた状態に戻る
   const [detailOpen, setDetailOpen] = useState(true)
+  // 開閉の動きの途中か。閉じる動きの間はパネルを残し、動き終わってから外す
+  const [detailMotion, setDetailMotion] = useState<'opening' | 'closing' | null>(null)
+  const detailShown = detailOpen && detailMotion !== 'closing'
+  function toggleDetail(open = !detailShown) {
+    // 動きを減らす設定では animationend が来ないので、すぐ切り替える
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (open) {
+      setDetailOpen(true)
+      setDetailMotion(still ? null : 'opening')
+    } else if (still) setDetailOpen(false)
+    else setDetailMotion('closing')
+  }
   // 読み込んだ詳細。id は、別の画像に移った直後に前の画像の詳細を使わないため
   const [detail, setDetail] = useState<{ id: number; detail?: DetailData; error?: string } | null>(null)
   const busy = useRef(false)
@@ -218,7 +230,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     if ((e.target as Element).closest('input, textarea, select')) return
     if (e.metaKey && key === 'i') {
       e.preventDefault()
-      setDetailOpen((o) => !o)
+      toggleDetail()
       return
     }
     const by = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
@@ -512,7 +524,15 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const skipped = result?.kind === 'report' || result?.kind === 'scan' ? result.report.skipped : []
 
   return (
-    <div className={detailOpen ? 'gallery' : 'gallery gallery--no-detail'}>
+    <div
+      className={
+        'gallery' + (detailOpen ? '' : ' gallery--no-detail') + (detailMotion ? ` gallery--detail-${detailMotion}` : '')
+      }
+      onAnimationEnd={(e) => {
+        if (e.animationName === 'detail-out') setDetailOpen(false)
+        if (e.animationName === 'detail-in' || e.animationName === 'detail-out') setDetailMotion(null)
+      }}
+    >
       <header className="gallery__header">
         <span className="gallery__brand">
           <span className="gallery__mark">
@@ -633,10 +653,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         <button
           type="button"
           className="button button--icon"
-          aria-label={detailOpen ? '詳細パネルを閉じる' : '詳細パネルを開く'}
-          aria-pressed={detailOpen}
-          title={`詳細パネルを${detailOpen ? '閉じる' : '開く'}（⌘I）`}
-          onClick={() => setDetailOpen((o) => !o)}
+          aria-label={detailShown ? '詳細パネルを閉じる' : '詳細パネルを開く'}
+          aria-pressed={detailShown}
+          title={`詳細パネルを${detailShown ? '閉じる' : '開く'}（⌘I）`}
+          onClick={() => toggleDetail()}
         >
           <Icon d={ICONS.panelRight} />
         </button>
@@ -698,46 +718,51 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         </section>
       )}
 
-      {!detailOpen ? null : inTrash ? (
-        <TrashPanel
-          count={trash.length}
-          selected={ids.length}
-          name={selected.length === 1 ? selected[0].file_name : undefined}
-          onRestore={restoreImages}
-          onPurge={() => purge(ids)}
-          onEmpty={() => purge()}
-        />
-      ) : inMissing ? (
-        <MissingPanel
-          selected={ids.length}
-          name={selected.length === 1 ? selected[0].file_name : undefined}
-          onForget={forget}
-        />
-      ) : (
-        <Detail
-          root={root}
-          categories={data.categories}
-          tags={data.tags}
-          ids={ids}
-          selected={selected}
-          image={selectedImage}
-          detail={shown?.detail ?? null}
-          error={shown?.error ?? null}
-          onRate={async (id, rating) => {
-            await invoke('set_rating', { id, rating })
-            setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
-          }}
-          onAssign={assign}
-          onRename={renameImage}
-          onTagCreated={addTag}
-          onTagged={(tag, ids) => editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))}
-          onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
-          onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
-          onTrash={trashImages}
-          onReveal={reveal}
-          onClose={() => setDetailOpen(false)}
-        />
-      )}
+      {/* 閉じる動きの間は、フォーカスもクリックも受けない */}
+      <div className="gallery__detail-slot" inert={detailMotion === 'closing'}>
+        {!detailOpen ? null : inTrash ? (
+          <TrashPanel
+            count={trash.length}
+            selected={ids.length}
+            name={selected.length === 1 ? selected[0].file_name : undefined}
+            onRestore={restoreImages}
+            onPurge={() => purge(ids)}
+            onEmpty={() => purge()}
+          />
+        ) : inMissing ? (
+          <MissingPanel
+            selected={ids.length}
+            name={selected.length === 1 ? selected[0].file_name : undefined}
+            onForget={forget}
+          />
+        ) : (
+          <Detail
+            root={root}
+            categories={data.categories}
+            tags={data.tags}
+            ids={ids}
+            selected={selected}
+            image={selectedImage}
+            detail={shown?.detail ?? null}
+            error={shown?.error ?? null}
+            onRate={async (id, rating) => {
+              await invoke('set_rating', { id, rating })
+              setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
+            }}
+            onAssign={assign}
+            onRename={renameImage}
+            onTagCreated={addTag}
+            onTagged={(tag, ids) =>
+              editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))
+            }
+            onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
+            onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
+            onTrash={trashImages}
+            onReveal={reveal}
+            onClose={() => toggleDetail(false)}
+          />
+        )}
+      </div>
 
       <footer className="gallery__statusbar">
         <span>
