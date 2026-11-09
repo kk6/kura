@@ -14,6 +14,8 @@ type Props = {
   // id が null のときは画像のない所を押した
   onSelect: (id: number | null, e: MouseEvent) => void
   onOpen: () => void
+  // 画像の右クリック。なければ WebView の初期のメニューを出す
+  onContextMenu?: (id: number, e: MouseEvent) => void
   // 矢印キーで選択を動かす（NFR-12）。active は動かす元の画像。keys が false の間（拡大表示中など）は受けない
   active: number | null
   keys: boolean
@@ -29,6 +31,7 @@ export default function Masonry({
   thumbWidth,
   selected,
   onSelect,
+  onContextMenu,
   onOpen,
   active,
   keys,
@@ -104,6 +107,10 @@ export default function Masonry({
         onSelect(id ? Number(id) : null, e)
       }}
       // 1回目のクリックでその画像だけが選ばれている
+      onContextMenu={(e) => {
+        const id = (e.target as HTMLElement).dataset.id
+        if (id && onContextMenu) onContextMenu(Number(id), e)
+      }}
       onDoubleClick={(e) => (e.target as HTMLElement).dataset.id && !e.shiftKey && !e.metaKey && onOpen()}
     >
       {images.length === 0 ? (

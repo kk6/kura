@@ -530,6 +530,149 @@ pub fn delete(lib: &mut Library, expected: LibrarySession, id: BoardId) -> Resul
     Ok(())
 }
 
+/// Where "ボードに追加" puts the images. JSON: `{"board": 3}` or `{"new": "名前"}`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Target {
+    Board(BoardId),
+    New(String),
+}
+
+/// The board that received the images and the new placements, in stacking order.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Added {
+    pub board_id: BoardId,
+    pub placements: Vec<PlacementId>,
+}
+
+/// Side of the square cell every added image is fitted into, in board units.
+const CELL: f64 = 240.0;
+const GAP: f64 = 24.0;
+/// Space between the existing placements and the added grid.
+const MARGIN: f64 = 96.0;
+
+/// Add images from the gallery as independent placements. The board, the placements and
+/// the last-board pointer commit together, so a failure leaves neither a half-made board nor
+/// partial placements. The open edit of that board is ended because its snapshot no longer
+/// has the added placements; the board window reopens it.
+pub fn add(
+    lib: &mut Library,
+    expected: LibrarySession,
+    target: &Target,
+    image_ids: &[i64],
+) -> Result<Added, String> {
+    if image_ids.is_empty() {
+        return Err("ボードに追加する画像を選んでください".into());
+    }
+    let sources = sources(lib, expected, image_ids)?;
+    match target {
+        Target::New(name) => {
+            let snapshot = Snapshot {
+                viewport: Viewport::default(),
+                items: place(&[], &sources),
+            };
+            let created = create(lib, expected, name, &snapshot)?;
+            Ok(Added {
+                board_id: created.board.id,
+                placements: created.board.items.iter().map(|i| i.id).collect(),
+            })
+        }
+        Target::Board(id) => {
+            let tx = lib.conn.transaction().map_err(err)?;
+            let board = load_from(&tx, *id)?;
+            let mut snapshot = board.snapshot();
+            snapshot.items.extend(place(&board.items, &sources));
+            write_snapshot(&tx, *id, board.revision + 1, &snapshot)?;
+            tx.execute(
+                "UPDATE board_state SET last_board_id = ?1 WHERE id = 1",
+                [id.0],
+            )
+            .map_err(err)?;
+            let before: HashSet<_> = board.items.iter().map(|i| i.id).collect();
+            let placements = load_from(&tx, *id)?
+                .items
+                .iter()
+                .map(|i| i.id)
+                .filter(|i| !before.contains(i))
+                .collect();
+            tx.commit().map_err(err)?;
+            if lib
+                .board_session
+                .editing
+                .is_some_and(|(edit, _)| edit.board_id == *id)
+            {
+                lib.board_session.editing = None;
+            }
+            Ok(Added {
+                board_id: *id,
+                placements,
+            })
+        }
+    }
+}
+
+/// Grid of new placements: each image fitted into a CELL square with its aspect ratio kept,
+/// right of everything already on the board, or centred on the origin when the board is empty.
+fn place(existing: &[Item], sources: &[Source]) -> Vec<ItemDraft> {
+    let columns = (sources.len() as f64).sqrt().ceil() as usize;
+    let rows = sources.len().div_ceil(columns);
+    let span = |n: usize| n as f64 * CELL + (n.saturating_sub(1)) as f64 * GAP;
+    let (left, top) = match bounds(existing) {
+        Some((_, top, right, _)) => (right + MARGIN, top),
+        None => (-span(columns) / 2.0, -span(rows) / 2.0),
+    };
+    let order = existing
+        .iter()
+        .map(|i| i.geometry.stack_order)
+        .max()
+        .map_or(0, |o| o + 1);
+    sources
+        .iter()
+        .enumerate()
+        .map(|(n, s)| {
+            let (width, height) = (s.width.max(1) as f64, s.height.max(1) as f64);
+            let scale = CELL / width.max(height);
+            let cell_x = left + (n % columns) as f64 * (CELL + GAP);
+            let cell_y = top + (n / columns) as f64 * (CELL + GAP);
+            ItemDraft {
+                id: None,
+                source_id: s.id,
+                geometry: Geometry {
+                    width,
+                    height,
+                    x: cell_x + (CELL - width * scale) / 2.0,
+                    y: cell_y + (CELL - height * scale) / 2.0,
+                    scale,
+                    rotation: 0.0,
+                    flipped: false,
+                    grayscale: false,
+                    crop: None,
+                    stack_order: order + n as i64,
+                },
+            }
+        })
+        .collect()
+}
+
+/// Left, top, right, bottom of all placements, each frame rotated about its centre.
+/// Crop is ignored, so the box can only be larger than what is drawn.
+fn bounds(items: &[Item]) -> Option<(f64, f64, f64, f64)> {
+    items
+        .iter()
+        .map(|i| {
+            let g = &i.geometry;
+            let (w, h) = (g.width * g.scale, g.height * g.scale);
+            let (sin, cos) = g.rotation.to_radians().sin_cos();
+            let (half_w, half_h) = (
+                (w * cos.abs() + h * sin.abs()) / 2.0,
+                (w * sin.abs() + h * cos.abs()) / 2.0,
+            );
+            let (cx, cy) = (g.x + w / 2.0, g.y + h / 2.0);
+            (cx - half_w, cy - half_h, cx + half_w, cy + half_h)
+        })
+        .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))
+}
+
 /// Revisions must increase within the current edit token. Failed saves consume no revision.
 /// A successful result echoes the edit and revision so callers can discard delayed responses.
 pub fn save(

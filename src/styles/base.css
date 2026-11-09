@@ -123,3 +123,34 @@ textarea[aria-invalid='true']:focus-visible {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-faint);
 }
+
+/* ポップオーバーのメニュー（ボードの操作、画像の右クリック）。開く側が top と left を決める */
+.menu {
+  position: fixed;
+  inset: auto;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.menu:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+
+.menu__item {
+  height: var(--size-control);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+}
+
+.menu__item:hover,
+.menu__item:focus-visible {
+  background: var(--color-selected);
+  outline: none;
+}

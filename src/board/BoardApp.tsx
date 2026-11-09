@@ -1,11 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
-import { useEffect, useRef, useState } from 'react'
+import { listen } from '@tauri-apps/api/event'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ConfirmDialog from '../ConfirmDialog'
 import { Icon, ICONS } from '../icons'
 import Status from '../Status'
+import Canvas from './Canvas'
 import NameDialog from './NameDialog'
 import { defaultName } from './names'
-import type { BoardSummary, Boards, EditingBoard } from './types'
+import type { Added, BoardSummary, Boards, EditingBoard, Item, Viewport } from './types'
 import './Board.css'
 
 // 開いたボード。ボードがなければ「ボードを作成」、最後のボードが削除済みなら選択画面（FR-701）
@@ -20,6 +22,15 @@ export default function BoardApp() {
   const [dialog, setDialog] = useState<Dialog>(null)
   const [error, setError] = useState<string | null>(null)
   const menu = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 })
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  // 追加した配置。キャンバスがこれを全部見える表示にしたら null に戻す
+  const [fit, setFit] = useState<number[] | null>(null)
+  const fitted = useCallback(() => setFit(null), [])
+  // 画像 ID から元画像のパス
+  const [paths, setPaths] = useState<Record<number, string>>({})
+  // 次の保存の revision。保存が重なっても同じ値を2度送らない
+  const revision = useRef(0)
 
   const current = view.kind === 'board' ? view.board.board : null
   const summary = boards.find((b) => b.id === current?.id)
@@ -31,11 +42,18 @@ export default function BoardApp() {
     return list
   }
 
+  function show(board: EditingBoard, select: number[] = []) {
+    setView({ kind: 'board', board })
+    setViewport(board.board.viewport)
+    setSelected(new Set(select))
+    revision.current = board.board.revision
+  }
+
   // 開けたかを返す。開けなければ今の表示のままエラーを出す
-  async function open(id: number, s = session) {
+  async function open(id: number, s = session, select: number[] = []) {
     setError(null)
     try {
-      setView({ kind: 'board', board: await invoke<EditingBoard>('open_board', { session: s, id }) })
+      show(await invoke<EditingBoard>('open_board', { session: s, id }), select)
       return true
     } catch (e) {
       setError(String(e))
@@ -43,10 +61,24 @@ export default function BoardApp() {
     }
   }
 
+  // ギャラリーから追加したボードを開き、追加分を選んで全部見える表示にする（FR-701）。追加がなければ false。
+  // 開いたときの分は1度だけ受け取る。開発時の StrictMode が開く処理を2回流しても、2回目に追加を失わないため
+  const mounted = useRef<Promise<Added | null>>(null)
+  async function reveal(s: number, onMount = false) {
+    const take = () => invoke<Added | null>('take_board_reveal')
+    const added = await (onMount ? (mounted.current ??= take()) : take())
+    if (!added) return false
+    if (await open(added.board_id, s, added.placements)) setFit(added.placements)
+    return true
+  }
+  const revealRef = useRef(reveal)
+  revealRef.current = reveal
+
   // 開いただけでは空のボードを作らない
   useEffect(() => {
     reload()
       .then(async (list) => {
+        if (await reveal(list.session, true)) return
         // 最後のボードを開けなければ、ほかのボードを選べるよう選択画面にする
         if (list.last_board_id !== null && (await open(list.last_board_id, list.session))) return
         setView({ kind: list.boards.length ? 'choose' : 'empty' })
@@ -55,15 +87,68 @@ export default function BoardApp() {
         setError(String(e))
         setView({ kind: 'choose' })
       })
+    // 開いている間の追加。ボードが増えたかもしれないので一覧も読み直す
+    const unlisten = listen('board-reveal', () =>
+      reload()
+        .then((list) => revealRef.current(list.session))
+        .catch((e) => setError(String(e))),
+    )
+    return () => {
+      unlisten.then((f) => f())
+    }
     // 開いたときに1度だけ読む
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const items = view.kind === 'board' ? view.board.board.items : null
+  // 元画像のパスは Rust が DB から組み立てる。ゴミ箱・見つからない・削除された画像は枠だけを出す。
+  // 読めなかった画像も空のパスとして覚え、読み直しを繰り返さない
+  useEffect(() => {
+    const ids = [
+      ...new Set((items ?? []).filter((i) => i.source.status === 'available').map((i) => i.source.image_id!)),
+    ].filter((id) => !(id in paths))
+    if (!ids.length) return
+    Promise.all(
+      ids.map((id) =>
+        invoke<{ path: string }>('image_detail', { id }).then(
+          (d) => [id, d.path] as const,
+          () => [id, ''] as const,
+        ),
+      ),
+    ).then((found) => setPaths((p) => ({ ...p, ...Object.fromEntries(found) })))
+  }, [items, paths])
+
+  // 1枚の移動を保存する（FR-702、FR-704）。保存中も動かした位置のまま見せる。
+  // shortcut: 失敗はエラーを出すだけで、再試行と保存の状態の表示は自動保存のタスク（D）で作る
+  async function move(id: number, x: number, y: number) {
+    if (view.kind !== 'board') return
+    const { edit, board } = view.board
+    const moved = board.items.map((i): Item => (i.id === id ? { ...i, geometry: { ...i.geometry, x, y } } : i))
+    setView({ kind: 'board', board: { edit, board: { ...board, items: moved } } })
+    const snapshot = {
+      viewport,
+      items: moved.map((i) => ({ id: i.id, source_id: i.source.id, geometry: i.geometry })),
+    }
+    const next = ++revision.current
+    try {
+      const saved = await invoke<EditingBoard>('save_board', { edit, revision: next, snapshot })
+      setError(null)
+      // 後から送った保存の応答だけを使う
+      if (revision.current === next)
+        setView((v) =>
+          v.kind === 'board' && v.board.edit.token === saved.edit.token ? { kind: 'board', board: saved } : v,
+        )
+    } catch (e) {
+      revision.current = Math.min(revision.current, next - 1)
+      setError(`ボードを保存できませんでした（${e}）`)
+    }
+  }
 
   async function create(name: string) {
     const board = await invoke<EditingBoard>('create_board', { session, name })
     setDialog(null)
     setError(null)
-    setView({ kind: 'board', board })
+    show(board)
     await reload()
   }
 
@@ -156,11 +241,11 @@ export default function BoardApp() {
                 >
                   <Icon d={ICONS.ellipsis} />
                 </button>
-                <div ref={menu} id="board-menu" className="board__menu" role="menu" popover="auto">
-                  <button type="button" role="menuitem" className="board__menu-item" onClick={() => act('rename')}>
+                <div ref={menu} id="board-menu" className="menu" role="menu" popover="auto">
+                  <button type="button" role="menuitem" className="menu__item" onClick={() => act('rename')}>
                     名前を変更…
                   </button>
-                  <button type="button" role="menuitem" className="board__menu-item" onClick={() => act('delete')}>
+                  <button type="button" role="menuitem" className="menu__item" onClick={() => act('delete')}>
                     削除…
                   </button>
                 </div>
@@ -177,7 +262,17 @@ export default function BoardApp() {
             </div>
           )}
           {current ? (
-            <main className="board__canvas" aria-label={`キャンバス：${current.name}`} />
+            <Canvas
+              board={current}
+              paths={paths}
+              viewport={viewport}
+              selected={selected}
+              fit={fit}
+              onViewport={setViewport}
+              onFitted={fitted}
+              onSelect={(ids) => setSelected(new Set(ids))}
+              onMove={move}
+            />
           ) : (
             <main className="board__choose" aria-label="ボードを選ぶ">
               <p>開くボードを選んでください。</p>

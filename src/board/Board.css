@@ -29,36 +29,6 @@
   font-weight: var(--font-weight-bold);
 }
 
-.board__menu {
-  position: fixed;
-  inset: auto;
-  margin: var(--space-1) 0 0;
-  padding: var(--space-1);
-  border: var(--border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-
-.board__menu:popover-open {
-  display: flex;
-  flex-direction: column;
-}
-
-.board__menu-item {
-  height: var(--size-control);
-  padding: 0 var(--space-4);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: none;
-  text-align: left;
-}
-
-.board__menu-item:hover,
-.board__menu-item:focus-visible {
-  background: var(--color-selected);
-  outline: none;
-}
-
 .board__error {
   flex: none;
   padding: var(--space-2) var(--space-4);
@@ -67,8 +37,49 @@
 }
 
 .board__canvas {
+  position: relative;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* 画像を読み込むまでと、元画像のない状態の枠も見分けられるよう、地を付ける */
+.board__item {
+  position: absolute;
+  box-sizing: border-box;
+  background: var(--color-raise);
+  cursor: grab;
+  user-select: none;
+}
+
+.board__item:active {
+  cursor: grabbing;
+}
+
+.board__item--selected {
+  border: var(--select-inner);
+  outline: var(--select-outline);
+}
+
+.board__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.board__status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-3);
+  overflow: hidden;
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .board__empty,
@@ -136,4 +147,14 @@
 .board-name__input--error {
   border: var(--focus-ring);
   border-color: var(--color-error);
+}
+
+.board-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.board-add > p {
+  margin: 0;
 }

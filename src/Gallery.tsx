@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { message, open } from '@tauri-apps/plugin-dialog'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
 import { Icon, ICONS } from './icons'
 import Detail from './Detail'
@@ -33,6 +33,9 @@ import type { ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
+
+// 追加先のダイアログはボードの画面の一部なので、ボードを使わない起動では読み込まない（FR-711）
+const AddDialog = lazy(() => import('./board/AddDialog'))
 
 const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
 
@@ -310,6 +313,50 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const openBoardRef = useRef(openBoard)
   openBoardRef.current = openBoard
 
+  // 「ボードに追加」の追加先ダイアログに渡す画像（FR-701）。ゴミ箱と見つからない画像は追加できない
+  const [adding, setAdding] = useState<number[] | null>(null)
+  const canAdd = settings.board_enabled && !aside && ids.length > 0
+  function addToBoard() {
+    // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
+    if (!canAdd || document.querySelector('dialog[open]')) return
+    setMenuAt(null)
+    setAdding(ids)
+  }
+  const addRef = useRef(addToBoard)
+  addRef.current = addToBoard
+
+  // 画像の右クリックのメニューの位置。右クリックを離したときに閉じないよう、自動では閉じないポップオーバーにして、
+  // メニューの外を押す、Escape、スクロール、ウィンドウを離れる、のどれかで閉じる
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const contextMenu = useRef<HTMLDivElement>(null)
+  function openContextMenu(id: number, e: React.MouseEvent) {
+    if (!settings.board_enabled || aside) return
+    e.preventDefault()
+    // 右クリックした画像を選んでいなければ、その画像だけを選ぶ（Finder と同じ）
+    if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
+    setMenuAt({ x: e.clientX, y: e.clientY })
+  }
+  useEffect(() => {
+    if (!menuAt) return
+    const menu = contextMenu.current!
+    menu.showPopover()
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent) {
+        if (e.key !== 'Escape') return
+        // 選択を外す Escape として扱わない
+        e.stopPropagation()
+      } else if (e.target instanceof Node && menu.contains(e.target)) return
+      setMenuAt(null)
+    }
+    const events = ['pointerdown', 'keydown', 'scroll'] as const
+    events.forEach((type) => document.addEventListener(type, close, true))
+    window.addEventListener('blur', close)
+    return () => {
+      events.forEach((type) => document.removeEventListener(type, close, true))
+      window.removeEventListener('blur', close)
+    }
+  }, [menuAt])
+
   useEffect(() => {
     const unlisten = [
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
@@ -317,6 +364,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
       listen('switch-library', () => leaveRef.current()),
       listen('open-board', () => openBoardRef.current()),
+      // 操作の対象は手前のウィンドウ。ボードのウィンドウが手前なら追加しない
+      listen('add-to-board', () => document.hasFocus() && addRef.current()),
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === 'drop') startRef.current(e.payload.paths)
       }),
@@ -679,6 +728,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         }
         // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
         onOpen={() => !aside && setZoom(true)}
+        onContextMenu={openContextMenu}
         active={selection.anchor}
         keys={!zoomed}
         onMove={moveTo}
@@ -759,6 +809,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
             onTrash={trashImages}
             onReveal={reveal}
+            onAddToBoard={settings.board_enabled ? addToBoard : undefined}
             onClose={() => toggleDetail(false)}
           />
         )}
@@ -784,6 +835,19 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           onShowMissing={() => openAside('missing')}
         />
       </footer>
+
+      {menuAt && (
+        <div ref={contextMenu} className="menu" role="menu" popover="manual" style={{ top: menuAt.y, left: menuAt.x }}>
+          <button type="button" role="menuitem" className="menu__item" onClick={addToBoard}>
+            ボードに追加…
+          </button>
+        </div>
+      )}
+      {adding && (
+        <Suspense fallback={null}>
+          <AddDialog images={adding} onClose={() => setAdding(null)} />
+        </Suspense>
+      )}
 
       {settingsOpen && (
         <SettingsDialog
