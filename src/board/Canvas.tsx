@@ -1,5 +1,6 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useContextMenu } from '../contextMenu'
 import {
   anchorOf,
   bounds,
@@ -13,6 +14,7 @@ import {
   type Corner,
   type Point,
 } from './geometry'
+import { restack, type Restack } from './stack'
 import type { Board, Geometry, Item, Viewport } from './types'
 
 // 状態ごとの枠の文言。元画像がないので、画像やサムネイルの代わりに出す（FR-701）
@@ -29,6 +31,13 @@ const WHEEL_ZOOM = 0.002
 const PINCH_ZOOM = 0.01
 const WHEEL_MAX = 100
 const CORNERS: Corner[] = ['nw', 'ne', 'sw', 'se']
+// 右クリックのメニューに出す重なり順の操作（FR-702）。ウィンドウの「最前面に固定」とは文言で区別する
+const RESTACKS: [Restack, string][] = [
+  ['front', '最前面へ'],
+  ['forward', '1つ前へ'],
+  ['backward', '1つ後ろへ'],
+  ['back', '最背面へ'],
+]
 // 文字の入力、ボタン、ダイアログ、メニューの中。ここでのキーは配置に効かせない（NFR-12）
 const NOT_CANVAS = 'input, textarea, select, button, [contenteditable], dialog, [popover]'
 
@@ -57,6 +66,9 @@ export default function Canvas({
   onSelect,
   onGeometry,
   onRemove,
+  onUndo,
+  onRedo,
+  onRestack,
 }: {
   board: Board
   // 画像 ID から元画像のパス。読み込むまでは枠だけを出す
@@ -75,6 +87,11 @@ export default function Canvas({
   onGeometry: (changed: Map<number, Geometry>) => void
   // 選んだ配置をボードから外す
   onRemove: () => void
+  // 配置の変更を取り消す・やり直す
+  onUndo: () => void
+  onRedo: () => void
+  // 選んだ配置の重なり順を変える
+  onRestack: (to: Restack) => void
 }) {
   const ref = useRef<HTMLElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -82,10 +99,14 @@ export default function Canvas({
   const [space, setSpace] = useState(false)
   // ピンチのイベントに位置がないときに使う、最後のポインターの位置
   const pointer = useRef<Point | null>(null)
+  const menu = useContextMenu()
 
   useLayoutEffect(() => {
     const el = ref.current!
-    const observer = new ResizeObserver(() => setSize({ width: el.clientWidth, height: el.clientHeight }))
+    const measure = () => setSize({ width: el.clientWidth, height: el.clientHeight })
+    // 最初は ResizeObserver の通知を待たずに測る。待つと、それまで大きさ 0 のキャンバスとして配置を置いてしまう
+    measure()
+    const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
@@ -138,8 +159,8 @@ export default function Canvas({
   }, [size, locked, onViewport])
 
   // キャンバスのキー操作。コールバックは描くたびに変わるので、登録し直さずに最新のものを呼ぶ
-  const keys = useRef({ board, selected, locked, onSelect, onRemove })
-  keys.current = { board, selected, locked, onSelect, onRemove }
+  const keys = useRef({ board, selected, gesture, locked, onSelect, onRemove, onUndo, onRedo })
+  keys.current = { board, selected, gesture, locked, onSelect, onRemove, onUndo, onRedo }
   useEffect(() => {
     const outside = (e: KeyboardEvent) =>
       (e.target instanceof Element && e.target.closest(NOT_CANVAS) !== null) ||
@@ -148,16 +169,21 @@ export default function Canvas({
       if (outside(e)) return
       const k = keys.current
       const select = e.key === 'a' && e.metaKey && !e.shiftKey && !e.altKey
+      // ⇧ を押していると、キーの文字は大文字で届くことがある
+      const undo = e.key.toLowerCase() === 'z' && e.metaKey && !e.altKey
       // Mac の delete キーは Backspace として届く
       const remove = e.key === 'Delete' || e.key === 'Backspace'
-      if (e.code !== 'Space' && !select && !remove) return
-      // 何もしないと、Space はスクロール、⌘A はウィンドウの文字の全選択、Backspace は前のページへ戻る操作になる。
-      // 編集を受け付けない間も止める
+      if (e.code !== 'Space' && !select && !undo && !remove) return
+      // 何もしないと、Space はスクロール、⌘A はウィンドウの文字の全選択、Backspace は前のページへ戻る操作、
+      // ⌘Z は前に使った入力欄の文字の取り消しになる。編集を受け付けない間も止める
       e.preventDefault()
       if (e.code === 'Space') setSpace(true)
       else if (k.locked()) return
       else if (select) k.onSelect(k.board.items.map((i) => i.id))
-      else if (k.selected.size) k.onRemove()
+      // ドラッグの途中では取り消さない。ドラッグは、始めたときの配置を元に終わるため
+      else if (undo) {
+        if (!k.gesture) (e.shiftKey ? k.onRedo : k.onUndo)()
+      } else if (k.selected.size) k.onRemove()
     }
     const up = (e: KeyboardEvent) => e.code === 'Space' && setSpace(false)
     // ほかのウィンドウで Space を離すと keyup が届かない
@@ -197,6 +223,8 @@ export default function Canvas({
   // パンを先に見るので、配置の上や空白から始めても、移動や範囲選択にはならない（FR-702、FR-703）
   function down(e: React.PointerEvent<HTMLElement>) {
     if (gesture || locked()) return
+    // control＋クリックは右クリックとして届く。メニューを出すだけにして、選択をまとめ直したり動かしたりしない
+    if (e.ctrlKey && e.button === 0) return
     const pan = e.button === 1 || (e.button === 0 && space)
     if (!pan && e.button !== 0) return
     const target = e.target as Element
@@ -270,92 +298,126 @@ export default function Canvas({
     else if (gesture.kind === 'move' && gesture.collapse !== null) onSelect([gesture.collapse])
   }
 
+  function context(e: React.MouseEvent) {
+    const hit = (e.target as Element).closest<HTMLElement>('[data-id]')
+    if (!hit) return
+    e.preventDefault()
+    if (gesture || locked()) return
+    // 右クリックした配置を選んでいなければ、その配置だけを選ぶ（ギャラリーと同じ）
+    const id = Number(hit.dataset.id)
+    if (!selected.has(id)) onSelect([id])
+    menu.setAt({ x: e.clientX, y: e.clientY })
+  }
+
   const frame = bounds(chosen.map(live))
   const frameAt = frame && toScreen(frame.left, frame.top)
   const classes = ['board__canvas']
   if (space || gesture?.kind === 'pan') classes.push('board__canvas--pan')
 
   return (
-    <main
-      ref={ref}
-      className={classes.join(' ')}
-      aria-label={`キャンバス：${board.name}`}
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={(e) => up(e)}
-      onPointerCancel={(e) => up(e, true)}
-    >
-      <div className="board__items">
-        {board.items.map((item) => {
-          const g = live(item)
-          const at = toScreen(g.x, g.y)
-          const path = item.source.image_id === null ? undefined : paths[item.source.image_id]
-          const status = item.source.status === 'available' ? null : STATUS[item.source.status]
-          return (
-            <div
-              key={item.id}
-              className={selected.has(item.id) ? 'board__item board__item--selected' : 'board__item'}
-              role="img"
-              aria-label={status ? `${item.source.file_name}（${status}）` : item.source.file_name}
-              aria-selected={selected.has(item.id)}
-              data-id={item.id}
-              style={{
-                left: at.left,
-                top: at.top,
-                width: g.width * g.scale * viewport.scale,
-                height: g.height * g.scale * viewport.scale,
-                zIndex: g.stack_order,
-                transform: g.rotation ? `rotate(${g.rotation}deg)` : undefined,
+    <>
+      <main
+        ref={ref}
+        className={classes.join(' ')}
+        aria-label={`キャンバス：${board.name}`}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={(e) => up(e)}
+        onPointerCancel={(e) => up(e, true)}
+        onContextMenu={context}
+      >
+        <div className="board__items">
+          {board.items.map((item) => {
+            const g = live(item)
+            const at = toScreen(g.x, g.y)
+            const path = item.source.image_id === null ? undefined : paths[item.source.image_id]
+            const status = item.source.status === 'available' ? null : STATUS[item.source.status]
+            return (
+              <div
+                key={item.id}
+                className={selected.has(item.id) ? 'board__item board__item--selected' : 'board__item'}
+                role="img"
+                aria-label={status ? `${item.source.file_name}（${status}）` : item.source.file_name}
+                aria-selected={selected.has(item.id)}
+                data-id={item.id}
+                style={{
+                  left: at.left,
+                  top: at.top,
+                  width: g.width * g.scale * viewport.scale,
+                  height: g.height * g.scale * viewport.scale,
+                  zIndex: g.stack_order,
+                  transform: g.rotation ? `rotate(${g.rotation}deg)` : undefined,
+                }}
+              >
+                {status ? (
+                  <span className="board__status">
+                    <span>{status}</span>
+                    <span>{item.source.file_name}</span>
+                  </span>
+                ) : (
+                  path && (
+                    <img
+                      className="board__image"
+                      src={convertFileSrc(path)}
+                      alt=""
+                      draggable={false}
+                      style={{
+                        transform: g.flipped ? 'scaleX(-1)' : undefined,
+                        filter: g.grayscale ? 'grayscale(1)' : undefined,
+                      }}
+                    />
+                  )
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {frame && frameAt && (
+          <div
+            className={chosen.length > 1 ? 'board__frame board__frame--group' : 'board__frame'}
+            style={{
+              ...frameAt,
+              width: (frame.right - frame.left) * viewport.scale,
+              height: (frame.bottom - frame.top) * viewport.scale,
+            }}
+          >
+            {CORNERS.map((c) => (
+              <span key={c} className={`board__handle board__handle--${c}`} data-corner={c} />
+            ))}
+          </div>
+        )}
+        {gesture?.kind === 'marquee' && gesture.to !== gesture.start && (
+          <div
+            className="board__marquee"
+            style={{
+              left: Math.min(gesture.start.x, gesture.to.x),
+              top: Math.min(gesture.start.y, gesture.to.y),
+              width: Math.abs(gesture.to.x - gesture.start.x),
+              height: Math.abs(gesture.to.y - gesture.start.y),
+            }}
+          />
+        )}
+      </main>
+      {/* キャンバスの外に置く。中に置くと、メニューを押したことが空白を押した範囲選択の始まりになる */}
+      {menu.at && (
+        <div ref={menu.ref} className="menu" role="menu" popover="manual" style={{ top: menu.at.y, left: menu.at.x }}>
+          {RESTACKS.map(([to, label]) => (
+            <button
+              key={to}
+              type="button"
+              role="menuitem"
+              className="menu__item"
+              disabled={!restack(board.items, selected, to)}
+              onClick={() => {
+                menu.setAt(null)
+                onRestack(to)
               }}
             >
-              {status ? (
-                <span className="board__status">
-                  <span>{status}</span>
-                  <span>{item.source.file_name}</span>
-                </span>
-              ) : (
-                path && (
-                  <img
-                    className="board__image"
-                    src={convertFileSrc(path)}
-                    alt=""
-                    draggable={false}
-                    style={{
-                      transform: g.flipped ? 'scaleX(-1)' : undefined,
-                      filter: g.grayscale ? 'grayscale(1)' : undefined,
-                    }}
-                  />
-                )
-              )}
-            </div>
-          )
-        })}
-      </div>
-      {frame && frameAt && (
-        <div
-          className={chosen.length > 1 ? 'board__frame board__frame--group' : 'board__frame'}
-          style={{
-            ...frameAt,
-            width: (frame.right - frame.left) * viewport.scale,
-            height: (frame.bottom - frame.top) * viewport.scale,
-          }}
-        >
-          {CORNERS.map((c) => (
-            <span key={c} className={`board__handle board__handle--${c}`} data-corner={c} />
+              {label}
+            </button>
           ))}
         </div>
       )}
-      {gesture?.kind === 'marquee' && gesture.to !== gesture.start && (
-        <div
-          className="board__marquee"
-          style={{
-            left: Math.min(gesture.start.x, gesture.to.x),
-            top: Math.min(gesture.start.y, gesture.to.y),
-            width: Math.abs(gesture.to.x - gesture.start.x),
-            height: Math.abs(gesture.to.y - gesture.start.y),
-          }}
-        />
-      )}
-    </main>
+    </>
   )
 }

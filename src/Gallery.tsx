@@ -4,6 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
+import { useContextMenu } from './contextMenu'
 import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
 import Detail from './Detail'
@@ -339,10 +340,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const addRef = useRef(addToBoard)
   addRef.current = addToBoard
 
-  // 画像の右クリックのメニューの位置。右クリックを離したときに閉じないよう、自動では閉じないポップオーバーにして、
-  // メニューの外を押す、Escape、スクロール、ウィンドウを離れる、のどれかで閉じる
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
-  const contextMenu = useRef<HTMLDivElement>(null)
+  const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
   function openContextMenu(id: number, e: React.MouseEvent) {
     if (!settings.board_enabled || aside) return
     e.preventDefault()
@@ -350,27 +348,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
     setMenuAt({ x: e.clientX, y: e.clientY })
   }
-  useEffect(() => {
-    if (!menuAt) return
-    const menu = contextMenu.current!
-    menu.showPopover()
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent) {
-        if (e.key !== 'Escape') return
-        // 選択を外す Escape として扱わない
-        e.stopPropagation()
-      } else if (e.target instanceof Node && menu.contains(e.target)) return
-      setMenuAt(null)
-    }
-    const events = ['pointerdown', 'keydown', 'scroll'] as const
-    events.forEach((type) => document.addEventListener(type, close, true))
-    window.addEventListener('blur', close)
-    return () => {
-      events.forEach((type) => document.removeEventListener(type, close, true))
-      window.removeEventListener('blur', close)
-    }
-  }, [menuAt])
-
   useEffect(() => {
     const unlisten = [
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
