@@ -9,12 +9,15 @@ import Canvas from './Canvas'
 import NameDialog from './NameDialog'
 import { defaultName } from './names'
 import { saveQueue, type SaveState } from './saveQueue'
+import { restack, type Restack } from './stack'
 import type { Added, BoardSummary, Boards, Edit, EditingBoard, Geometry, Item, Snapshot, Viewport } from './types'
 import './Board.css'
 
 // 開いたボード。ボードがなければ「ボードを作成」、最後のボードが削除済みなら選択画面（FR-701）
 type View = { kind: 'loading' } | { kind: 'empty' } | { kind: 'choose' } | { kind: 'board'; board: EditingBoard }
 type Dialog = 'create' | 'rename' | 'delete' | null
+// 取り消し・やり直しで戻す先。配置を変える前の配置と選択
+type Moment = { items: Item[]; selected: Set<number> }
 
 // 表示の位置と倍率は、操作が止まってこれだけ経ったら保存する（FR-704）。ホイール1刻みごとには保存しない
 const VIEW_SETTLE = 300
@@ -45,6 +48,24 @@ export default function BoardApp() {
     saveQueue<{ edit: Edit; snapshot: Snapshot }>(async ({ edit, snapshot }) => {
       const saved = await invoke<EditingBoard>('save_board', { edit, revision: revision.current + 1, snapshot })
       revision.current = saved.board.revision
+      // 取り消しで戻した配置は、外したときの画像の状態を持っている。その間に画像が削除されていたら、
+      // Rust が DB から返した状態に合わせて枠にする。配置は、保存中に重ねた変更を消さないよう画面のままにする
+      const sources = new Map(saved.board.items.map((i) => [i.id, i.source]))
+      const stale = (i: Item) => sources.has(i.id) && sources.get(i.id)!.status !== i.source.status
+      setView((v) =>
+        v.kind === 'board' && v.board.board.id === saved.board.id && v.board.board.items.some(stale)
+          ? {
+              kind: 'board',
+              board: {
+                ...v.board,
+                board: {
+                  ...v.board.board,
+                  items: v.board.board.items.map((i) => (stale(i) ? { ...i, source: sources.get(i.id)! } : i)),
+                },
+              },
+            }
+          : v,
+      )
     }, setSave),
   ).current
   // 閉じる・終了・追加の保存待ちの間（held）と、追加の後に開き直す間（revealing）は編集を受け付けない。
@@ -52,6 +73,9 @@ export default function BoardApp() {
   const held = useRef(false)
   const revealing = useRef(0)
   const locked = useCallback(() => held.current || revealing.current > 0, [])
+  // 取り消し・やり直しの履歴（FR-702）。今のボードを開いている間だけ持ち、ボードを切り替えると捨てる。
+  // ウィンドウを閉じると画面ごと破棄されるので、そこでも残らない
+  const history = useRef<{ past: Moment[]; future: Moment[] }>({ past: [], future: [] })
   useFlush(async () => {
     settleView()
     held.current = true
@@ -106,19 +130,29 @@ export default function BoardApp() {
     return list
   }
 
-  function show(board: EditingBoard, select: number[] = []) {
+  // added はギャラリーから今追加した配置。追加も取り消せるよう、追加する前の配置を履歴に積む（FR-702）
+  function show(board: EditingBoard, added: number[] = []) {
+    const before = latest.current
+    if (before.kind !== 'board' || before.board.board.id !== board.board.id) history.current = { past: [], future: [] }
+    if (added.length) {
+      history.current.past.push({
+        items: board.board.items.filter((i) => !added.includes(i.id)),
+        selected: new Set(),
+      })
+      history.current.future = []
+    }
     setView({ kind: 'board', board })
     clearTimeout(viewTimer.current)
     viewTimer.current = undefined
     viewNow.current = board.board.viewport
     setViewport(board.board.viewport)
-    setSelected(new Set(select))
+    setSelected(new Set(added))
     revision.current = board.board.revision
   }
 
   // 開けたかを返す。開けなければ今の表示のままエラーを出す。
   // 今のボードを保存できなければ切り替えない（FR-704）。失敗は保存の状態に出す
-  async function open(id: number, s = session, select: number[] = []) {
+  async function open(id: number, s = session, added: number[] = []) {
     setError(null)
     settleView()
     try {
@@ -127,7 +161,7 @@ export default function BoardApp() {
       return false
     }
     try {
-      show(await invoke<EditingBoard>('open_board', { session: s, id }), select)
+      show(await invoke<EditingBoard>('open_board', { session: s, id }), added)
       return true
     } catch (e) {
       setError(String(e))
@@ -201,14 +235,31 @@ export default function BoardApp() {
     ).then((found) => setPaths((p) => ({ ...p, ...Object.fromEntries(found) })))
   }, [items, paths])
 
-  // 配置の変更を画面に出して保存する（FR-702、FR-704）。保存中も失敗しても、変えた状態のまま見せる。
-  // 配置を変える操作は、すべてここを通す
-  function apply(change: (items: Item[]) => Item[]) {
-    if (view.kind !== 'board' || locked()) return
-    const { edit, board } = view.board
-    const items = change(board.items)
+  // 配置を画面に出して保存する（FR-704）。保存中も失敗しても、変えた状態のまま見せる
+  function put({ edit, board }: EditingBoard, items: Item[]) {
     setView({ kind: 'board', board: { edit, board: { ...board, items } } })
     commit(edit, items)
+    // 削除の確認と選択画面に出す件数を合わせる。一覧は読み直さない
+    setBoards((list) => list.map((b) => (b.id === board.id ? { ...b, placement_count: items.length } : b)))
+  }
+
+  // 配置を変える操作は、すべてここを通す（FR-702）。変える前の配置を履歴に積むので、ここを通せば取り消せる
+  function apply(change: (items: Item[]) => Item[]) {
+    if (view.kind !== 'board' || locked()) return
+    history.current.past.push({ items: view.board.board.items, selected })
+    history.current.future = []
+    put(view.board, change(view.board.board.items))
+  }
+
+  // 取り消し（past から）とやり直し（future から）。戻した結果も、ほかの変更と同じ保存のキューを通す。
+  // 外した配置は同じ配置 ID で送るので、Rust が同じ行を表示に戻す
+  function travel(from: 'past' | 'future') {
+    if (view.kind !== 'board' || locked()) return
+    const moment = history.current[from].pop()
+    if (!moment) return
+    history.current[from === 'past' ? 'future' : 'past'].push({ items: view.board.board.items, selected })
+    put(view.board, moment.items)
+    setSelected(moment.selected)
   }
 
   // 移動と拡大・縮小。ドラッグを終えたときに1度だけ届く
@@ -218,13 +269,16 @@ export default function BoardApp() {
 
   // 選んだ配置をボードから外す。スナップショットから外すだけで、元画像と同じ画像の別の配置は変わらない（FR-702）
   function discard() {
-    if (view.kind !== 'board' || locked()) return
-    const { id, items } = view.board.board
-    const left = items.filter((i) => !selected.has(i.id))
-    apply(() => left)
+    if (locked()) return
+    apply((items) => items.filter((i) => !selected.has(i.id)))
     setSelected(new Set())
-    // 削除の確認と選択画面に出す件数を合わせる。一覧は読み直さない
-    setBoards((list) => list.map((b) => (b.id === id ? { ...b, placement_count: left.length } : b)))
+  }
+
+  // 重なり順を変える（FR-702）。順序が変わらなければ、履歴にも保存にも残さない
+  function reorder(to: Restack) {
+    if (view.kind !== 'board') return
+    const next = restack(view.board.board.items, selected, to)
+    if (next) apply(() => next)
   }
 
   function select(ids: number[]) {
@@ -404,6 +458,9 @@ export default function BoardApp() {
               onSelect={select}
               onGeometry={reshape}
               onRemove={discard}
+              onUndo={() => travel('past')}
+              onRedo={() => travel('future')}
+              onRestack={reorder}
             />
           ) : (
             <main className="board__choose" aria-label="ボードを選ぶ">

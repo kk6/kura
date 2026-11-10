@@ -376,7 +376,8 @@ const DEFAULT_SETTINGS: Settings = {
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
 // e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない。
 // 「保存できない」という名前のボードは配置を保存できない
-type MockBoard = BoardSummary & { items?: Item[]; viewport?: Viewport; revision?: number }
+// removed は外した配置。本物の DB も非表示の行として残し、取り消しで同じ配置 ID を表示に戻す
+type MockBoard = BoardSummary & { items?: Item[]; removed?: Item[]; viewport?: Viewport; revision?: number }
 type MockBoards = { boards: MockBoard[]; last: number | null; next: number; reveal?: Added | null }
 const boardStore = () => stored<MockBoards>('mock.boards', { boards: [], last: null, next: 1 })
 const SESSION = 1
@@ -474,8 +475,14 @@ const saveBoard: Handler = (args) => {
   if (board.name === '保存できない' || sessionStorage.getItem('mock.failBoardSave'))
     throw 'attempt to write a readonly database'
   const snapshot = args?.snapshot as Snapshot
-  const old = new Map((board.items ?? []).map((i) => [i.id, i]))
-  board.items = snapshot.items.map((d) => ({ ...old.get(d.id!)!, geometry: d.geometry }))
+  const old = new Map([...(board.removed ?? []), ...(board.items ?? [])].map((i) => [i.id, i]))
+  board.items = snapshot.items.map((d) => {
+    const item = old.get(d.id!)
+    if (item?.source.id !== d.source_id) throw '配置のボード・元画像は変更できません'
+    return { ...item, geometry: d.geometry }
+  })
+  const kept = new Set(board.items.map((i) => i.id))
+  board.removed = [...old.values()].filter((i) => !kept.has(i.id))
   board.viewport = snapshot.viewport
   board.revision = args?.revision as number
   store('mock.boards', data)
@@ -506,7 +513,8 @@ const addToBoard: Handler = (args) => {
     ? Math.max(...items.map((i) => i.geometry.x + i.geometry.width * i.geometry.scale)) + MARGIN
     : -span(columns) / 2
   const top = items.length ? Math.min(...items.map((i) => i.geometry.y)) : -span(Math.ceil(images.length / columns)) / 2
-  let next = Math.max(0, ...data.boards.flatMap((b) => (b.items ?? []).map((i) => i.id))) + 1
+  // 外した配置の ID も使い直さない
+  let next = Math.max(0, ...data.boards.flatMap((b) => [...(b.items ?? []), ...(b.removed ?? [])].map((i) => i.id))) + 1
   const order = Math.max(-1, ...items.map((i) => i.geometry.stack_order)) + 1
   const added = images.map((image, n): Item => {
     const scale = CELL / Math.max(image.width, image.height)

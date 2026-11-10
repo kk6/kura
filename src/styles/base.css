@@ -154,3 +154,8 @@ textarea[aria-invalid='true']:focus-visible {
   background: var(--color-selected);
   outline: none;
 }
+
+.menu__item:disabled {
+  background: none;
+  color: var(--color-text-faint);
+}
