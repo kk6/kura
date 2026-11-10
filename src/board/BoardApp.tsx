@@ -9,12 +9,15 @@ import Canvas from './Canvas'
 import NameDialog from './NameDialog'
 import { defaultName } from './names'
 import { saveQueue, type SaveState } from './saveQueue'
-import type { Added, BoardSummary, Boards, Edit, EditingBoard, Item, Snapshot, Viewport } from './types'
+import type { Added, BoardSummary, Boards, Edit, EditingBoard, Geometry, Item, Snapshot, Viewport } from './types'
 import './Board.css'
 
 // 開いたボード。ボードがなければ「ボードを作成」、最後のボードが削除済みなら選択画面（FR-701）
 type View = { kind: 'loading' } | { kind: 'empty' } | { kind: 'choose' } | { kind: 'board'; board: EditingBoard }
 type Dialog = 'create' | 'rename' | 'delete' | null
+
+// 表示の位置と倍率は、操作が止まってこれだけ経ったら保存する（FR-704）。ホイール1刻みごとには保存しない
+const VIEW_SETTLE = 300
 
 // アイデアボードの専用ウィンドウ。ギャラリーの画面とは別に、開くときに読み込む（FR-711）
 export default function BoardApp() {
@@ -25,6 +28,10 @@ export default function BoardApp() {
   const [error, setError] = useState<string | null>(null)
   const menu = useRef<HTMLDivElement>(null)
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 })
+  // 画面に描く前の、最新の表示。続けて届くホイールと、保存に使う
+  const viewNow = useRef(viewport)
+  // 表示の保存を待っているタイマー
+  const viewTimer = useRef<number>(undefined)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   // 追加した配置。キャンバスがこれを全部見える表示にしたら null に戻す
   const [fit, setFit] = useState<number[] | null>(null)
@@ -44,12 +51,52 @@ export default function BoardApp() {
   // 受け付けると、Rust が保存を確かめた後の変更が、閉じたボードや終わった編集へ送られて消える
   const held = useRef(false)
   const revealing = useRef(0)
+  const locked = useCallback(() => held.current || revealing.current > 0, [])
   useFlush(async () => {
+    settleView()
     held.current = true
     await queue.flush()
   })
 
   const current = view.kind === 'board' ? view.board.board : null
+  const latest = useRef(view)
+  latest.current = view
+
+  // 配置と表示をまとめて保存のキューに入れる。表示だけの保存を待っていたら、ここに含めて取り消す
+  function commit(edit: Edit, items: Item[]) {
+    clearTimeout(viewTimer.current)
+    viewTimer.current = undefined
+    queue.push({
+      edit,
+      snapshot: {
+        viewport: viewNow.current,
+        items: items.map((i) => ({ id: i.id, source_id: i.source.id, geometry: i.geometry })),
+      },
+    })
+  }
+
+  // 待っている表示の保存を、今キューに入れる。閉じる・切り替えの前の保存待ちに含めるため
+  function settleView() {
+    if (viewTimer.current === undefined) return
+    const v = latest.current
+    if (v.kind === 'board') commit(v.board.edit, v.board.board.items)
+  }
+  const settleRef = useRef(settleView)
+  settleRef.current = settleView
+
+  // 表示の位置と倍率を変える（FR-703）。保存は、操作が止まってから1度だけ送る
+  const look = useCallback(
+    (update: (viewport: Viewport) => Viewport) => {
+      if (locked()) return
+      viewNow.current = update(viewNow.current)
+      setViewport(viewNow.current)
+      clearTimeout(viewTimer.current)
+      viewTimer.current = window.setTimeout(() => settleRef.current(), VIEW_SETTLE)
+    },
+    [locked],
+  )
+  // ウィンドウを破棄するときに、タイマーを残さない
+  useEffect(() => () => clearTimeout(viewTimer.current), [])
   const summary = boards.find((b) => b.id === current?.id)
 
   async function reload() {
@@ -61,6 +108,9 @@ export default function BoardApp() {
 
   function show(board: EditingBoard, select: number[] = []) {
     setView({ kind: 'board', board })
+    clearTimeout(viewTimer.current)
+    viewTimer.current = undefined
+    viewNow.current = board.board.viewport
     setViewport(board.board.viewport)
     setSelected(new Set(select))
     revision.current = board.board.revision
@@ -70,6 +120,7 @@ export default function BoardApp() {
   // 今のボードを保存できなければ切り替えない（FR-704）。失敗は保存の状態に出す
   async function open(id: number, s = session, select: number[] = []) {
     setError(null)
+    settleView()
     try {
       await queue.flush()
     } catch {
@@ -150,20 +201,39 @@ export default function BoardApp() {
     ).then((found) => setPaths((p) => ({ ...p, ...Object.fromEntries(found) })))
   }, [items, paths])
 
-  // 1枚の移動を保存する（FR-702、FR-704）。保存中も失敗しても、動かした位置のまま見せる
-  function move(id: number, x: number, y: number) {
-    if (view.kind !== 'board' || held.current || revealing.current) return
+  // 配置の変更を画面に出して保存する（FR-702、FR-704）。保存中も失敗しても、変えた状態のまま見せる。
+  // 配置を変える操作は、すべてここを通す
+  function apply(change: (items: Item[]) => Item[]) {
+    if (view.kind !== 'board' || locked()) return
     const { edit, board } = view.board
-    const moved = board.items.map((i): Item => (i.id === id ? { ...i, geometry: { ...i.geometry, x, y } } : i))
-    setView({ kind: 'board', board: { edit, board: { ...board, items: moved } } })
-    queue.push({
-      edit,
-      snapshot: { viewport, items: moved.map((i) => ({ id: i.id, source_id: i.source.id, geometry: i.geometry })) },
-    })
+    const items = change(board.items)
+    setView({ kind: 'board', board: { edit, board: { ...board, items } } })
+    commit(edit, items)
+  }
+
+  // 移動と拡大・縮小。ドラッグを終えたときに1度だけ届く
+  function reshape(changed: Map<number, Geometry>) {
+    apply((items) => items.map((i) => (changed.has(i.id) ? { ...i, geometry: changed.get(i.id)! } : i)))
+  }
+
+  // 選んだ配置をボードから外す。スナップショットから外すだけで、元画像と同じ画像の別の配置は変わらない（FR-702）
+  function discard() {
+    if (view.kind !== 'board' || locked()) return
+    const { id, items } = view.board.board
+    const left = items.filter((i) => !selected.has(i.id))
+    apply(() => left)
+    setSelected(new Set())
+    // 削除の確認と選択画面に出す件数を合わせる。一覧は読み直さない
+    setBoards((list) => list.map((b) => (b.id === id ? { ...b, placement_count: left.length } : b)))
+  }
+
+  function select(ids: number[]) {
+    if (!locked()) setSelected(new Set(ids))
   }
 
   async function create(name: string) {
     // 今のボードを保存できなければ新しいボードに移らない
+    settleView()
     await queue.flush().catch(() => {
       throw '今のボードを保存できないため、新しいボードを作れません'
     })
@@ -195,6 +265,8 @@ export default function BoardApp() {
       return
     }
     setError(null)
+    clearTimeout(viewTimer.current)
+    viewTimer.current = undefined
     queue.clear()
     const list = await reload().catch(() => ({ boards: boards.filter((b) => b.id !== current!.id) }))
     setView({ kind: list.boards.length ? 'choose' : 'empty' })
@@ -278,6 +350,28 @@ export default function BoardApp() {
               <Icon d={ICONS.plus} />
               新しいボード
             </button>
+            {current && (
+              <>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={!current.items.length}
+                  onClick={() => setFit(current.items.map((i) => i.id))}
+                >
+                  <Icon d={ICONS.maximize} />
+                  全体を表示
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={!selected.size}
+                  onClick={() => setFit([...selected])}
+                >
+                  <Icon d={ICONS.scan} />
+                  選択画像を表示
+                </button>
+              </>
+            )}
             {current && save.kind !== 'failed' && (
               <span className="board__save" role="status">
                 {save.kind === 'saving' ? '保存中…' : '保存済み'}
@@ -304,10 +398,12 @@ export default function BoardApp() {
               viewport={viewport}
               selected={selected}
               fit={fit}
-              onViewport={setViewport}
+              locked={locked}
+              onViewport={look}
               onFitted={fitted}
-              onSelect={(ids) => setSelected(new Set(ids))}
-              onMove={move}
+              onSelect={select}
+              onGeometry={reshape}
+              onRemove={discard}
             />
           ) : (
             <main className="board__choose" aria-label="ボードを選ぶ">
