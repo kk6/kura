@@ -400,6 +400,10 @@ test('ボードで1枚をドラッグすると、その配置だけが動いて�
   await page.goto('/?board')
   const items = page.getByRole('main', { name: /キャンバス/ }).getByRole('img')
   await expect(items).toHaveCount(2)
+  // 追加した2枚が選ばれている。選択を外してから1枚だけを動かす
+  const area = (await page.getByRole('main', { name: /キャンバス/ }).boundingBox())!
+  await page.mouse.click(area.x + 10, area.y + 10)
+  await expect(page.locator('.board__item--selected')).toHaveCount(0)
   const box = (await items.nth(0).boundingBox())!
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()

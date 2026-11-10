@@ -82,6 +82,7 @@ CSS変数として `src/styles/tokens.css` に定義し、コンポーネント�
 | `--size-control` | ボタン・入力欄 | 高さ 32px |
 | `--size-control-sm` | 小さいボタン・入力欄 | 高さ 24px |
 | `--size-board-toolbar` | アイデアボードのツールバー | 高さ 40px |
+| `--size-handle` | ボードの選択枠の四隅のハンドル | 幅・高さ 10px |
 | `--size-select-panel` | ライブラリ選択画面の中身 | 幅 480px |
 | `--size-progress` | 進み具合のバー | 高さ 3px |
 | `--size-progress-bar` | ステータスバーの進み具合のバー | 幅 160px |
