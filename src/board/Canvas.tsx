@@ -103,7 +103,10 @@ export default function Canvas({
 
   useLayoutEffect(() => {
     const el = ref.current!
-    const observer = new ResizeObserver(() => setSize({ width: el.clientWidth, height: el.clientHeight }))
+    const measure = () => setSize({ width: el.clientWidth, height: el.clientHeight })
+    // 最初は ResizeObserver の通知を待たずに測る。待つと、それまで大きさ 0 のキャンバスとして配置を置いてしまう
+    measure()
+    const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
   }, [])

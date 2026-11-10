@@ -215,9 +215,9 @@ test('Space＋ドラッグと中ボタンのドラッグは表示を動かし、
 
   await page.reload()
   await expect(items).toHaveCount(2)
-  // キャンバスの大きさを測り終えるまでは、位置が定まらない
-  await expect.poll(async () => (await box(items.nth(0))).x).toBeCloseTo(last.x, 0)
-  expect((await box(items.nth(0))).y).toBeCloseTo(last.y, 0)
+  const reopened = await box(items.nth(0))
+  expect(reopened.x).toBeCloseTo(last.x, 0)
+  expect(reopened.y).toBeCloseTo(last.y, 0)
 })
 
 test('ホイールとピンチはポインターの位置を中心に拡大・縮小し、「全体を表示」「選択画像を表示」で戻れる', async ({
@@ -320,4 +320,21 @@ test('閉じる前の保存待ちの間は、移動・配置を外す・選択�
   await page.keyboard.press('Backspace')
   await expect(items).toHaveCount(1)
   await expect.poll(async () => (await stored(page)).items).toEqual(before.items.slice(1))
+})
+
+// 測り終える前は大きさ 0 のキャンバスとして置かれ、開いた直後だけ配置が幅の半分ずれていた
+test('キャンバスの大きさの通知が遅れても、開いた直後から配置を正しい位置に描く', async ({ page }) => {
+  const { items } = await boardWith(page, 2)
+  const shown = await box(items.nth(0))
+  // ResizeObserver の最初の通知を届かせない
+  await page.addInitScript(() => {
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+  })
+  await page.reload()
+  await expect(items).toHaveCount(2)
+  expect((await box(items.nth(0))).x).toBeCloseTo(shown.x, 0)
 })
