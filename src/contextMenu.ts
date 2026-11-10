@@ -9,6 +9,10 @@ export function useContextMenu() {
     if (!at) return
     const menu = ref.current!
     menu.showPopover()
+    // ウィンドウの右や下にはみ出す分だけ戻す。小さくしたボードのウィンドウでも、下の項目を押せるようにする
+    const r = menu.getBoundingClientRect()
+    menu.style.left = `${Math.max(0, at.x - Math.max(0, r.right - window.innerWidth))}px`
+    menu.style.top = `${Math.max(0, at.y - Math.max(0, r.bottom - window.innerHeight))}px`
     const close = (e: Event) => {
       if (e instanceof KeyboardEvent) {
         if (e.key !== 'Escape') return

@@ -196,7 +196,17 @@ test('右クリックのメニューで重なり順を変える。複数では�
   await shown.nth(1).click({ button: 'right' })
   expect(await selectedIds(canvas)).toEqual([b])
   const menu = page.getByRole('menu')
-  await expect(menu.getByRole('menuitem')).toHaveText(['最前面へ', '1つ前へ', '1つ後ろへ', '最背面へ'])
+  // 重なり順の下に、1枚ずつの加工が続く。ON/OFF の項目（左右反転、グレースケール）は menuitemcheckbox
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    '最前面へ',
+    '1つ前へ',
+    '1つ後ろへ',
+    '最背面へ',
+    '右へ90度回転',
+    '回転をリセット',
+    'トリミング',
+    'トリミングを解除',
+  ])
   await page.screenshot({ path: 'test-results/board-restack-menu.png' })
   // Escape で閉じる。選択は残る
   await page.keyboard.press('Escape')
