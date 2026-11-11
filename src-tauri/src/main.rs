@@ -253,7 +253,8 @@ async fn show_board_window(app: AppHandle) -> Result<(), String> {
         // 枠と不透明度を当て終えてから見せる。先に見せると、前の位置に不透明なまま一瞬出る
         let w = WebviewWindowBuilder::new(&app, BOARD, WebviewUrl::App("index.html".into()))
             .title("アイデアボード")
-            .inner_size(960.0, 640.0)
+            // 上部の操作が1段に収まる幅
+            .inner_size(1040.0, 640.0)
             .min_inner_size(480.0, 320.0)
             .always_on_top(display.always_on_top)
             .visible(false)

@@ -70,23 +70,29 @@ test('表示の設定を保存できなければ、前の値に戻してエラ�
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
-test('いちばん狭いウィンドウ（幅480）でも、上部の操作すべてに横スクロールで届く', async ({ page }) => {
+test('いちばん狭いウィンドウ（幅480）でも、上部の操作は折り返してすべて見えていて、そのまま押せる', async ({
+  page,
+}) => {
   await boardWith(page, 1)
   await page.setViewportSize({ width: 480, height: 320 })
   const toolbar = page.locator('.board__toolbar')
   await page.screenshot({ path: 'test-results/board-toolbar-narrow.png' })
 
-  // 管理メニューの中の項目（閉じている間は見えない）は数えない
-  for (const control of await toolbar.locator('> button, > select, input').all()) {
-    await control.scrollIntoViewIfNeeded()
+  // 管理メニューの中の項目（閉じている間は見えない）は数えない。スクロールせずに、どれも画面の中にある
+  for (const control of await toolbar.locator('> button, > select, input, [role=status]').all()) {
     const box = (await control.boundingBox())!
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(480)
+    expect(box.y + box.height).toBeLessThanOrEqual(320)
   }
-  await page.getByRole('button', { name: '100%に戻す' }).scrollIntoViewIfNeeded()
-  await page.screenshot({ path: 'test-results/board-toolbar-narrow-end.png' })
-  // 隠れていた端の操作も、そのまま押せる
+  expect(await toolbar.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
   await page.getByRole('slider', { name: '不透明度' }).fill('30')
   await page.getByRole('button', { name: '100%に戻す' }).click()
   await expect(page.getByRole('slider', { name: '不透明度' })).toHaveValue('100')
+
+  // 初めの大きさ（幅1040。main.rs の show_board_window）では1段に収まる
+  await page.setViewportSize({ width: 1040, height: 640 })
+  await expect(page.getByRole('status')).toBeInViewport()
+  expect((await toolbar.boundingBox())!.height).toBeLessThan(48)
+  await page.screenshot({ path: 'test-results/board-toolbar-default.png' })
 })
