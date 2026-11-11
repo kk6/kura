@@ -268,6 +268,46 @@ fn 名前変更とゴミ箱とmissingと完全削除は同じ参照の状態に�
 }
 
 #[test]
+fn 開いたままのボードは外した配置の分も含めて元画像の今の状態を引ける() {
+    let (_dir, mut lib) = setup();
+    let kept = put(&lib, None, "kept.png", "残す");
+    let gone = put(&lib, None, "gone.png", "消す");
+    let s = session(&lib);
+    let ids: Vec<_> = sources(&lib, s, &[kept, gone])
+        .unwrap()
+        .iter()
+        .map(|s| s.id)
+        .collect();
+    let status = |lib: &Library| -> Vec<_> {
+        refresh(lib, s, &ids)
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.file_name, s.image_id.is_some(), s.status))
+            .collect()
+    };
+    lib.conn
+        .execute(
+            "UPDATE images SET file_name = 'renamed.png', deleted_at = 1 WHERE id = ?1",
+            [kept],
+        )
+        .unwrap();
+    crate::trash::forget(&mut lib, gone).unwrap();
+    assert_eq!(
+        status(&lib),
+        [
+            ("renamed.png".to_string(), true, SourceStatus::Trashed),
+            ("gone.png".to_string(), false, SourceStatus::Deleted),
+        ]
+    );
+    lib.conn
+        .execute("UPDATE images SET deleted_at = NULL WHERE id = ?1", [kept])
+        .unwrap();
+    assert_eq!(status(&lib)[0].2, SourceStatus::Available);
+    lib.board_session = Session::new();
+    assert!(refresh(&lib, s, &ids).is_err());
+}
+
+#[test]
 fn 完全削除後のid再利用と同じ内容の再取り込みと古いundoを結び直さない() {
     let (_dir, mut lib) = setup();
     let image = put(&lib, None, "before.png", "同じハッシュ");

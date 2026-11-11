@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
@@ -348,8 +349,30 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
     setMenuAt({ x: e.clientX, y: e.clientY })
   }
+  // ボードの「ギャラリーで表示」（FR-701）。絞り込みを外して画像を選び、見える所までスクロールする。
+  // ゴミ箱と見つからない画像は、その一覧を開いて選ぶ
+  const [revealed, setRevealed] = useState<{ id: number } | null>(null)
+  function revealImage(id: number) {
+    // 確認のダイアログは開いたときの選択を対象にする。その下で選択を変えない
+    if (document.querySelector('dialog[open]')) return
+    const next = trash.some((i) => i.id === id) ? 'trash' : missing.some((i) => i.id === id) ? 'missing' : null
+    if (!next && !data.images.some((i) => i.id === id)) {
+      setResult({ kind: 'error', message: '画像がギャラリーにありません。差分を確認してから、もう一度試してください' })
+      return
+    }
+    setMenuAt(null)
+    setZoom(false)
+    setAside(next)
+    if (!next) setFilter(NO_FILTER)
+    setSelection({ ids: new Set([id]), anchor: id })
+    setRevealed({ id })
+  }
+  const revealRef = useRef(revealImage)
+  revealRef.current = revealImage
   useEffect(() => {
     const unlisten = [
+      // このウィンドウ宛てのイベントは、ウィンドウの listen で受ける
+      getCurrentWindow().listen<number>('gallery-reveal', (e) => revealRef.current(e.payload)),
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
@@ -721,6 +744,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         onOpen={() => !aside && setZoom(true)}
         onContextMenu={openContextMenu}
         active={selection.anchor}
+        reveal={revealed}
         keys={!zoomed}
         onMove={moveTo}
       />

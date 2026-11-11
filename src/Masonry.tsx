@@ -18,6 +18,8 @@ type Props = {
   onContextMenu?: (id: number, e: MouseEvent) => void
   // 矢印キーで選択を動かす（NFR-12）。active は動かす元の画像。keys が false の間（拡大表示中など）は受けない
   active: number | null
+  // この画像が見える所までスクロールする。同じ画像でももう一度スクロールできるよう、毎回新しいオブジェクトで受ける
+  reveal: { id: number } | null
   keys: boolean
   onMove: (id: number) => void
 }
@@ -34,6 +36,7 @@ export default function Masonry({
   onContextMenu,
   onOpen,
   active,
+  reveal,
   keys,
   onMove,
 }: Props) {
@@ -65,6 +68,25 @@ export default function Masonry({
     () => (width ? layout(images, width - gap * 2, thumbWidth, gap) : undefined),
     [images, width, gap, thumbWidth],
   )
+
+  // 「ギャラリーで表示」の画像が見える所までスクロールする。選ぶと詳細パネルが開いて幅が変わり、並べ直しで
+  // 位置がずれるので、利用者が次に操作するまでは並べ直しのたびに合わせ直す
+  const following = useRef<{ id: number } | null>(null)
+  useEffect(() => {
+    following.current = reveal
+    if (!reveal) return
+    const stop = () => (following.current = null)
+    const inputs = ['pointerdown', 'keydown', 'wheel'] as const
+    inputs.forEach((type) => window.addEventListener(type, stop, true))
+    return () => inputs.forEach((type) => window.removeEventListener(type, stop, true))
+  }, [reveal])
+  // 上の「先頭に戻す」より後に流す。絞り込みを外すのと同時に頼まれると、一覧も同じ描画で変わるため
+  useEffect(() => {
+    const id = following.current?.id
+    const at = id === undefined ? -1 : images.findIndex((i) => i.id === id)
+    if (at < 0 || !l) return
+    ref.current!.scrollTop = Math.max(0, l.y[at] + gap - (height - l.h[at]) / 2)
+  }, [reveal, l, images, gap, height])
 
   useEffect(() => {
     if (!keys || !l) return
