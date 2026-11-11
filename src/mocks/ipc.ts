@@ -371,6 +371,7 @@ const DEFAULT_SETTINGS: Settings = {
   thumb_width: 200,
   tags_collapsed: false,
   board_enabled: true,
+  board_window: { always_on_top: false, opacity: 100, frame: null },
 }
 
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
@@ -581,9 +582,22 @@ const handlers: Record<string, Handler> = {
   list_recent_libraries: () => RECENT,
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
   // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない
+  // 本物と同じく、ボードのウィンドウの表示はギャラリーから送られた値で上書きしない
   save_settings: (args) => {
     if (sessionStorage.getItem('mock.failSettings')) throw '設定を保存できません（Permission denied）'
-    store('mock.settings', args?.settings)
+    const { board_window } = stored('mock.settings', DEFAULT_SETTINGS)
+    store('mock.settings', { ...(args?.settings as Settings), board_window })
+  },
+  // モックのウィンドウは最前面にも半透明にもならない。保存する値だけを本物に合わせる
+  set_board_display: (args) => {
+    if (sessionStorage.getItem('mock.failSettings')) throw '表示の設定を保存できません（Permission denied）'
+    const { alwaysOnTop, opacity } = args as { alwaysOnTop: boolean; opacity: number }
+    if (opacity < 30 || opacity > 100) throw '不透明度は30〜100%の範囲で指定してください'
+    const settings = stored('mock.settings', DEFAULT_SETTINGS)
+    store('mock.settings', {
+      ...settings,
+      board_window: { ...settings.board_window, always_on_top: alwaysOnTop, opacity },
+    })
   },
   location_warning: () => null,
   open_library: openLibrary,

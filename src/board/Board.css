@@ -5,15 +5,16 @@
   background: var(--color-board);
 }
 
-/* 狭いウィンドウでも操作が隠れないよう、収まらなければ横にスクロールする（docs/design.md） */
+/* 狭いウィンドウでも操作が隠れないよう、収まらなければ折り返して段を増やす（docs/design.md）。
+   横にスクロールさせると、初めの大きさでも右端の保存の状態が隠れ、スクロールバーがボタンに重なる */
 .board__toolbar {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  height: var(--size-board-toolbar);
-  padding: 0 var(--space-4);
-  overflow-x: auto;
+  gap: var(--space-1) var(--space-3);
+  min-height: var(--size-board-toolbar);
+  padding: var(--space-1) var(--space-4);
   border-bottom: var(--border);
   background: var(--color-surface);
 }
@@ -27,6 +28,37 @@
   border-radius: var(--radius-md);
   background: var(--color-input);
   font-weight: var(--font-weight-bold);
+}
+
+/* オンのトグルの見た目（docs/design.md「選択中のカテゴリ・オンのトグル」） */
+.board__pin[aria-pressed='true'] {
+  background: var(--color-selected);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 折り返す前に部品が縮んで、文字やアイコンが欠けないようにする */
+.board__toolbar > * {
+  flex: none;
+}
+
+.board__opacity .slider {
+  width: calc(var(--size-progress-bar) / 2);
+}
+
+.board__opacity {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+}
+
+/* 桁が変わっても隣の「100%に戻す」が動かないよう、4文字分の幅を取って右にそろえる */
+.board__percent {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .board__save {

@@ -10,6 +10,7 @@ import NameDialog from './NameDialog'
 import { defaultName } from './names'
 import { saveQueue, type SaveState } from './saveQueue'
 import { restack, type Restack } from './stack'
+import type { BoardDisplay, Settings } from '../galleryTypes'
 import type { Added, BoardSummary, Boards, Edit, EditingBoard, Geometry, Item, Snapshot, Viewport } from './types'
 import './Board.css'
 
@@ -21,6 +22,10 @@ type Moment = { items: Item[]; selected: Set<number> }
 
 // 表示の位置と倍率は、操作が止まってこれだけ経ったら保存する（FR-704）。ホイール1刻みごとには保存しない
 const VIEW_SETTLE = 300
+
+// 不透明度の範囲（FR-707）。src-tauri/src/settings.rs の OPACITY と同じ
+const OPACITY_MIN = 30
+const OPACITY_MAX = 100
 
 // アイデアボードの専用ウィンドウ。ギャラリーの画面とは別に、開くときに読み込む（FR-711）
 export default function BoardApp() {
@@ -81,6 +86,31 @@ export default function BoardApp() {
     held.current = true
     await queue.flush()
   })
+
+  // ウィンドウの表示（FR-705、FR-707）。Rust が保存してウィンドウに当て終えた値を applied に持ち、
+  // 失敗したら画面をそこへ戻す。スライダーを動かす間は続けて届くので、配置と同じく1つずつ送る
+  const [display, setDisplay] = useState<BoardDisplay>({ always_on_top: false, opacity: OPACITY_MAX })
+  const applied = useRef(display)
+  const displayQueue = useRef(
+    saveQueue<BoardDisplay>(
+      async (next) => {
+        await invoke('set_board_display', { alwaysOnTop: next.always_on_top, opacity: next.opacity })
+        applied.current = next
+        setError(null)
+      },
+      (state) => {
+        if (state.kind !== 'failed') return
+        displayQueue.clear()
+        setDisplay(applied.current)
+        setError(state.error)
+      },
+    ),
+  ).current
+  function changeDisplay(change: Partial<BoardDisplay>) {
+    const next = { ...display, ...change }
+    setDisplay(next)
+    displayQueue.push(next)
+  }
 
   const current = view.kind === 'board' ? view.board.board : null
   const latest = useRef(view)
@@ -206,6 +236,11 @@ export default function BoardApp() {
         setError(String(e))
         setView({ kind: 'choose' })
       })
+    // ウィンドウには Rust が開くときに当てている。ここでは操作部品に同じ値を出す
+    invoke<Settings>('load_settings').then(({ board_window: { always_on_top, opacity } }) => {
+      applied.current = { always_on_top, opacity }
+      setDisplay(applied.current)
+    })
     // 開いている間の追加。ボードが増えたかもしれないので一覧も読み直す
     const unlisten = [
       getCurrentWindow().listen('board-reveal', () => revealAfterAdd()),
@@ -426,6 +461,38 @@ export default function BoardApp() {
                 </button>
               </>
             )}
+            <button
+              type="button"
+              className="button board__pin"
+              aria-pressed={display.always_on_top}
+              onClick={() => changeDisplay({ always_on_top: !display.always_on_top })}
+            >
+              <Icon d={ICONS.pin} />
+              最前面に固定
+            </button>
+            <label className="board__opacity">
+              不透明度
+              <input
+                className="slider"
+                type="range"
+                min={OPACITY_MIN}
+                max={OPACITY_MAX}
+                value={display.opacity}
+                onChange={(e) => changeDisplay({ opacity: Number(e.target.value) })}
+              />
+              {/* 値はスライダーが読み上げる。output にすると role="status" が保存の状態と重なる */}
+              <span className="board__percent" aria-hidden="true">
+                {display.opacity}%
+              </span>
+            </label>
+            <button
+              type="button"
+              className="button"
+              disabled={display.opacity === OPACITY_MAX}
+              onClick={() => changeDisplay({ opacity: OPACITY_MAX })}
+            >
+              100%に戻す
+            </button>
             {current && save.kind !== 'failed' && (
               <span className="board__save" role="status">
                 {save.kind === 'saving' ? '保存中…' : '保存済み'}

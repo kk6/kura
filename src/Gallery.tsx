@@ -681,7 +681,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           </select>
         )}
         <input
-          className="gallery__size"
+          className="slider"
           type="range"
           aria-label="サムネイルの大きさ"
           min={THUMB_MIN}

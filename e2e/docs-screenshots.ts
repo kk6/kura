@@ -75,7 +75,7 @@ test('設定', async ({ page }) => {
 
 test('アイデアボード', async ({ page }) => {
   // 専用ウィンドウの初めの大きさで撮る
-  await page.setViewportSize({ width: 960, height: 640 })
+  await page.setViewportSize({ width: 1040, height: 640 })
   await page.addInitScript(() => {
     const board = (id: number, name: string) => ({ id, name, placement_count: 0, updated_at: id })
     sessionStorage.setItem(

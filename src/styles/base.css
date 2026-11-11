@@ -171,3 +171,29 @@ textarea[aria-invalid='true']:focus-visible {
   background: none;
   color: var(--color-text-faint);
 }
+
+/* ギャラリーのサムネイルの大きさと、ボードの不透明度で使う */
+.slider {
+  width: var(--size-progress-bar);
+  height: var(--size-control);
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+}
+
+/* OS の初期のつまみは丸く影が付くので、進み具合のバーと同じ細い溝と黒い四角にする（docs/design.md「スライダー」） */
+.slider::-webkit-slider-runnable-track {
+  height: var(--size-progress);
+  background: var(--color-line);
+}
+
+.slider::-webkit-slider-thumb {
+  width: var(--size-slider-thumb);
+  height: var(--size-slider-thumb);
+  margin-top: calc((var(--size-progress) - var(--size-slider-thumb)) / 2);
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-text);
+}
