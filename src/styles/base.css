@@ -149,6 +149,18 @@ textarea[aria-invalid='true']:focus-visible {
   text-align: left;
 }
 
+.menu__item svg {
+  margin-left: var(--space-3);
+  vertical-align: middle;
+}
+
+.menu__rule {
+  width: 100%;
+  margin: var(--space-1) 0;
+  border: none;
+  border-top: var(--border);
+}
+
 .menu__item:hover,
 .menu__item:focus-visible {
   background: var(--color-selected);

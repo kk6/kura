@@ -71,6 +71,7 @@
 .board__item {
   position: absolute;
   box-sizing: border-box;
+  overflow: hidden;
   background: var(--color-raise);
   cursor: default;
 }
@@ -87,7 +88,7 @@
   pointer-events: none;
 }
 
-.board__frame--group {
+.board__frame--outlined {
   border: var(--border);
   border-color: var(--color-text);
 }
@@ -128,6 +129,27 @@
   cursor: nwse-resize;
 }
 
+/* 切り抜く範囲を選んでいる間の案内。上に帯を足すとキャンバスの高さが変わり、画像が動いてしまうので、重ねて出す */
+.board__hint {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border);
+  background: var(--color-surface);
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+}
+
+/* 回転のハンドル。枠の上の辺の中央から、少し離して置く */
+.board__handle--rotate {
+  top: calc(var(--space-5) * -1);
+  left: 50%;
+  cursor: grab;
+}
+
 .board__marquee {
   position: absolute;
   box-sizing: border-box;
@@ -136,10 +158,10 @@
   pointer-events: none;
 }
 
+/* 切り抜いた配置では枠からはみ出すので、位置と大きさはキャンバスが決める */
 .board__image {
-  display: block;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  max-width: none;
 }
 
 .board__status {

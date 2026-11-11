@@ -1,14 +1,22 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useContextMenu } from '../contextMenu'
+import { Icon, ICONS } from '../icons'
 import {
   anchorOf,
+  angleOf,
   bounds,
+  centerOf,
+  cropOf,
   fitView,
   intersects,
+  pinned,
   resizeFactor,
   scaleAbout,
+  snap,
   toBoard,
+  turned,
+  visible,
   zoomAt,
   type Box,
   type Corner,
@@ -38,6 +46,21 @@ const RESTACKS: [Restack, string][] = [
   ['backward', '1つ後ろへ'],
   ['back', '最背面へ'],
 ]
+// 右クリックのメニューに出す、1枚ずつの加工（FR-706、FR-708）。checked があれば ON/OFF の項目。
+// to は変えた後の配置で、なければ切り抜く範囲を選び始める。見えている部分が動かないよう、反転と回転は pinned を通す
+const EDITS: {
+  label: string
+  checked?: (g: Geometry) => boolean
+  enabled?: (g: Geometry) => boolean
+  to?: (g: Geometry) => Geometry
+}[] = [
+  { label: '左右反転', checked: (g) => g.flipped, to: (g) => pinned(g, { ...g, flipped: !g.flipped }) },
+  { label: 'グレースケール', checked: (g) => g.grayscale, to: (g) => ({ ...g, grayscale: !g.grayscale }) },
+  { label: '右へ90度回転', to: (g) => turned(g, g.rotation + 90) },
+  { label: '回転をリセット', enabled: (g) => g.rotation !== 0, to: (g) => turned(g, 0) },
+  { label: 'トリミング' },
+  { label: 'トリミングを解除', enabled: (g) => g.crop !== null, to: (g) => ({ ...g, crop: null }) },
+]
 // 文字の入力、ボタン、ダイアログ、メニューの中。ここでのキーは配置に効かせない（NFR-12）
 const NOT_CANVAS = 'input, textarea, select, button, [contenteditable], dialog, [popover]'
 
@@ -47,6 +70,9 @@ type Gesture = { pointer: number; start: Point } & (
   | { kind: 'marquee'; to: Point; base: number[] }
   | { kind: 'pan'; from: Viewport }
   | { kind: 'resize'; corner: Corner; box: Box; factor: number }
+  // about は回す中心、from は押した所の向き。どちらもボード上で測る
+  | { kind: 'rotate'; about: Point; from: number; rotation: number }
+  | { kind: 'crop'; to: Point }
 )
 
 // WebKit がトラックパッドのピンチで出すイベント。標準の型にはない
@@ -97,6 +123,8 @@ export default function Canvas({
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [gesture, setGesture] = useState<Gesture | null>(null)
   const [space, setSpace] = useState(false)
+  // 切り抜く範囲を選んでいる配置。その間は元画像の全体を描き、ドラッグした四角を切り抜きにする（FR-708）
+  const [cropping, setCropping] = useState<number | null>(null)
   // ピンチのイベントに位置がないときに使う、最後のポインターの位置
   const pointer = useRef<Point | null>(null)
   const menu = useContextMenu()
@@ -159,8 +187,8 @@ export default function Canvas({
   }, [size, locked, onViewport])
 
   // キャンバスのキー操作。コールバックは描くたびに変わるので、登録し直さずに最新のものを呼ぶ
-  const keys = useRef({ board, selected, gesture, locked, onSelect, onRemove, onUndo, onRedo })
-  keys.current = { board, selected, gesture, locked, onSelect, onRemove, onUndo, onRedo }
+  const keys = useRef({ board, selected, gesture, cropping, locked, onSelect, onRemove, onUndo, onRedo })
+  keys.current = { board, selected, gesture, cropping, locked, onSelect, onRemove, onUndo, onRedo }
   useEffect(() => {
     const outside = (e: KeyboardEvent) =>
       (e.target instanceof Element && e.target.closest(NOT_CANVAS) !== null) ||
@@ -168,6 +196,7 @@ export default function Canvas({
     const down = (e: KeyboardEvent) => {
       if (outside(e)) return
       const k = keys.current
+      if (e.key === 'Escape' && k.cropping !== null && !k.gesture) return setCropping(null)
       const select = e.key === 'a' && e.metaKey && !e.shiftKey && !e.altKey
       // ⇧ を押していると、キーの文字は大文字で届くことがある
       const undo = e.key.toLowerCase() === 'z' && e.metaKey && !e.altKey
@@ -204,11 +233,19 @@ export default function Canvas({
     top: size.height / 2 + (y - viewport.y) * viewport.scale,
   })
 
-  // ドラッグ中の配置は、終えたときの位置と倍率で描く
   const chosen = board.items.filter((i) => selected.has(i.id))
+  // 反転・回転・グレースケール・トリミングは、1枚を選んだときだけ使える（FR-706、FR-708）
+  const one = chosen.length === 1 ? chosen[0] : null
+  // 選択が変わったら、範囲を選ぶのをやめる。取り消しや配置を外す操作で、選ぶ相手がなくなることがある
+  useEffect(() => {
+    if (cropping !== null && one?.id !== cropping) setCropping(null)
+  }, [cropping, one])
+
+  // ドラッグ中の配置は、終えたときの位置と倍率で描く。切り抜く範囲を選んでいる配置は、元画像の全体を描く
   function live(item: Item): Geometry {
-    const g = item.geometry
+    const g = item.id === cropping ? { ...item.geometry, crop: null } : item.geometry
     if (!gesture || !selected.has(item.id)) return g
+    if (gesture.kind === 'rotate') return turned(g, gesture.rotation)
     if (gesture.kind === 'move')
       return {
         ...g,
@@ -234,7 +271,15 @@ export default function Canvas({
       setGesture(g)
     }
     if (pan) return begin({ ...base, kind: 'pan', from: viewport })
+    // 範囲を選んでいる間は、どこから引いても切り抜きの四角になる。選択も移動もしない
+    if (cropping !== null) return begin({ ...base, kind: 'crop', to: base.start })
 
+    // Shift を押していても、ハンドルを押したときは選択を変えない。Shift は回転の15度刻みに使う
+    if (one && target.closest('[data-rotate]')) {
+      const about = centerOf(one.geometry)
+      const from = angleOf(about, toBoard(viewport, size, base.start))
+      return begin({ ...base, kind: 'rotate', about, from, rotation: one.geometry.rotation })
+    }
     const corner = target.closest<HTMLElement>('[data-corner]')?.dataset.corner as Corner | undefined
     const box = bounds(chosen.map((i) => i.geometry))
     if (corner && box) return begin({ ...base, kind: 'resize', corner, box, factor: 1 })
@@ -264,6 +309,9 @@ export default function Canvas({
     if (gesture.kind === 'pan') {
       const { from } = gesture
       onViewport(() => ({ ...from, x: from.x - dx / from.scale, y: from.y - dy / from.scale }))
+    } else if (gesture.kind === 'rotate') {
+      const to = one!.geometry.rotation + angleOf(gesture.about, toBoard(viewport, size, at)) - gesture.from
+      setGesture({ ...gesture, rotation: e.shiftKey ? snap(to) : to })
     } else if (gesture.kind === 'resize') {
       const longer = Math.max(gesture.box.right - gesture.box.left, gesture.box.bottom - gesture.box.top)
       const min = MIN_SIDE / (longer * viewport.scale)
@@ -292,25 +340,53 @@ export default function Canvas({
     if (gesture?.pointer !== e.pointerId) return
     setGesture(null)
     if (cancelled) return
+    if (gesture.kind === 'crop') {
+      // 引かずに離したら、切り抜きを変えずにやめる
+      setCropping(null)
+      const crop = gesture.to !== gesture.start && one ? cropTo(one, gesture.start, gesture.to) : null
+      if (crop) onGeometry(new Map([[one!.id, { ...one!.geometry, crop }]]))
+      return
+    }
     const changed =
-      (gesture.kind === 'move' && gesture.to !== gesture.start) || (gesture.kind === 'resize' && gesture.factor !== 1)
+      (gesture.kind === 'move' && gesture.to !== gesture.start) ||
+      (gesture.kind === 'resize' && gesture.factor !== 1) ||
+      (gesture.kind === 'rotate' && live(one!).rotation !== one!.geometry.rotation)
     if (changed) onGeometry(new Map(chosen.map((i) => [i.id, live(i)])))
     else if (gesture.kind === 'move' && gesture.collapse !== null) onSelect([gesture.collapse])
   }
+
+  // 画面の2点を対角にした四角を、配置の切り抜きに直す
+  const cropTo = (item: Item, a: Point, b: Point) =>
+    cropOf(live(item), toBoard(viewport, size, a), toBoard(viewport, size, b))
 
   function context(e: React.MouseEvent) {
     const hit = (e.target as Element).closest<HTMLElement>('[data-id]')
     if (!hit) return
     e.preventDefault()
-    if (gesture || locked()) return
+    if (gesture || locked() || cropping !== null) return
     // 右クリックした配置を選んでいなければ、その配置だけを選ぶ（ギャラリーと同じ）
     const id = Number(hit.dataset.id)
     if (!selected.has(id)) onSelect([id])
     menu.setAt({ x: e.clientX, y: e.clientY })
   }
 
-  const frame = bounds(chosen.map(live))
+  // 描く範囲を画面に置く。切り抜いていても枠（元画像の全体）の中心で回すので、回す中心を描く範囲の左上から測って渡す
+  function place(g: Geometry) {
+    const v = visible(g)
+    const k = viewport.scale
+    return {
+      ...toScreen(v.left, v.top),
+      width: (v.right - v.left) * k,
+      height: (v.bottom - v.top) * k,
+      transform: g.rotation ? `rotate(${g.rotation}deg)` : undefined,
+      transformOrigin: `${(g.x + (g.width * g.scale) / 2 - v.left) * k}px ${(g.y + (g.height * g.scale) / 2 - v.top) * k}px`,
+    }
+  }
+
+  const frame = cropping === null ? bounds(chosen.map(live)) : null
   const frameAt = frame && toScreen(frame.left, frame.top)
+  const preview =
+    gesture?.kind === 'crop' && gesture.to !== gesture.start && one ? cropTo(one, gesture.start, gesture.to) : null
   const classes = ['board__canvas']
   if (space || gesture?.kind === 'pan') classes.push('board__canvas--pan')
 
@@ -329,7 +405,7 @@ export default function Canvas({
         <div className="board__items">
           {board.items.map((item) => {
             const g = live(item)
-            const at = toScreen(g.x, g.y)
+            const v = visible(g)
             const path = item.source.image_id === null ? undefined : paths[item.source.image_id]
             const status = item.source.status === 'available' ? null : STATUS[item.source.status]
             return (
@@ -340,14 +416,7 @@ export default function Canvas({
                 aria-label={status ? `${item.source.file_name}（${status}）` : item.source.file_name}
                 aria-selected={selected.has(item.id)}
                 data-id={item.id}
-                style={{
-                  left: at.left,
-                  top: at.top,
-                  width: g.width * g.scale * viewport.scale,
-                  height: g.height * g.scale * viewport.scale,
-                  zIndex: g.stack_order,
-                  transform: g.rotation ? `rotate(${g.rotation}deg)` : undefined,
-                }}
+                style={{ ...place(g), zIndex: g.stack_order }}
               >
                 {status ? (
                   <span className="board__status">
@@ -362,6 +431,10 @@ export default function Canvas({
                       alt=""
                       draggable={false}
                       style={{
+                        left: (g.x - v.left) * viewport.scale,
+                        top: (g.y - v.top) * viewport.scale,
+                        width: g.width * g.scale * viewport.scale,
+                        height: g.height * g.scale * viewport.scale,
                         transform: g.flipped ? 'scaleX(-1)' : undefined,
                         filter: g.grayscale ? 'grayscale(1)' : undefined,
                       }}
@@ -374,7 +447,12 @@ export default function Canvas({
         </div>
         {frame && frameAt && (
           <div
-            className={chosen.length > 1 ? 'board__frame board__frame--group' : 'board__frame'}
+            // 複数を選んだときと、1枚でも回して外枠が画像の辺から離れたときは、枠の線を引く
+            className={
+              chosen.length > 1 || chosen[0].geometry.rotation % 90 || gesture?.kind === 'rotate'
+                ? 'board__frame board__frame--outlined'
+                : 'board__frame'
+            }
             style={{
               ...frameAt,
               width: (frame.right - frame.left) * viewport.scale,
@@ -384,8 +462,11 @@ export default function Canvas({
             {CORNERS.map((c) => (
               <span key={c} className={`board__handle board__handle--${c}`} data-corner={c} />
             ))}
+            {one && <span className="board__handle board__handle--rotate" data-rotate title="回転" />}
           </div>
         )}
+        {preview && one && <div className="board__marquee" style={place({ ...live(one), crop: preview })} />}
+        {cropping !== null && <p className="board__hint">切り抜く範囲をドラッグしてください。Esc でやめます</p>}
         {gesture?.kind === 'marquee' && gesture.to !== gesture.start && (
           <div
             className="board__marquee"
@@ -416,6 +497,31 @@ export default function Canvas({
               {label}
             </button>
           ))}
+          <hr className="menu__rule" />
+          {/* 1枚を選んだときだけ押せる。複数の画像への一括の加工はしない */}
+          {EDITS.map(({ label, checked, enabled, to }) => {
+            const on = checked ? one !== null && checked(one.geometry) : undefined
+            return (
+              <button
+                key={label}
+                type="button"
+                role={checked ? 'menuitemcheckbox' : 'menuitem'}
+                aria-checked={on}
+                className="menu__item"
+                disabled={!one || enabled?.(one.geometry) === false}
+                onClick={() => {
+                  menu.setAt(null)
+                  if (!one) return
+                  // 変えた配置を、移動や拡大・縮小と同じ道で渡す。保存と取り消しに、そのまま乗る
+                  if (to) onGeometry(new Map([[one.id, to(one.geometry)]]))
+                  else setCropping(one.id)
+                }}
+              >
+                {label}
+                {on && <Icon d={ICONS.check} />}
+              </button>
+            )
+          })}
         </div>
       )}
     </>

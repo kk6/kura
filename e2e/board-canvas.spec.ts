@@ -93,7 +93,7 @@ test('四隅のハンドルで、1枚でも複数でも縦横比と相互の位�
 
   // 複数。左上を外へ引くと、右下を基準に同じ倍率で大きくなる
   await items.nth(1).click({ modifiers: ['Shift'] })
-  await expect(canvas.locator('.board__frame--group')).toBeVisible()
+  await expect(canvas.locator('.board__frame--outlined')).toBeVisible()
   const nw = center(await box(canvas.locator('.board__handle--nw')))
   await drag(page, nw, { x: nw.x - 40, y: nw.y - 40 })
   await expect.poll(async () => (await stored(page)).items[1].geometry.scale).toBeGreaterThan(single[1].geometry.scale)
