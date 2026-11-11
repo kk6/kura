@@ -482,31 +482,6 @@ body.is-dragging * {
   background: var(--color-surface);
 }
 
-.gallery__size {
-  width: var(--size-progress-bar);
-  height: var(--size-control);
-  margin: 0;
-  -webkit-appearance: none;
-  appearance: none;
-  background: none;
-}
-
-/* OS の初期のつまみは丸く影が付くので、進み具合のバーと同じ細い溝と黒い四角にする（docs/design.md「スライダー」） */
-.gallery__size::-webkit-slider-runnable-track {
-  height: var(--size-progress);
-  background: var(--color-line);
-}
-
-.gallery__size::-webkit-slider-thumb {
-  width: var(--size-slider-thumb);
-  height: var(--size-slider-thumb);
-  margin-top: calc((var(--size-progress) - var(--size-slider-thumb)) / 2);
-  -webkit-appearance: none;
-  appearance: none;
-  border-radius: var(--radius-sm);
-  background: var(--color-text);
-}
-
 /* WebKit の初期の消すボタンは塗りつぶしの丸なので、線の × に替える。動きは初期のまま */
 .gallery__search::-webkit-search-cancel-button {
   width: var(--size-icon);

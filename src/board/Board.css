@@ -29,6 +29,28 @@
   font-weight: var(--font-weight-bold);
 }
 
+/* オンのトグルの見た目（docs/design.md「選択中のカテゴリ・オンのトグル」） */
+.board__pin[aria-pressed='true'] {
+  background: var(--color-selected);
+  font-weight: var(--font-weight-bold);
+}
+
+.board__opacity {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+}
+
+/* 桁が変わっても隣の「100%に戻す」が動かないよう、4文字分の幅を取って右にそろえる */
+.board__percent {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .board__save {
   flex: none;
   margin-left: auto;

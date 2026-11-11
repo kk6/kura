@@ -18,10 +18,11 @@ use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use library::{Access, Library};
+use objc2_app_kit::NSWindow;
 use serde::Serialize;
 use tauri::{
-    AppHandle, Emitter, Manager, Runtime, State, WebviewUrl, WebviewWindowBuilder, Window,
-    WindowEvent,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, State, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, Window, WindowEvent,
 };
 
 /// アイデアボードの専用ウィンドウのラベル。同時に開くのは1つだけ（FR-701）
@@ -201,6 +202,8 @@ fn quit_then(app: &AppHandle, done: impl FnOnce(&AppHandle, bool) + Send + 'stat
     tauri::async_runtime::spawn(async move {
         let ok = settle(&app, &[BOARD, "main"]).await.is_ok();
         if ok {
+            // 終了ではボードのウィンドウの Destroyed が届くとは限らないので、ここでも枠を保存する
+            remember_board_frame(&app);
             log::info!("保存を終えたので終了します");
         }
         done(&app, ok);
@@ -242,14 +245,158 @@ async fn show_board_window(app: AppHandle) -> Result<(), String> {
             .and_then(|_| w.set_focus())
             .map_err(|e| e.to_string());
     }
-    WebviewWindowBuilder::new(&app, BOARD, WebviewUrl::App("index.html".into()))
-        .title("アイデアボード")
-        .inner_size(960.0, 640.0)
-        .min_inner_size(480.0, 320.0)
-        .center()
-        .build()
-        .map(|_| ())
-        .map_err(|e| format!("アイデアボードを開けません（{e}）"))
+    // ウィンドウは閉じるたびに破棄するので、開くたびに設定から最前面・不透明度・枠を当てる（FR-705、FR-707）
+    let display = settings_file(&app)
+        .map(|file| settings::load(&file).board_window)
+        .unwrap_or_default();
+    let open = || {
+        // 枠と不透明度を当て終えてから見せる。先に見せると、前の位置に不透明なまま一瞬出る
+        let w = WebviewWindowBuilder::new(&app, BOARD, WebviewUrl::App("index.html".into()))
+            .title("アイデアボード")
+            .inner_size(960.0, 640.0)
+            .min_inner_size(480.0, 320.0)
+            .always_on_top(display.always_on_top)
+            .visible(false)
+            .build()?;
+        if let Err(e) = place_board(&app, &w, display.frame) {
+            log::warn!("アイデアボードの位置と大きさを戻せません：{e}");
+        }
+        set_alpha(&w, display.alpha())?;
+        w.show()?;
+        w.set_focus()
+    };
+    open().map_err(|e| format!("アイデアボードを開けません（{e}）"))
+}
+
+/// 今つながっている画面の、Dock とメニューバーを除いた範囲。メイン画面のあるディスプレイを先頭にする
+fn screens(app: &AppHandle) -> tauri::Result<Vec<settings::Rect>> {
+    let rect = |m: &tauri::Monitor| {
+        let scale = m.scale_factor();
+        let area = m.work_area();
+        let position = area.position.to_logical::<f64>(scale);
+        let size = area.size.to_logical::<f64>(scale);
+        settings::Rect {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+        }
+    };
+    let mut all: Vec<_> = app.available_monitors()?.iter().map(rect).collect();
+    let home = app
+        .get_webview_window("main")
+        .and_then(|w| w.current_monitor().ok().flatten())
+        .and_then(|m| all.iter().position(|r| *r == rect(&m)));
+    if let Some(home) = home {
+        all.swap(0, home);
+    }
+    Ok(all)
+}
+
+/// タイトルバーを含むウィンドウの枠。settings::Rect と同じ単位にする
+fn frame_of(w: &Window) -> tauri::Result<settings::Rect> {
+    let scale = w.scale_factor()?;
+    let position = w.outer_position()?.to_logical::<f64>(scale);
+    let size = w.outer_size()?.to_logical::<f64>(scale);
+    Ok(settings::Rect {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+    })
+}
+
+/// 保存した枠を今の画面の中に収めてから当てる。初回はメイン画面のあるディスプレイの中央（FR-705）
+fn place_board(
+    app: &AppHandle,
+    w: &WebviewWindow,
+    saved: Option<settings::Rect>,
+) -> tauri::Result<()> {
+    let outer = frame_of(&w.as_ref().window())?;
+    let Some(placed) = settings::place(saved, (outer.width, outer.height), &screens(app)?) else {
+        return Ok(());
+    };
+    // set_size は中身の大きさを取るので、タイトルバーの分を引く
+    let inner = w.inner_size()?.to_logical::<f64>(w.scale_factor()?);
+    w.set_size(LogicalSize::new(
+        placed.width - (outer.width - inner.width),
+        placed.height - (outer.height - inner.height),
+    ))?;
+    w.set_position(LogicalPosition::new(placed.x, placed.y))
+}
+
+/// ウィンドウ全体（タイトルバーを含む）の不透明度を変える（FR-707）。Tauri には全体に効く設定がないので
+/// NSWindow に直接渡す（spikes/board-native で確かめた方法）。クリックを背後へ通す設定には触れない
+fn set_alpha(w: &WebviewWindow, alpha: f64) -> tauri::Result<()> {
+    let window = w.clone();
+    w.run_on_main_thread(move || match window.ns_window() {
+        // SAFETY: NSWindow は Tauri が持つ。メインスレッドのこの場だけで使い、ポインターを外へ持ち出さない
+        Ok(ns) => unsafe { &*ns.cast::<NSWindow>() }.setAlphaValue(alpha),
+        Err(e) => log::warn!("アイデアボードの不透明度を変えられません：{e}"),
+    })
+}
+
+/// 動かしたり大きさを変えたりした後の、ボードのウィンドウの枠。設定のファイルには、動かすたびではなく
+/// 閉じるときと終了のときに書く
+#[derive(Default)]
+struct BoardFrame(Mutex<Option<settings::Rect>>);
+
+fn track_board_frame(w: &Window) {
+    // 開く途中（見せる前）の枠と、最小化・フルスクリーンの間の枠は、次に開く枠にしない
+    let usual = w.is_visible().unwrap_or(false)
+        && !w.is_minimized().unwrap_or(true)
+        && !w.is_fullscreen().unwrap_or(true);
+    if !usual {
+        return;
+    }
+    if let Ok(frame) = frame_of(w) {
+        *w.state::<BoardFrame>()
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(frame);
+    }
+}
+
+fn remember_board_frame(app: &AppHandle) {
+    let frame = *app
+        .state::<BoardFrame>()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let Some(frame) = frame else { return };
+    let saved = settings_file(app).and_then(|file| {
+        settings::update(&file, |s| s.board_window.frame = Some(frame)).map_err(|e| e.to_string())
+    });
+    // 保存できなくても閉じる。失うのは次に開く位置だけで、ボードの中身ではない
+    if let Err(e) = saved {
+        log::warn!("アイデアボードの位置と大きさを保存できません：{e}");
+    }
+}
+
+/// 最前面に固定するかと不透明度を変える（FR-705、FR-707）。設定に保存できてからウィンドウに当てる。
+/// 保存できなければ当てずにエラーを返し、画面は前の値に戻る
+#[tauri::command]
+fn set_board_display(
+    app: AppHandle,
+    window: WebviewWindow,
+    always_on_top: bool,
+    opacity: u8,
+) -> Result<(), String> {
+    if window.label() != BOARD {
+        return Err("アイデアボードのウィンドウからだけ変えられます".into());
+    }
+    if !settings::OPACITY.contains(&opacity) {
+        return Err("不透明度は30〜100%の範囲で指定してください".into());
+    }
+    settings::update(&settings_file(&app)?, |s| {
+        s.board_window.always_on_top = always_on_top;
+        s.board_window.opacity = opacity;
+    })
+    .map_err(|e| format!("表示の設定を保存できません（{e}）"))?;
+    window
+        .set_always_on_top(always_on_top)
+        .and_then(|_| set_alpha(&window, f64::from(opacity) / 100.0))
+        .map_err(|e| format!("表示を変えられません（{e}）"))
 }
 
 /// ボードの一覧と、以後のボードの操作に添えるライブラリのトークン
@@ -674,7 +821,13 @@ fn main() {
                     quit(window.app_handle());
                 }
             }
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) if window.label() == BOARD => {
+                track_board_frame(window);
+            }
             WindowEvent::Destroyed => {
+                if window.label() == BOARD {
+                    remember_board_frame(window.app_handle());
+                }
                 window.state::<settle::Settle>().gone(window.label());
                 if window.label() == "main" {
                     window.app_handle().exit(0);
@@ -685,6 +838,7 @@ fn main() {
         .manage(Current::default())
         .manage(Reveal::default())
         .manage(settle::Settle::default())
+        .manage(BoardFrame::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
             load_settings,
@@ -721,6 +875,7 @@ fn main() {
             forget_images,
             backup_library,
             show_board_window,
+            set_board_display,
             list_boards,
             open_board,
             create_board,
