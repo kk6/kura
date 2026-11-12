@@ -1,3 +1,4 @@
+mod backfill;
 pub mod board;
 mod category;
 mod fileops;
@@ -95,6 +96,20 @@ fn list_recent_libraries(app: AppHandle) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+/// 最近使ったライブラリのうち、フォルダが見つからないもの（FR-106）。外付けドライブの応答を待つことが
+/// あるので、画面のスレッドを止めないよう async にする
+#[tauri::command]
+async fn missing_recent_libraries(app: AppHandle) -> Vec<PathBuf> {
+    recent::missing(&list_recent_libraries(app))
+}
+
+/// 最近使ったライブラリの一覧から外す。ライブラリのフォルダと DB は変えない（FR-106）
+#[tauri::command]
+fn forget_recent_library(app: AppHandle, path: PathBuf) -> Result<Vec<PathBuf>, String> {
+    recent::remove(&recent_file(&app)?, &path)
+        .map_err(|e| format!("最近使ったライブラリの一覧を保存できません（{e}）"))
+}
+
 #[tauri::command]
 fn load_settings(app: AppHandle) -> settings::Settings {
     // list_recent_libraries と同じく、失敗は壊れた設定のファイルと同じく初期値として扱う
@@ -180,9 +195,16 @@ fn flush_done(window: Window, settle: State<settle::Settle>, id: u64, error: Opt
     settle.reply(window.label(), id, error.map_or(Ok(()), Err));
 }
 
-/// ボードの保存を待ってから閉じる。ライブラリ選択画面へ戻るときにギャラリーが呼ぶ（FR-105）
+/// 元URLの補完の終了か中断を待ってから、ボードの保存を待って閉じる。ライブラリ選択画面へ戻るときに
+/// ギャラリーが呼ぶ（FR-105、FR-208）
 #[tauri::command]
 async fn close_board_window(app: AppHandle) -> Result<(), String> {
+    let gate = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        drop(gate.state::<backfill::Gate>().inner().wait())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     let _held = settle(&app, &[BOARD]).await?;
     close_board(&app);
     Ok(())
@@ -747,6 +769,7 @@ fn load_missing(current: State<Current>) -> Result<Vec<gallery::Image>, String> 
 #[tauri::command]
 async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _wait = app.state::<backfill::Gate>().inner().wait();
         let current = app.state::<Current>();
         let r = sync::scan(&current.0, |done, total| {
             if let Err(e) = app.emit("scan-progress", ImportProgress { done, total }) {
@@ -785,14 +808,44 @@ async fn forget_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Done, Str
     with_library(app, move |lib| sync::forget(lib, &ids)).await
 }
 
+/// 開いているライブラリの元URLを、ライブラリ内のファイルのダウンロード元の記録から補完する（FR-208）。
+/// 進み具合を backfill-progress イベントでギャラリーに知らせる。1枚ごとにロックを外すので、その間も
+/// 閲覧・検索・ボードの編集はできる
+#[tauri::command]
+async fn backfill_sources(app: AppHandle) -> Result<backfill::Counts, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = app
+            .state::<backfill::Gate>()
+            .run(&app.state::<Current>().0, |c| {
+                if let Err(e) = app.emit_to("main", "backfill-progress", c) {
+                    log::warn!("元URLの補完の進み具合を送れません：{e}");
+                }
+            })?;
+        log::info!("元URLを補完しました：{c:?}");
+        Ok(c)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 元URLの補完を、今の画像を調べ終えたところで止める。保存済みの元URLは残る（FR-208）
+#[tauri::command]
+fn cancel_backfill(gate: State<backfill::Gate>) {
+    gate.cancel();
+}
+
 async fn with_library<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&mut Library) -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     let handle = app.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || app.state::<Current>().0.with(f))
-        .await
-        .map_err(|e| e.to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        // 元URLの補完の途中なら、終わるか中断するまで待つ（FR-208）
+        let _wait = app.state::<backfill::Gate>().inner().wait();
+        app.state::<Current>().0.with(f)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     // ファイルを動かす操作はここを通る。一部だけ成功した失敗もあるので、結果によらず知らせる
     notify_board(&handle);
     result
@@ -812,6 +865,7 @@ async fn import_paths(
     category: Option<i64>,
 ) -> Result<import::Report, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _wait = app.state::<backfill::Gate>().inner().wait();
         let current = app.state::<Current>();
         let report = import::import_paths(&current.0, &paths, category, |done, total| {
             if let Err(e) = app.emit("import-progress", ImportProgress { done, total }) {
@@ -890,8 +944,11 @@ fn main() {
         .manage(Reveal::default())
         .manage(settle::Settle::default())
         .manage(BoardFrame::default())
+        .manage(backfill::Gate::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
+            missing_recent_libraries,
+            forget_recent_library,
             load_settings,
             save_settings,
             location_warning,
@@ -926,6 +983,8 @@ fn main() {
             scan_library,
             forget_images,
             backup_library,
+            backfill_sources,
+            cancel_backfill,
             show_board_window,
             set_board_display,
             list_boards,

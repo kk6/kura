@@ -20,6 +20,19 @@ pub fn push(file: &Path, library: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(list)
 }
 
+/// 見つからないライブラリを一覧から外す（FR-106）。フォルダには触れない
+pub fn remove(file: &Path, library: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut list = load(file);
+    list.retain(|p| p != library);
+    crate::settings::write_json(file, &list)?;
+    Ok(list)
+}
+
+/// 一覧のうち、フォルダが見つからないもの。開くとき（library::open）と同じ判定にする
+pub fn missing(list: &[PathBuf]) -> Vec<PathBuf> {
+    list.iter().filter(|p| !p.is_dir()).cloned().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,5 +89,31 @@ mod tests {
         assert!(load(&file).is_empty());
         push(&file, Path::new("/a")).unwrap();
         assert_eq!(load(&file), [PathBuf::from("/a")]);
+    }
+
+    #[test]
+    fn 一覧から外すと履歴だけが変わりフォルダは残る() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("recent.json");
+        let library = dir.path().join("ライブラリ");
+        fs::create_dir(&library).unwrap();
+        push(&file, &library).unwrap();
+        push(&file, Path::new("/Volumes/外したドライブ/ライブラリ")).unwrap();
+
+        let list = remove(&file, Path::new("/Volumes/外したドライブ/ライブラリ")).unwrap();
+
+        assert_eq!(list, [library.clone()]);
+        assert_eq!(load(&file), [library.clone()]);
+        assert!(library.is_dir());
+        // 開き直せば一覧に戻る
+        push(&file, Path::new("/Volumes/外したドライブ/ライブラリ")).unwrap();
+        assert_eq!(load(&file).len(), 2);
+    }
+
+    #[test]
+    fn フォルダがないライブラリだけを見つからないとする() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = PathBuf::from("/Volumes/外したドライブ/ライブラリ");
+        assert_eq!(missing(&[dir.path().to_path_buf(), gone.clone()]), [gone]);
     }
 }
