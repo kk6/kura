@@ -95,6 +95,7 @@ export default function Canvas({
   onUndo,
   onRedo,
   onRestack,
+  onReveal,
 }: {
   board: Board
   // 画像 ID から元画像のパス。読み込むまでは枠だけを出す
@@ -118,6 +119,8 @@ export default function Canvas({
   onRedo: () => void
   // 選んだ配置の重なり順を変える
   onRestack: (to: Restack) => void
+  // 元画像をギャラリーで選んで見せる。渡すのは画像 ID
+  onReveal: (imageId: number) => void
 }) {
   const ref = useRef<HTMLElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -236,10 +239,13 @@ export default function Canvas({
   const chosen = board.items.filter((i) => selected.has(i.id))
   // 反転・回転・グレースケール・トリミングは、1枚を選んだときだけ使える（FR-706、FR-708）
   const one = chosen.length === 1 ? chosen[0] : null
+  // 元画像を出せない枠（ゴミ箱・見つからない・削除された画像）では加工させない。結果を見て確かめられないため。
+  // 動かす・大きさを変える・重なり順を変える・外すは枠でもできる。復元されたら、前の加工のまま出る
+  const editable = one?.source.status === 'available' ? one : null
   // 選択が変わったら、範囲を選ぶのをやめる。取り消しや配置を外す操作で、選ぶ相手がなくなることがある
   useEffect(() => {
-    if (cropping !== null && one?.id !== cropping) setCropping(null)
-  }, [cropping, one])
+    if (cropping !== null && editable?.id !== cropping) setCropping(null)
+  }, [cropping, editable])
 
   // ドラッグ中の配置は、終えたときの位置と倍率で描く。切り抜く範囲を選んでいる配置は、元画像の全体を描く
   function live(item: Item): Geometry {
@@ -275,10 +281,10 @@ export default function Canvas({
     if (cropping !== null) return begin({ ...base, kind: 'crop', to: base.start })
 
     // Shift を押していても、ハンドルを押したときは選択を変えない。Shift は回転の15度刻みに使う
-    if (one && target.closest('[data-rotate]')) {
-      const about = centerOf(one.geometry)
+    if (editable && target.closest('[data-rotate]')) {
+      const about = centerOf(editable.geometry)
       const from = angleOf(about, toBoard(viewport, size, base.start))
-      return begin({ ...base, kind: 'rotate', about, from, rotation: one.geometry.rotation })
+      return begin({ ...base, kind: 'rotate', about, from, rotation: editable.geometry.rotation })
     }
     const corner = target.closest<HTMLElement>('[data-corner]')?.dataset.corner as Corner | undefined
     const box = bounds(chosen.map((i) => i.geometry))
@@ -462,7 +468,7 @@ export default function Canvas({
             {CORNERS.map((c) => (
               <span key={c} className={`board__handle board__handle--${c}`} data-corner={c} />
             ))}
-            {one && <span className="board__handle board__handle--rotate" data-rotate title="回転" />}
+            {editable && <span className="board__handle board__handle--rotate" data-rotate title="回転" />}
           </div>
         )}
         {preview && one && <div className="board__marquee" style={place({ ...live(one), crop: preview })} />}
@@ -500,7 +506,7 @@ export default function Canvas({
           <hr className="menu__rule" />
           {/* 1枚を選んだときだけ押せる。複数の画像への一括の加工はしない */}
           {EDITS.map(({ label, checked, enabled, to }) => {
-            const on = checked ? one !== null && checked(one.geometry) : undefined
+            const on = checked ? editable !== null && checked(editable.geometry) : undefined
             return (
               <button
                 key={label}
@@ -508,13 +514,13 @@ export default function Canvas({
                 role={checked ? 'menuitemcheckbox' : 'menuitem'}
                 aria-checked={on}
                 className="menu__item"
-                disabled={!one || enabled?.(one.geometry) === false}
+                disabled={!editable || enabled?.(editable.geometry) === false}
                 onClick={() => {
                   menu.setAt(null)
-                  if (!one) return
+                  if (!editable) return
                   // 変えた配置を、移動や拡大・縮小と同じ道で渡す。保存と取り消しに、そのまま乗る
-                  if (to) onGeometry(new Map([[one.id, to(one.geometry)]]))
-                  else setCropping(one.id)
+                  if (to) onGeometry(new Map([[editable.id, to(editable.geometry)]]))
+                  else setCropping(editable.id)
                 }}
               >
                 {label}
@@ -522,6 +528,20 @@ export default function Canvas({
               </button>
             )
           })}
+          <hr className="menu__rule" />
+          {/* ゴミ箱と見つからない画像は、ギャラリーのその一覧で選ぶ。完全に削除された画像は行き先がない（FR-701） */}
+          <button
+            type="button"
+            role="menuitem"
+            className="menu__item"
+            disabled={!one || one.source.image_id === null}
+            onClick={() => {
+              menu.setAt(null)
+              if (one && one.source.image_id !== null) onReveal(one.source.image_id)
+            }}
+          >
+            ギャラリーで表示
+          </button>
         </div>
       )}
     </>

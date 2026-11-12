@@ -6,7 +6,7 @@ export type TauriWindow = { __TAURI_INTERNALS__: { invoke(cmd: string, args?: un
 export type Geometry = { x: number; y: number; width: number; height: number; scale: number; stack_order: number }
 export type Stored = {
   viewport?: { x: number; y: number; scale: number }
-  items: { id: number; source: { image_id: number }; geometry: Geometry }[]
+  items: { id: number; source: { image_id: number; file_name: string }; geometry: Geometry }[]
 }
 type Point = { x: number; y: number }
 

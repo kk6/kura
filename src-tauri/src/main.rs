@@ -504,6 +504,37 @@ async fn add_to_board(
 }
 
 #[tauri::command]
+fn board_sources(
+    current: State<Current>,
+    session: board::LibrarySession,
+    ids: Vec<board::SourceId>,
+) -> Result<Vec<board::Source>, String> {
+    current.0.with(|lib| board::refresh(lib, session, &ids))
+}
+
+/// 元画像の状態か場所が変わったかもしれないことを、開いているボードに知らせる（FR-104、FR-511）。
+/// ボードが board_sources で引き直す。閉じていれば届かなくてよい
+fn notify_board(app: &AppHandle) {
+    if let Err(e) = app.emit_to(BOARD, "images-changed", ()) {
+        log::warn!("ボードに画像の変更を知らせられません：{e}");
+    }
+}
+
+/// ボードの「ギャラリーで表示」。メインウィンドウを手前に出し、画像を選ぶのはギャラリーの画面に任せる（FR-701）。
+/// ボードのウィンドウは開いたままにする
+#[tauri::command]
+fn show_in_gallery(app: AppHandle, id: i64) -> Result<(), String> {
+    let w = app
+        .get_webview_window("main")
+        .ok_or("ギャラリーのウィンドウがありません")?;
+    w.unminimize()
+        .and_then(|_| w.show())
+        .and_then(|_| w.set_focus())
+        .and_then(|_| app.emit_to("main", "gallery-reveal", id))
+        .map_err(|e| format!("ギャラリーで表示できません（{e}）"))
+}
+
+#[tauri::command]
 fn take_board_reveal(reveal: State<Reveal>) -> Option<board::Added> {
     reveal
         .0
@@ -716,6 +747,7 @@ async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
             r.missing,
             r.skipped.len()
         );
+        notify_board(&app);
         Ok(r)
     })
     .await
@@ -743,9 +775,13 @@ async fn with_library<T: Send + 'static>(
     app: AppHandle,
     f: impl FnOnce(&mut Library) -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(move || app.state::<Current>().0.with(f))
+    let handle = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || app.state::<Current>().0.with(f))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    // ファイルを動かす操作はここを通る。一部だけ成功した失敗もあるので、結果によらず知らせる
+    notify_board(&handle);
+    result
 }
 
 #[derive(Clone, Serialize)]
@@ -885,6 +921,8 @@ fn main() {
             save_board,
             add_to_board,
             take_board_reveal,
+            board_sources,
+            show_in_gallery,
             flush_ready,
             flush_done,
             close_board_window

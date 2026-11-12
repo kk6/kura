@@ -640,6 +640,14 @@ const handlers: Record<string, Handler> = {
   save_board: saveBoard,
   add_to_board: addToBoard,
   take_board_reveal: takeBoardReveal,
+  // 元画像の状態は、e2e が sessionStorage の配置の source を書き換えて変える
+  board_sources: (args) => {
+    checkSession(args)
+    const all = boardStore().boards.flatMap((b) => [...(b.items ?? []), ...(b.removed ?? [])].map((i) => i.source))
+    return (args?.ids as number[]).map((id) => all.find((s) => s.id === id))
+  },
+  // e2e が確かめられるように、頼まれた画像をコンソールに出す。モックではウィンドウは手前に出ない
+  show_in_gallery: (args) => console.info(`gallery: ${args?.id}`),
   show_board_window: showBoardWindow,
   // 本物では Rust がボードの保存を待ってから閉じる。モックには閉じるウィンドウがない
   close_board_window: () => null,

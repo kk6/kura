@@ -374,6 +374,17 @@ pub fn sources(
         .collect()
 }
 
+/// 開いたままのボードが、ギャラリーでの削除・復元・名前変更の後に元画像の今の状態を引く（FR-104、FR-511）。
+/// 編集は終わらせない。取り消しの履歴にある外した配置の分も引けるよう、ボードではなく参照 ID で受ける
+pub fn refresh(
+    lib: &Library,
+    expected: LibrarySession,
+    ids: &[SourceId],
+) -> Result<Vec<Source>, String> {
+    check_session(lib, expected)?;
+    ids.iter().map(|id| source(&lib.conn, *id)).collect()
+}
+
 fn available(source: &Source) -> Result<(), String> {
     if source.status != SourceStatus::Available {
         return Err("ゴミ箱・見つからない・削除された画像はボードに追加できません".into());

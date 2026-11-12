@@ -11,7 +11,18 @@ import { defaultName } from './names'
 import { saveQueue, type SaveState } from './saveQueue'
 import { restack, type Restack } from './stack'
 import type { BoardDisplay, Settings } from '../galleryTypes'
-import type { Added, BoardSummary, Boards, Edit, EditingBoard, Geometry, Item, Snapshot, Viewport } from './types'
+import type {
+  Added,
+  BoardSummary,
+  Boards,
+  Edit,
+  EditingBoard,
+  Geometry,
+  Item,
+  Snapshot,
+  Source,
+  Viewport,
+} from './types'
 import './Board.css'
 
 // 開いたボード。ボードがなければ「ボードを作成」、最後のボードが削除済みなら選択画面（FR-701）
@@ -26,6 +37,24 @@ const VIEW_SETTLE = 300
 // 不透明度の範囲（FR-707）。src-tauri/src/settings.rs の OPACITY と同じ
 const OPACITY_MIN = 30
 const OPACITY_MAX = 100
+
+// 画像を出す配置の画像 ID。ゴミ箱・見つからない・削除された画像は枠だけなので含めない
+const shownImages = (items: Item[]) => [
+  ...new Set(items.filter((i) => i.source.status === 'available').map((i) => i.source.image_id!)),
+]
+
+// 画像 ID から元画像のパス。読めなかった画像は空のパスにする
+const locate = async (ids: number[]): Promise<Record<number, string>> =>
+  Object.fromEntries(
+    await Promise.all(
+      ids.map((id) =>
+        invoke<{ path: string }>('image_detail', { id }).then(
+          (d) => [id, d.path] as const,
+          () => [id, ''] as const,
+        ),
+      ),
+    ),
+  )
 
 // アイデアボードの専用ウィンドウ。ギャラリーの画面とは別に、開くときに読み込む（FR-711）
 export default function BoardApp() {
@@ -246,6 +275,8 @@ export default function BoardApp() {
       getCurrentWindow().listen('board-reveal', () => revealAfterAdd()),
       // Rust の保存待ちが終わった（遷移を中止した、または追加し終えた）。ギャラリー宛ての release では戻さない
       getCurrentWindow().listen('release', () => (held.current = false)),
+      // ギャラリーで画像を削除・復元・移動した、または差分検出が終わった
+      getCurrentWindow().listen('images-changed', () => refreshRef.current().catch((e) => setError(String(e)))),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
     // 開いたときに1度だけ読む
@@ -256,19 +287,37 @@ export default function BoardApp() {
   // 元画像のパスは Rust が DB から組み立てる。ゴミ箱・見つからない・削除された画像は枠だけを出す。
   // 読めなかった画像も空のパスとして覚え、読み直しを繰り返さない
   useEffect(() => {
-    const ids = [
-      ...new Set((items ?? []).filter((i) => i.source.status === 'available').map((i) => i.source.image_id!)),
-    ].filter((id) => !(id in paths))
-    if (!ids.length) return
-    Promise.all(
-      ids.map((id) =>
-        invoke<{ path: string }>('image_detail', { id }).then(
-          (d) => [id, d.path] as const,
-          () => [id, ''] as const,
-        ),
-      ),
-    ).then((found) => setPaths((p) => ({ ...p, ...Object.fromEntries(found) })))
+    const ids = shownImages(items ?? []).filter((id) => !(id in paths))
+    if (ids.length) locate(ids).then((found) => setPaths((p) => ({ ...p, ...found })))
   }, [items, paths])
+
+  // ギャラリーでの削除・復元・移動・名前変更を、開いているボードに反映する（FR-104、FR-511）。
+  // 元画像の状態は利用者の編集ではないので、apply を通さず履歴にも載せない。取り消しで前の状態の画像を
+  // 出さないよう、履歴の中の配置も今の状態にする。配置そのものは変えないので保存もしない
+  async function refresh() {
+    const v = latest.current
+    if (v.kind !== 'board') return
+    const moments = [...history.current.past, ...history.current.future]
+    const ids = [...new Set([v.board.board.items, ...moments.map((m) => m.items)].flat().map((i) => i.source.id))]
+    if (!ids.length) return
+    const found = await invoke<Source[]>('board_sources', { session: v.board.edit.library_session, ids })
+    const sources = new Map(found.map((s) => [s.id, s]))
+    const renew = (items: Item[]) => items.map((i) => ({ ...i, source: sources.get(i.source.id) ?? i.source }))
+    // 移動や名前変更で場所が変わるので、パスも引き直す。枠と同時に替えて、前の場所を読みに行かせない
+    const located = await locate(shownImages(renew(v.board.board.items)))
+    // 待つ間に積まれた操作にも当てるので、履歴はここで読み直す
+    const { past, future } = history.current
+    const renewAll = (list: Moment[]) => list.map((m) => ({ ...m, items: renew(m.items) }))
+    history.current = { past: renewAll(past), future: renewAll(future) }
+    setView((now) =>
+      now.kind === 'board' && now.board.board.id === v.board.board.id
+        ? { kind: 'board', board: { ...now.board, board: { ...now.board.board, items: renew(now.board.board.items) } } }
+        : now,
+    )
+    setPaths((p) => ({ ...p, ...located }))
+  }
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
 
   // 配置を画面に出して保存する（FR-704）。保存中も失敗しても、変えた状態のまま見せる
   function put({ edit, board }: EditingBoard, items: Item[]) {
@@ -528,6 +577,7 @@ export default function BoardApp() {
               onUndo={() => travel('past')}
               onRedo={() => travel('future')}
               onRestack={reorder}
+              onReveal={(id) => invoke('show_in_gallery', { id }).catch((e) => setError(String(e)))}
             />
           ) : (
             <main className="board__choose" aria-label="ボードを選ぶ">
