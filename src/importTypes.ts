@@ -11,6 +11,20 @@ export type Report = { added: number; moved: number; skipped: Skipped[]; source_
 
 export type ImportProgress = { done: number; total: number }
 
+// src-tauri/src/backfill.rs の Counts（元URLの補完 FR-208）。done は調べ終えた画像の数
+export type BackfillCounts = {
+  total: number
+  done: number
+  filled: number
+  none: number
+  failed: number
+  excluded: number
+  cancelled: boolean
+}
+
+// 元URLの補完の状態。running の間の counts は進み具合で、始めた直後（対象を数える前）は null
+export type Backfill = { running: boolean; counts: BackfillCounts | null; error: string | null }
+
 // src-tauri/src/sync.rs の Report（scan_library コマンドの返り値。差分検出 FR-104）
 export type ScanReport = {
   added: number

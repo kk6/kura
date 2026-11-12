@@ -389,6 +389,22 @@ const scanLibrary: Handler = async () => {
   return structuredClone(SCAN)
 }
 
+// 元URLの補完（FR-208）。本物と同じく1枚ごとに進み具合を送り、e2e で中断できるよう少しずつ待つ
+let backfillCancelled = false
+const backfillSources: Handler = async () => {
+  backfillCancelled = false
+  const c = { total: 6, done: 0, filled: 0, none: 0, failed: 0, excluded: 1994, cancelled: false }
+  await emit('backfill-progress', { ...c })
+  for (const kind of ['filled', 'filled', 'none', 'failed', 'filled', 'none'] as const) {
+    await new Promise((r) => setTimeout(r, 300))
+    if (backfillCancelled) return { ...c, cancelled: true }
+    c[kind]++
+    c.done++
+    await emit('backfill-progress', { ...c })
+  }
+  return c
+}
+
 const forgetImages: Handler = (args) => {
   const ids = new Set(args?.ids as number[])
   const done = MISSING.filter((i) => ids.has(i.id)).map((i) => i.id)
@@ -666,6 +682,10 @@ const handlers: Record<string, Handler> = {
   scan_library: scanLibrary,
   forget_images: forgetImages,
   backup_library: () => null,
+  backfill_sources: backfillSources,
+  cancel_backfill: () => {
+    backfillCancelled = true
+  },
   list_boards: listBoards,
   open_board: openBoard,
   create_board: createBoard,

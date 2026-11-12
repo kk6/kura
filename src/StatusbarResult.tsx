@@ -1,5 +1,5 @@
 import Status from './Status'
-import type { ImportProgress, Report, ScanReport, Skipped, SourceNote } from './importTypes'
+import type { BackfillCounts, ImportProgress, Report, ScanReport, Skipped, SourceNote } from './importTypes'
 
 // ステータスバーに出す一括操作の結果
 export type Failed = { file_name: string; message: string }[]
@@ -17,6 +17,8 @@ export type Result =
   | { kind: 'restored'; count: number; uncategorized: number; failed: Failed }
 
 type Props = {
+  // 元URLの補完（FR-208）の途中なら、その進み具合。補完の間は取り込みと差分検出が待つので、こちらを先に出す
+  backfill: { counts: BackfillCounts | null } | null
   // 差分検出と取り込みの進み具合。どちらかがあれば、結果ではなく進み具合を出す
   scanning: ImportProgress | null
   progress: ImportProgress | null
@@ -36,7 +38,16 @@ export default function StatusbarResult(props: Props) {
   )
 }
 
-function Content({ scanning, progress, result, onShowFailed, onShowMissing, onShowNotes }: Props) {
+function Content({ backfill, scanning, progress, result, onShowFailed, onShowMissing, onShowNotes }: Props) {
+  if (backfill) {
+    const c = backfill.counts
+    return (
+      <>
+        {c ? `元URLを補完中 ${c.done} / ${c.total}枚` : '元URLを補完する画像を確認中…'}
+        <Progress label="元URLを補完する進み具合" value={c ?? { done: 0, total: 0 }} />
+      </>
+    )
+  }
   const now = scanning ?? progress
   if (now) {
     return (
@@ -172,7 +183,7 @@ function scanSummary(r: ScanReport) {
 }
 
 // 数え終わるまで（total が0の間）は、バーを空のまま出す
-const Progress = ({ label, value }: { label: string; value: ImportProgress }) => (
+export const Progress = ({ label, value }: { label: string; value: ImportProgress }) => (
   <span
     className="progress"
     role="progressbar"

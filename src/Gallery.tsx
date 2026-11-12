@@ -32,7 +32,7 @@ import type {
   Settings,
   Tag,
 } from './galleryTypes'
-import type { ImportProgress, Report, ScanReport } from './importTypes'
+import type { Backfill, BackfillCounts, ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
@@ -96,6 +96,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const inMissing = aside === 'missing'
   // 差分検出の進み具合。total が0の間は、中身を読むファイルを数えている
   const [scanning, setScanning] = useState<ImportProgress | null>(null)
+  // 元URLの補完（FR-208）。終わった後も、設定を開き直したときに結果を出すため残す
+  const [backfill, setBackfill] = useState<Backfill | null>(null)
+  // 補完を終えた回数。補完した元URLを詳細パネルに出すため、詳細を読み直す
+  const [backfilled, setBackfilled] = useState(0)
 
   const thumbWidth = Math.min(THUMB_MAX, Math.max(THUMB_MIN, settings.thumb_width))
   function changeSettings(next: Partial<Settings>) {
@@ -207,7 +211,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     return () => {
       current = false
     }
-  }, [only, place])
+  }, [only, place, backfilled])
 
   // 拡大表示（FR-508）。左右キーか左右の端のボタンで、今の並び順の前後の画像に移る
   const zoomed = zoom ? selectedImage : null
@@ -289,6 +293,18 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   }
   const startRef = useRef(start)
   startRef.current = start
+
+  // 補完の間、取り込み・差分検出・ファイルを動かす操作・ライブラリ切り替えは Rust 側で補完の終了か中断を待つ
+  async function startBackfill() {
+    setBackfill({ running: true, counts: null, error: null })
+    try {
+      const counts = await invoke<BackfillCounts>('backfill_sources')
+      setBackfill({ running: false, counts, error: null })
+    } catch (e) {
+      setBackfill((b) => ({ running: false, counts: b?.counts ?? null, error: String(e) }))
+    }
+    setBackfilled((n) => n + 1)
+  }
 
   // 取り込みと差分検出の途中では戻らない。どちらも開いているライブラリを1枚ずつ読み書きするため
   function leave(path?: string) {
@@ -374,6 +390,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     const unlisten = [
       // このウィンドウ宛てのイベントは、ウィンドウの listen で受ける
       getCurrentWindow().listen<number>('gallery-reveal', (e) => revealRef.current(e.payload)),
+      // 終わった後に届いた進み具合で、結果を戻さない
+      getCurrentWindow().listen<BackfillCounts>('backfill-progress', (e) =>
+        setBackfill((b) => (b?.running ? { ...b, counts: e.payload } : b)),
+      ),
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
@@ -844,6 +864,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <StatusbarResult
+          backfill={backfill?.running ? backfill : null}
           scanning={scanning}
           progress={progress}
           result={result}
@@ -871,6 +892,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           root={root}
           settings={settings}
           onSettings={changeSettings}
+          backfill={backfill}
+          busy={!!(scanning || progress)}
+          onBackfill={startBackfill}
+          onCancelBackfill={() => invoke('cancel_backfill')}
           onClose={() => setSettingsOpen(false)}
         />
       )}
