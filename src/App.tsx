@@ -33,6 +33,15 @@ export default function App() {
     setRecent(await invoke<string[]>('list_recent_libraries'))
   }
 
+  // 履歴から外すだけで、フォルダは変えない（FR-106）。保存できなければ選択画面にエラーを出す
+  async function forgetLibrary(path: string) {
+    try {
+      setRecent(await invoke<string[]>('forget_recent_library', { path }))
+    } catch (e) {
+      setScreen({ kind: 'select', error: String(e) })
+    }
+  }
+
   // 起動時は前回のライブラリを開く。見つからなければ選択画面にその旨を出す（NFR-13）
   useEffect(() => {
     invoke<Settings>('load_settings').then(setSettings)
@@ -56,5 +65,5 @@ export default function App() {
         onSwitch={(path) => (path ? openLibrary('open_library', path) : setScreen({ kind: 'select' }))}
       />
     )
-  return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} />
+  return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} onForget={forgetLibrary} />
 }

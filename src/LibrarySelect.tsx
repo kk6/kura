@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { ask, open } from '@tauri-apps/plugin-dialog'
+import { useEffect, useState } from 'react'
 import Status from './Status'
 import './LibrarySelect.css'
 
@@ -9,11 +10,23 @@ type Props = {
   recent: string[]
   error?: string
   onOpen: (command: OpenCommand, path: string) => void
+  // 最近使ったライブラリの一覧から外す。フォルダは変えない（FR-106）
+  onForget: (path: string) => void
 }
 
 const folderName = (path: string) => path.split('/').filter(Boolean).pop() ?? path
 
-export default function LibrarySelect({ recent, error, onOpen }: Props) {
+export default function LibrarySelect({ recent, error, onOpen, onForget }: Props) {
+  // フォルダが見つからないライブラリ。外付けドライブが外れているだけのこともあるので、自動では外さない
+  const [missing, setMissing] = useState<string[]>([])
+  useEffect(() => {
+    let current = true
+    invoke<string[]>('missing_recent_libraries').then((m) => current && setMissing(m))
+    return () => {
+      current = false
+    }
+  }, [recent])
+
   async function pick(command: OpenCommand) {
     const title = command === 'create_library' ? '空のフォルダを選ぶ' : 'ライブラリのフォルダを選ぶ'
     const path = await open({ directory: true, canCreateDirectories: true, title })
@@ -56,11 +69,22 @@ export default function LibrarySelect({ recent, error, onOpen }: Props) {
         {recent.length ? (
           <ul className="select__recent">
             {recent.map((path) => (
-              <li key={path}>
+              <li key={path} className="select__row">
                 <button type="button" className="select__item" onClick={() => onOpen('open_library', path)}>
                   <span className="select__name">{folderName(path)}</span>
                   <span className="select__path">{path}</span>
+                  {missing.includes(path) && <span className="select__missing">見つかりません</span>}
                 </button>
+                {missing.includes(path) && (
+                  <button
+                    type="button"
+                    className="button select__forget"
+                    aria-label={`${folderName(path)}を一覧から外す`}
+                    onClick={() => onForget(path)}
+                  >
+                    一覧から外す
+                  </button>
+                )}
               </li>
             ))}
           </ul>

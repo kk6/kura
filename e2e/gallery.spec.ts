@@ -11,7 +11,7 @@ test('起動時に前回のライブラリが見つからなければ、選択�
   await expect(screen.getByRole('alert')).toHaveText(
     'エラー：ライブラリが見つかりません（/Volumes/外付けSSD/参考資料）',
   )
-  await expect(screen.getByRole('button', { name: /参考資料/ })).toBeVisible()
+  await expect(screen.getByRole('button', { name: /^参考資料 / })).toBeVisible()
   await expect(screen.getByRole('button', { name: /Kura ライブラリ/ })).toBeVisible()
   expect(errors).toEqual([])
 
@@ -20,9 +20,23 @@ test('起動時に前回のライブラリが見つからなければ、選択�
 
 test('見つからないライブラリを一覧から開いても、選択画面のまま見つからないと出す', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: /参考資料/ }).click()
+  await page.getByRole('button', { name: /^参考資料 / }).click()
   await expect(page.getByRole('alert')).toContainText('見つかりません')
   await expect(page.getByRole('banner')).toHaveCount(0)
+})
+
+test('見つからないライブラリだけに「一覧から外す」を出し、押すと確認なしで一覧から消える', async ({ page }) => {
+  await page.goto('/')
+  const screen = page.getByRole('main', { name: 'ライブラリ選択' })
+  await expect(screen.getByRole('button', { name: /^参考資料 .*見つかりません/ })).toBeVisible()
+  await expect(screen.getByRole('button', { name: /一覧から外す/ })).toHaveCount(1)
+  await page.screenshot({ path: 'test-results/library-forget.png' })
+
+  await screen.getByRole('button', { name: '参考資料を一覧から外す' }).click()
+
+  await expect(screen.getByRole('button', { name: /^参考資料 / })).toHaveCount(0)
+  await expect(screen.getByRole('button', { name: /Kura ライブラリ/ })).toBeVisible()
+  await expect(screen.getByRole('dialog')).toHaveCount(0)
 })
 
 test('ライブラリを新しく作るとギャラリー画面を出す', async ({ page }) => {

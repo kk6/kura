@@ -628,7 +628,12 @@ const setCollapsed: Handler = (args) => {
 
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
 const handlers: Record<string, Handler> = {
-  list_recent_libraries: () => RECENT,
+  list_recent_libraries: () => [...RECENT],
+  missing_recent_libraries: () => RECENT.filter((path) => path.startsWith('/Volumes/')),
+  forget_recent_library: (args) => {
+    RECENT.splice(RECENT.indexOf(String(args?.path)), 1)
+    return [...RECENT]
+  },
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
   // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない
   // 本物と同じく、ボードのウィンドウの表示はギャラリーから送られた値で上書きしない

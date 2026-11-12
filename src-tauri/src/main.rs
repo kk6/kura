@@ -96,6 +96,20 @@ fn list_recent_libraries(app: AppHandle) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+/// 最近使ったライブラリのうち、フォルダが見つからないもの（FR-106）。外付けドライブの応答を待つことが
+/// あるので、画面のスレッドを止めないよう async にする
+#[tauri::command]
+async fn missing_recent_libraries(app: AppHandle) -> Vec<PathBuf> {
+    recent::missing(&list_recent_libraries(app))
+}
+
+/// 最近使ったライブラリの一覧から外す。ライブラリのフォルダと DB は変えない（FR-106）
+#[tauri::command]
+fn forget_recent_library(app: AppHandle, path: PathBuf) -> Result<Vec<PathBuf>, String> {
+    recent::remove(&recent_file(&app)?, &path)
+        .map_err(|e| format!("最近使ったライブラリの一覧を保存できません（{e}）"))
+}
+
 #[tauri::command]
 fn load_settings(app: AppHandle) -> settings::Settings {
     // list_recent_libraries と同じく、失敗は壊れた設定のファイルと同じく初期値として扱う
@@ -933,6 +947,8 @@ fn main() {
         .manage(backfill::Gate::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
+            missing_recent_libraries,
+            forget_recent_library,
             load_settings,
             save_settings,
             location_warning,
