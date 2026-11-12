@@ -311,6 +311,40 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   expect(errors).toEqual([])
 })
 
+test('詳細パネルの元URLはリンクになり、押すと既定のブラウザへ渡し、開けない値はリンクにしない（FR-208）', async ({
+  page,
+}) => {
+  const opened: string[] = []
+  page.on('console', (m) => m.text().startsWith('browser: ') && opened.push(m.text()))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  // 掲載ページURLを優先して出し、押すと確認なしで開く
+  await thumb(page, 1).click()
+  await detail.getByRole('link', { name: 'https://example.com/gallery/pose' }).click()
+  await expect.poll(() => opened).toEqual(['browser: https://example.com/gallery/pose'])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  // 掲載ページURLがなければ画像URLを出す。開けなかったら、詳細パネルにエラーを出す
+  await thumb(page, 3).click()
+  await detail.getByRole('link', { name: 'https://example.com/images/ref_00003.jpg' }).click()
+  await expect(detail).toContainText('エラー：ブラウザで開けません（exit status: 1）')
+  await page.screenshot({ path: 'test-results/detail-source-url.png' })
+
+  // 別の画像へ移ったら、前の画像のエラーを残さない。HTTP・HTTPS 以外の値は文字として出すだけにする
+  await thumb(page, 4).click()
+  await expect(detail).toContainText('元URLftp://example.com/images/ref_00004.jpg')
+  await expect(detail).not.toContainText('ブラウザで開けません')
+  await expect(detail.getByRole('link')).toHaveCount(0)
+
+  // 元URLがなければ「なし」
+  await thumb(page, 2).click()
+  await expect(detail).toContainText('元URLなし')
+  await expect(detail.getByRole('link')).toHaveCount(0)
+  expect(opened).toHaveLength(1)
+})
+
 test('詳細パネルは滑り出てから外れ、滑り出る間はフォーカスを受けない。動きを減らす設定ではすぐ切り替える', async ({
   page,
 }) => {

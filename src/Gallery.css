@@ -599,6 +599,19 @@ body.is-dragging * {
   overflow-wrap: anywhere;
 }
 
+/* 元URL（FR-208）。ボタンの見た目を消して、下線付きのリンクにする */
+.detail__link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
 .detail__memo {
   display: block;
   width: 100%;

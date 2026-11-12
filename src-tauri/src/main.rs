@@ -602,6 +602,19 @@ fn show_in_finder(current: State<Current>, id: Option<i64>) -> Result<(), String
     }
 }
 
+/// 画像の元URLを既定のブラウザで開く（FR-208）。画面からは URL を受け取らず、DB の値を確かめ直して渡す。
+/// HTTP と HTTPS 以外を開かせないため
+#[tauri::command]
+fn open_source_url(current: State<Current>, id: i64) -> Result<(), String> {
+    let url = current.0.with(|lib| {
+        gallery::detail(lib, id)?
+            .source
+            .and_then(|s| s.link)
+            .ok_or("開けるURLがありません".into())
+    })?;
+    source::open("open", &url)
+}
+
 #[tauri::command]
 fn set_memo(current: State<Current>, id: i64, memo: String) -> Result<(), String> {
     current.0.with(|lib| gallery::set_memo(lib, id, &memo))
@@ -888,6 +901,7 @@ fn main() {
             load_gallery,
             image_detail,
             show_in_finder,
+            open_source_url,
             set_memo,
             set_rating,
             set_category,

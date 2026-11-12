@@ -162,6 +162,18 @@ pub fn save(conn: &Connection, image_id: i64, source: &Source) -> Result<(), Str
     Ok(())
 }
 
+/// url を program（アプリでは open）に渡して、既定のブラウザで開く。url は link が返した値だけを渡す
+pub fn open(program: &str, url: &str) -> Result<(), String> {
+    let status = std::process::Command::new(program)
+        .arg(url)
+        .status()
+        .map_err(|e| e.to_string())?;
+    match status.success() {
+        true => Ok(()),
+        false => Err(status.to_string()),
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs;
@@ -366,5 +378,13 @@ pub(crate) mod tests {
         assert_eq!(link(None, Some(PAGE)).as_deref(), Some(PAGE));
         assert_eq!(link(Some("javascript:alert(1)"), Some("壊れた値")), None);
         assert_eq!(link(None, None), None);
+    }
+
+    #[test]
+    fn 開くプログラムが失敗したらエラーを返す() {
+        // ブラウザを開かないよう、何もしないコマンドに差し替える
+        assert_eq!(open("/usr/bin/true", PAGE), Ok(()));
+        assert!(open("/usr/bin/false", PAGE).is_err());
+        assert!(open("/存在しない/open", PAGE).is_err());
     }
 }

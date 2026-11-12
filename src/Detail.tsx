@@ -144,6 +144,24 @@ function FileName({ image, onRename }: { image: Image; onRename: Props['onRename
 }
 
 // メモ（FR-411）。入力欄から離れたときと、閉じる・終了・切り替えの前に保存する
+// 元URLを既定のブラウザで開くリンク（FR-208）。URL は渡さず、Rust が DB の値を確かめ直して開く。
+// a 要素にしない。WebKit の右クリックメニューの「リンクを開く」で、アプリのウィンドウが外のページへ移ってしまうため
+function SourceLink({ id, url }: { id: number; url: string }) {
+  const [error, setError] = useState<string | null>(null)
+  const open = () => {
+    setError(null)
+    invoke('open_source_url', { id }).catch((e) => setError(String(e)))
+  }
+  return (
+    <>
+      <button type="button" role="link" className="detail__link" onClick={open}>
+        {url}
+      </button>
+      {error && <Status kind="error">ブラウザで開けません（{error}）</Status>}
+    </>
+  )
+}
+
 function Memo({ id, initial, onSaved }: { id: number; initial: string; onSaved: (memo: string) => void }) {
   const [saved, setSaved] = useState(initial)
   const [error, setError] = useState<string | null>(null)
@@ -275,8 +293,15 @@ export default function Detail(props: Props) {
           <dl className="detail__fields">
             {classify}
             <dt>元URL</dt>
-            {/* shortcut: 文字として出すだけで、ブラウザでは開けない。ダウンロード元の記録（FR-208、フェーズ2）で元URLが入るようになったら開けるようにする */}
-            <dd className="detail__url">{detail && (detail.source?.page_url ?? detail.source?.image_url ?? 'なし')}</dd>
+            {/* 開けない値（HTTP・HTTPS 以外など）はリンクにせず、文字として出す */}
+            <dd className="detail__url">
+              {detail &&
+                (detail.source?.link ? (
+                  <SourceLink key={image.id} id={image.id} url={detail.source.link} />
+                ) : (
+                  (detail.source?.page_url ?? detail.source?.image_url ?? 'なし')
+                ))}
+            </dd>
             <dt>
               <label htmlFor="detail-memo">メモ</label>
             </dt>
