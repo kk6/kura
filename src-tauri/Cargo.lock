@@ -1828,6 +1828,7 @@ dependencies = [
  "log",
  "objc2",
  "objc2-app-kit",
+ "plist",
  "rusqlite",
  "serde",
  "serde_json",

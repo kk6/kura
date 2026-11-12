@@ -11,6 +11,7 @@ use crate::category::{self, Failed, SUBTREE};
 use crate::fileops::{self, nfc};
 use crate::import::{self, millis, Reason, Skipped};
 use crate::library::{self, err, Access, Library, UNCATEGORIZED_DIR};
+use crate::source::{self, Note};
 use crate::trash::{self, Done};
 
 /// 差分検出（FR-104）の結果
@@ -29,6 +30,8 @@ pub struct Report {
     pub categories_added: usize,
     pub categories_removed: usize,
     pub skipped: Vec<Skipped>,
+    /// 登録できたが、ダウンロード元の記録を全部は保存できなかった画像（FR-208）
+    pub source_notes: Vec<Note>,
 }
 
 /// ライブラリの中にあったファイル。dir と name は NFC にそろえたライブラリからの相対パス
@@ -414,13 +417,23 @@ fn apply(
             }
             let r = import::render(root, &bytes, format, &hash, &f.path)?;
             // 取り込み日時は、ローカルから取り込んだ画像と同じく元ファイルの更新日時。
-            // ロックを外していた間に同じ画像が取り込まれていれば、hash の一意制約で失敗してエラーとして知らせる
+            // ロックを外していた間に同じ画像が取り込まれていれば、hash の一意制約で失敗してエラーとして知らせる。
+            // 元URL（FR-208）はライブラリの中のこのファイルから読み、画像の行と一緒に保存する
+            let read = source::read(&f.path);
             lib.with(|l| {
-                import::insert(
-                    &l.conn, &f.name, &hash, &r, f.size, f.mtime, category, f.mtime,
-                )
+                let tx = l.conn.transaction().map_err(err)?;
+                let id =
+                    import::insert(&tx, &f.name, &hash, &r, f.size, f.mtime, category, f.mtime)?;
+                if let Some(s) = &read.source {
+                    source::save(&tx, id, s)?;
+                }
+                tx.commit().map_err(err)
             })?;
             report.added += 1;
+            report.source_notes.extend(read.note.map(|message| Note {
+                path: f.path.clone(),
+                message,
+            }));
         }
     }
     Ok(())
@@ -1110,5 +1123,85 @@ mod tests {
         assert_eq!(count(&lib, "image_tags"), 0);
         assert!(!thumb(&lib, &h).exists());
         assert!(lib.root.join("_未分類/b.png").is_file());
+    }
+
+    fn sources(lib: &Library) -> Vec<(String, Option<String>, Option<String>)> {
+        lib.conn
+            .prepare(
+                "SELECT file_name, image_url, page_url FROM image_sources
+                 JOIN images ON images.id = image_id ORDER BY file_name",
+            )
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    fn where_from(lib: &Library, rel: &str, items: &[&str]) {
+        crate::source::tests::set(&lib.root.join(rel), &crate::source::tests::binary(items));
+    }
+
+    #[test]
+    fn finderで置いた画像のダウンロード元の記録を元urlとして保存し不正な記録は注意に出す() {
+        let (_d, mut lib) = setup();
+        png(&lib, "_未分類/a.png", 10);
+        png(&lib, "_未分類/b.png", 20);
+        png(&lib, "_未分類/c.png", 30);
+        where_from(
+            &lib,
+            "_未分類/a.png",
+            &["https://img.example.com/a.png", "https://example.com/page"],
+        );
+        where_from(&lib, "_未分類/b.png", &["壊れた記録", "ftp://example.com/"]);
+
+        let r = scan(&mut lib).unwrap();
+
+        assert_eq!((r.added, r.skipped.len()), (3, 0));
+        assert_eq!(
+            sources(&lib),
+            [(
+                "a.png".into(),
+                Some("https://img.example.com/a.png".into()),
+                Some("https://example.com/page".into())
+            )]
+        );
+        let noted: Vec<_> = r.source_notes.iter().map(|n| n.path.clone()).collect();
+        assert_eq!(noted, [lib.root.join("_未分類/b.png")]);
+    }
+
+    #[test]
+    fn 重複や移動として扱ったファイルの記録では既存の画像の元urlを変えない() {
+        let (_d, mut lib) = setup();
+        png(&lib, "_未分類/a.png", 10);
+        png(&lib, "_未分類/b.png", 20);
+        where_from(&lib, "_未分類/a.png", &["https://example.com/first"]);
+        scan(&mut lib).unwrap();
+        // a と同じ中身のファイルを別の記録で置き、b は別の記録を付けてから移す
+        fs::create_dir(lib.root.join("ポーズ")).unwrap();
+        fs::copy(
+            lib.root.join("_未分類/a.png"),
+            lib.root.join("ポーズ/a2.png"),
+        )
+        .unwrap();
+        where_from(&lib, "ポーズ/a2.png", &["https://example.com/second"]);
+        where_from(&lib, "_未分類/b.png", &["https://example.com/second"]);
+        fs::rename(
+            lib.root.join("_未分類/b.png"),
+            lib.root.join("ポーズ/b.png"),
+        )
+        .unwrap();
+
+        let r = scan(&mut lib).unwrap();
+
+        assert_eq!((r.added, r.moved, r.skipped.len()), (0, 1, 1));
+        assert_eq!(
+            sources(&lib),
+            [(
+                "a.png".into(),
+                Some("https://example.com/first".into()),
+                None
+            )]
+        );
     }
 }
