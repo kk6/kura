@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react'
-import Status from './Status'
+import Status, { type StatusKind } from './Status'
 import './SkipDialog.css'
 
-// カテゴリを変えたときやゴミ箱の操作で移せなかった画像の一覧（FR-407、FR-511）。見た目は取り込みのスキップの一覧に合わせる
+// カテゴリを変えたときやゴミ箱の操作で移せなかった画像の一覧（FR-407、FR-511）。見た目は取り込みのスキップの一覧に合わせる。
+// 元URLの注意（FR-208）の一覧にも使い、そのときは kind を warning にする
 export default function MoveFailDialog({
   title = '移せなかった画像',
+  kind = 'error',
   failed,
   onClose,
 }: {
   title?: string
+  kind?: StatusKind
   failed: { file_name: string; message: string }[]
   onClose: () => void
 }) {
@@ -24,7 +27,7 @@ export default function MoveFailDialog({
         {failed.map((f, i) => (
           <li key={i} className="skip__item">
             <span className="skip__name">{f.file_name}</span>
-            <Status kind="error">{f.message}</Status>
+            <Status kind={kind}>{f.message}</Status>
           </li>
         ))}
       </ul>

@@ -140,8 +140,10 @@ fn images(lib: &Library, filter: &str) -> Result<Vec<Image>, String> {
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct Source {
-    pub image_url: String,
+    pub image_url: Option<String>,
     pub page_url: Option<String>,
+    /// ブラウザで開ける URL。有効な掲載ページURLを優先し、なければ画像URL。どちらも開けない値なら None
+    pub link: Option<String>,
 }
 
 /// 詳細パネル（FR-507）に出すもののうち、一覧の Image に含めていないもの
@@ -170,9 +172,12 @@ pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
             "SELECT image_url, page_url FROM image_sources WHERE image_id = ?1",
             [id],
             |r| {
+                let (image_url, page_url): (Option<String>, Option<String>) =
+                    (r.get(0)?, r.get(1)?);
                 Ok(Source {
-                    image_url: r.get(0)?,
-                    page_url: r.get(1)?,
+                    link: crate::source::link(image_url.as_deref(), page_url.as_deref()),
+                    image_url,
+                    page_url,
                 })
             },
         )
@@ -318,11 +323,30 @@ mod tests {
                 path: dir.path().join("ポーズ/座り/a.jpg"),
                 file_size: 1,
                 source: Some(Source {
-                    image_url: "https://example.com/a.jpg".into(),
+                    image_url: Some("https://example.com/a.jpg".into()),
                     page_url: Some("https://example.com/".into()),
+                    link: Some("https://example.com/".into()),
                 }),
             }
         );
+    }
+
+    #[test]
+    fn 詳細の開くurlは掲載ページurlが開けない値なら画像urlにしどちらも開けなければ出さない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let a = insert_image(&lib, "a.jpg", None, false);
+        let b = insert_image(&lib, "b.jpg", None, false);
+        lib.conn
+            .execute_batch(&format!(
+                "INSERT INTO image_sources VALUES ({a}, 'https://example.com/a.jpg', 'file:///etc/hosts', 5);
+                 INSERT INTO image_sources VALUES ({b}, 'javascript:alert(1)', NULL, 5)"
+            ))
+            .unwrap();
+
+        let link = |id| detail(&lib, id).unwrap().source.unwrap().link;
+        assert_eq!(link(a).as_deref(), Some("https://example.com/a.jpg"));
+        assert_eq!(link(b), None);
     }
 
     #[test]

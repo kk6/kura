@@ -152,6 +152,18 @@ const MIGRATIONS: &[&str] = &[
         last_board_id INTEGER REFERENCES boards(id) ON DELETE SET NULL
     );
     INSERT INTO board_state(id) VALUES (1)",
+    // ダウンロード元の記録（FR-208）は、画像URLが不正で掲載ページURLだけが有効なことがある。
+    // SQLite は列の NOT NULL を外せないので、表を作り直す
+    "CREATE TABLE image_sources_new(
+        image_id INTEGER PRIMARY KEY REFERENCES images(id),
+        image_url TEXT,
+        page_url TEXT,
+        fetched_at INTEGER NOT NULL,
+        CHECK(image_url IS NOT NULL OR page_url IS NOT NULL)
+    );
+    INSERT INTO image_sources_new SELECT image_id, image_url, page_url, fetched_at FROM image_sources;
+    DROP TABLE image_sources;
+    ALTER TABLE image_sources_new RENAME TO image_sources",
 ];
 
 pub struct Library {
@@ -534,6 +546,21 @@ mod tests {
 
         assert!(err.contains("ライブラリではありません"), "{err}");
         assert_eq!(entries(dir.path()), ["a.jpg"]);
+    }
+
+    #[test]
+    fn 元urlは掲載ページurlだけでも保存できどちらもない行は保存できない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = create(dir.path()).unwrap();
+        let image = crate::category::tests::put(&lib, None, "a.png", "a");
+        let insert = |image_url: Option<&str>, page_url: Option<&str>| {
+            lib.conn.execute(
+                "INSERT INTO image_sources(image_id, image_url, page_url, fetched_at) VALUES (?1, ?2, ?3, 1)",
+                rusqlite::params![image, image_url, page_url],
+            )
+        };
+        assert!(insert(None, None).is_err());
+        insert(None, Some("https://example.test/")).unwrap();
     }
 
     #[test]

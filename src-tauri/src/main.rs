@@ -8,6 +8,7 @@ mod menu;
 mod recent;
 mod settings;
 mod settle;
+mod source;
 mod sync;
 mod tag;
 mod terminate;

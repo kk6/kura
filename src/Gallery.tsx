@@ -65,6 +65,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [showSkipped, setShowSkipped] = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -848,6 +849,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           result={result}
           onShowFailed={() => setShowSkipped(true)}
           onShowMissing={() => openAside('missing')}
+          onShowNotes={() => setShowNotes(true)}
         />
       </footer>
 
@@ -883,6 +885,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         />
       )}
 
+      {showNotes && (result?.kind === 'report' || result?.kind === 'scan') && (
+        <MoveFailDialog
+          title="元URLの注意"
+          kind="warning"
+          failed={result.report.source_notes.map((n) => ({ file_name: n.path, message: n.message }))}
+          onClose={() => setShowNotes(false)}
+        />
+      )}
       {showSkipped &&
         (result && result.kind !== 'report' && result.kind !== 'scan' && result.kind !== 'deleted' ? (
           <MoveFailDialog

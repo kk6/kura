@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::category;
 use crate::fileops::{self, OnConflict, Request};
 use crate::library::{self, err, Access, Library};
+use crate::source::{self, Note};
 
 const THUMB_WIDTH: u32 = 320;
 
@@ -156,11 +157,16 @@ pub(crate) fn insert(
 }
 
 /// ライブラリの外の画像1枚を、category（None は未分類）のフォルダへコピーして登録する。
-/// 同じ中身の画像が未分類にあり category が指定されていれば、コピーせずにその画像を category へ移す（FR-204 の例外）
-pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Outcome, String> {
+/// 同じ中身の画像が未分類にあり category が指定されていれば、コピーせずにその画像を category へ移す（FR-204 の例外）。
+/// 新しく登録した画像には、src のダウンロード元の記録を元URLとして保存する（FR-208）。返り値の2つ目はその注意
+pub fn import(
+    lib: &mut Library,
+    src: &Path,
+    category: Option<i64>,
+) -> Result<(Outcome, Option<String>), String> {
     let bytes = fs::read(src).map_err(|e| format!("{} を読めません（{e}）", src.display()))?;
     let Some(format) = supported(&bytes) else {
-        return Ok(Outcome::Unsupported);
+        return Ok((Outcome::Unsupported, None));
     };
     let hash = sha256(&bytes);
     // deleted_at を見ないので、ゴミ箱の画像とも重複を判定する
@@ -176,16 +182,18 @@ pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Ou
     {
         // 未分類にある画像だけを移す。別のカテゴリとゴミ箱の画像は、利用者が置いた場所を変えないようスキップする
         if category.is_none() || current.is_some() || trashed {
-            return Ok(Outcome::Duplicate(id));
+            return Ok((Outcome::Duplicate(id), None));
         }
         let r = category::assign(lib, &[id], category)?;
         return match r.failed.into_iter().next() {
             Some(f) => Err(f.message),
-            None => Ok(Outcome::Moved(id)),
+            None => Ok((Outcome::Moved(id), None)),
         };
     }
 
     let rendered = render(&lib.root, &bytes, format, &hash, src)?;
+    // 重複を除いた後で読む。スキップした画像の元URLは変えないため
+    let read = source::read(src);
     let meta = fs::metadata(src).map_err(err)?;
     let imported_at = millis(meta.modified().map_err(err)?)?;
     let name = src
@@ -223,10 +231,13 @@ pub fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Ou
                 category,
                 imported_at,
             )?);
+            if let Some(s) = &read.source {
+                source::save(tx, id.get(), s)?;
+            }
             Ok(())
         },
     )?;
-    Ok(Outcome::Added(id.get()))
+    Ok((Outcome::Added(id.get()), read.note))
 }
 
 /// 取り込まなかった理由
@@ -257,6 +268,8 @@ pub struct Report {
     /// 未分類から取り込み先のカテゴリへ移した枚数
     pub moved: usize,
     pub skipped: Vec<Skipped>,
+    /// 取り込めたが、ダウンロード元の記録を全部は保存できなかった画像（FR-208）
+    pub source_notes: Vec<Note>,
 }
 
 /// parent の下にある、name と同名（正規化と大文字・小文字の違いは無視）のカテゴリ。なければ作る
@@ -344,16 +357,20 @@ pub fn import_paths(
         // 閉じたライブラリは取り込み全体のエラー、1枚の取り込みのエラーはその画像のスキップにする
         let outcome = current.with(|lib| Ok(import(lib, src, *category)))?;
         let reason = match outcome {
-            Ok(Outcome::Added(_)) => {
+            Ok((Outcome::Added(_), note)) => {
                 report.added += 1;
+                report.source_notes.extend(note.map(|message| Note {
+                    path: src.clone(),
+                    message,
+                }));
                 None
             }
-            Ok(Outcome::Moved(_)) => {
+            Ok((Outcome::Moved(_), _)) => {
                 report.moved += 1;
                 None
             }
-            Ok(Outcome::Duplicate(existing)) => Some(Reason::Duplicate { existing }),
-            Ok(Outcome::Unsupported) => Some(Reason::Unsupported),
+            Ok((Outcome::Duplicate(existing), _)) => Some(Reason::Duplicate { existing }),
+            Ok((Outcome::Unsupported, _)) => Some(Reason::Unsupported),
             Err(message) => Some(Reason::Error { message }),
         };
         if let Some(reason) = reason {
@@ -380,6 +397,21 @@ mod tests {
 
     use super::*;
     use crate::{category, library};
+
+    /// 元URLの注意を見ないテストのための import
+    fn import(lib: &mut Library, src: &Path, category: Option<i64>) -> Result<Outcome, String> {
+        super::import(lib, src, category).map(|(outcome, _)| outcome)
+    }
+
+    fn sources(lib: &Library) -> Vec<(i64, Option<String>, Option<String>)> {
+        lib.conn
+            .prepare("SELECT image_id, image_url, page_url FROM image_sources ORDER BY image_id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
 
     struct Env {
         _lib_dir: TempDir,
@@ -1232,5 +1264,92 @@ mod tests {
         assert_eq!(pending(&lib), 0);
         assert_eq!(count(&lib), 0);
         assert!(root.join("_未分類/a.png").is_file());
+    }
+
+    #[test]
+    fn 取り込み元のファイルのダウンロード元の記録を元urlとして保存する() {
+        let env = setup();
+        let a = make(&env, "a.png", 4, 4, [1, 0, 0, 255], ImageFormat::Png);
+        let b = make(&env, "b.png", 4, 4, [2, 0, 0, 255], ImageFormat::Png);
+        source::tests::set(
+            &a,
+            &source::tests::binary(&["https://img.example.com/a.png", "https://example.com/page"]),
+        );
+
+        let (lib, report) = run(env.lib, &[a, b], None);
+
+        assert_eq!(report.added, 2);
+        assert_eq!(report.source_notes, []);
+        assert_eq!(
+            sources(&lib),
+            [(
+                1,
+                Some("https://img.example.com/a.png".into()),
+                Some("https://example.com/page".into())
+            )]
+        );
+    }
+
+    #[test]
+    fn ダウンロード元の記録が不正でも取り込みは続け注意に対象を出す() {
+        let env = setup();
+        let broken = make(&env, "broken.png", 4, 4, [1, 0, 0, 255], ImageFormat::Png);
+        let partial = make(&env, "partial.png", 4, 4, [2, 0, 0, 255], ImageFormat::Png);
+        source::tests::set(&broken, "plist ではない".as_bytes());
+        source::tests::set(
+            &partial,
+            &source::tests::binary(&["file:///a.png", "https://example.com/page"]),
+        );
+
+        let (lib, report) = run(env.lib, &[broken.clone(), partial.clone()], None);
+
+        assert_eq!((report.added, report.skipped.len()), (2, 0));
+        let noted: Vec<_> = report.source_notes.iter().map(|n| n.path.clone()).collect();
+        assert_eq!(noted, [broken, partial]);
+        assert_eq!(
+            sources(&lib),
+            [(2, None, Some("https://example.com/page".into()))]
+        );
+    }
+
+    #[test]
+    fn 重複としてスキップした画像の元urlは変えない() {
+        let env = setup();
+        let with_url = make(&env, "a.png", 4, 4, [1, 0, 0, 255], ImageFormat::Png);
+        let without = make(&env, "b.png", 4, 4, [2, 0, 0, 255], ImageFormat::Png);
+        source::tests::set(
+            &with_url,
+            &source::tests::binary(&["https://example.com/first"]),
+        );
+        let (lib, _) = run(env.lib, &[with_url.clone(), without.clone()], None);
+        // 同じ中身で、別のダウンロード元の記録を持つファイル
+        for src in [&with_url, &without] {
+            source::tests::set(src, &source::tests::binary(&["https://example.com/second"]));
+        }
+
+        let (lib, report) = run(lib, &[with_url, without], None);
+
+        assert_eq!((report.added, report.skipped.len()), (0, 2));
+        assert_eq!(report.source_notes, []);
+        assert_eq!(
+            sources(&lib),
+            [(1, Some("https://example.com/first".into()), None)]
+        );
+    }
+
+    #[test]
+    fn 元urlを保存できなければ画像も登録しない() {
+        let env = setup();
+        let a = make(&env, "a.png", 4, 4, [1, 0, 0, 255], ImageFormat::Png);
+        source::tests::set(&a, &source::tests::binary(&["https://example.com/a.png"]));
+        env.lib
+            .conn
+            .execute_batch("DROP TABLE image_sources")
+            .unwrap();
+
+        let (lib, report) = run(env.lib, &[a], None);
+
+        assert_eq!((report.added, report.skipped.len()), (0, 1));
+        assert_eq!(count(&lib), 0);
     }
 }

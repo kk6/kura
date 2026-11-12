@@ -88,6 +88,16 @@ const REPORT: Report = {
       message: '画像を読めません（Format error decoding Png）',
     },
   ],
+  source_notes: [
+    {
+      path: '/Users/me/Downloads/資料/ポーズ/立ち/ref_00020.jpg',
+      message: 'ダウンロード元の記録を解析できません',
+    },
+    {
+      path: '/Users/me/Downloads/資料/ポーズ/立ち/ref_00021.jpg',
+      message: 'ダウンロード元の記録の画像URLが不正なため、掲載ページURLだけを保存しました',
+    },
+  ],
 }
 
 // 進み具合を途中で止めて、e2e で取り込み中の表示を確かめられるようにする
@@ -109,7 +119,11 @@ const imageDetail: Handler = (args) => {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
     source: first
-      ? { image_url: 'https://example.com/images/ref_00001.jpg', page_url: 'https://example.com/gallery/pose' }
+      ? {
+          image_url: 'https://example.com/images/ref_00001.jpg',
+          page_url: 'https://example.com/gallery/pose',
+          link: 'https://example.com/gallery/pose',
+        }
       : null,
   }
 }
@@ -344,11 +358,17 @@ const SCAN: ScanReport = {
   categories_added: 1,
   categories_removed: 0,
   skipped: [{ path: '/Users/me/Pictures/Kura ライブラリ/_未分類/メモ.txt', kind: 'unsupported' }],
+  source_notes: [
+    {
+      path: '/Users/me/Pictures/Kura ライブラリ/_未分類/ref_00030.jpg',
+      message: 'ダウンロード元の記録に、保存できるURLがありません',
+    },
+  ],
 }
 
 // 本物と同じく進み具合を送り、e2e でステータスバーの表示を確かめられるよう少し待つ
 const scanLibrary: Handler = async () => {
-  if (created) return { ...SCAN, added: 0, moved: 0, missing: 0, categories_added: 0, skipped: [] }
+  if (created) return { ...SCAN, added: 0, moved: 0, missing: 0, categories_added: 0, skipped: [], source_notes: [] }
   await emit('scan-progress', { done: 0, total: 4 })
   await emit('scan-progress', { done: 2, total: 4 })
   await new Promise((r) => setTimeout(r, 500))

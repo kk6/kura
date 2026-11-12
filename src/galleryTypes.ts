@@ -25,7 +25,8 @@ export type Gallery = { images: Image[]; categories: Category[]; tags: Tag[] }
 export type Detail = {
   path: string
   file_size: number
-  source: { image_url: string; page_url: string | null } | null
+  // link はブラウザで開ける URL（有効な掲載ページURLを優先し、なければ画像URL）。どちらも開けない値なら null
+  source: { image_url: string | null; page_url: string | null; link: string | null } | null
 }
 
 // src-tauri/src/tag.rs の Counted（image_tags コマンドの返り値）。count は選んだ画像のうちそのタグが付いている枚数

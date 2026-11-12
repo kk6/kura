@@ -91,6 +91,15 @@ test('フォルダを取り込むと、ステータスバーに進み具合と�
   await expect(dialog).toContainText('注意：対応していない形式です')
   await expect(dialog).toContainText('エラー：取り込めませんでした（画像を読めません')
   await page.screenshot({ path: 'test-results/import-skipped.png' })
+  await page.keyboard.press('Escape')
+
+  // 取り込めたが元URLを全部は保存できなかった画像は、スキップとは別に数えて一覧を出す（FR-208）
+  await status.getByRole('button', { name: '注意：元URLの注意 2件' }).click()
+  const notes = page.getByRole('dialog', { name: '元URLの注意（2枚）' })
+  await expect(notes.getByRole('listitem')).toHaveCount(2)
+  await expect(notes).toContainText('ref_00020.jpg')
+  await expect(notes).toContainText('注意：ダウンロード元の記録を解析できません')
+  await expect(notes).toContainText('注意：ダウンロード元の記録の画像URLが不正なため、掲載ページURLだけを保存しました')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
@@ -1242,6 +1251,11 @@ test('開いた後に差分を確認して結果を出し、見つからない�
   await expect(missingItem).toContainText('2')
   await status.getByRole('button', { name: /スキップ 1枚/ }).click()
   await expect(page.getByRole('dialog', { name: '登録しなかったファイル（1件）' })).toContainText('メモ.txt')
+  await page.keyboard.press('Escape')
+  await status.getByRole('button', { name: '注意：元URLの注意 1件' }).click()
+  await expect(page.getByRole('dialog', { name: '元URLの注意（1枚）' })).toContainText(
+    '注意：ダウンロード元の記録に、保存できるURLがありません',
+  )
   await page.keyboard.press('Escape')
   await page.screenshot({ path: 'test-results/scan.png' })
 
