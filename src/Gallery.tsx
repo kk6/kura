@@ -45,6 +45,7 @@ const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
 // サムネイルの列の幅の目安。上限はサムネイルの幅（320）
 const THUMB_MIN = 100
 const THUMB_MAX = 320
+const THUMB_STEP = 10
 
 type Props = {
   root: string
@@ -736,16 +737,39 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             ))}
           </select>
         )}
-        <input
-          className="slider"
-          type="range"
-          aria-label="サムネイルの大きさ"
-          min={THUMB_MIN}
-          max={THUMB_MAX}
-          step={10}
-          value={thumbWidth}
-          onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
-        />
+        {/* 拡大表示の間は隠す。後ろに隠れたサムネイルの大きさを変えても見えず、画像の倍率のスライダーに見えるため */}
+        {!zoomed && (
+          <span className="toolbar__size">
+            <button
+              type="button"
+              className="toolbar__step"
+              aria-label="サムネイルを小さくする"
+              disabled={thumbWidth <= THUMB_MIN}
+              onClick={() => changeSettings({ thumb_width: Math.max(THUMB_MIN, thumbWidth - THUMB_STEP) })}
+            >
+              <Icon d={ICONS.masonryMany} />
+            </button>
+            <input
+              className="slider"
+              type="range"
+              aria-label="サムネイルの大きさ"
+              min={THUMB_MIN}
+              max={THUMB_MAX}
+              step={THUMB_STEP}
+              value={thumbWidth}
+              onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
+            />
+            <button
+              type="button"
+              className="toolbar__step"
+              aria-label="サムネイルを大きくする"
+              disabled={thumbWidth >= THUMB_MAX}
+              onClick={() => changeSettings({ thumb_width: Math.min(THUMB_MAX, thumbWidth + THUMB_STEP) })}
+            >
+              <Icon d={ICONS.masonryFew} />
+            </button>
+          </span>
+        )}
         <button
           type="button"
           className="button button--icon"
