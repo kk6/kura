@@ -45,6 +45,8 @@ cmd_build() {
 #   empty    : ライブラリなし。選択画面から始まる（作る・開くの検証用）
 #   template : 取り込み済みの見本（$BASE/template）を run の lib/ に複製して開く（既定）
 #   <path>   : この手順で作ったライブラリ（.kura/ を持つフォルダ）を run の lib/ に複製して開く。本物の資料フォルダは渡さない
+#              KURA_IN_PLACE=1 なら複製せずにその場で開く（$BASE の下にマウントしたディスクイメージの確認用）。
+#              KURA_ALSO=<path> で、2つ目のライブラリを「最近使ったライブラリ」に足す（同じく $BASE の下だけ）
 cmd_launch() {
   local id=$1 mode=${2:-template} dir
   dir=$(run_dir "$id")
@@ -69,10 +71,16 @@ cmd_launch() {
       [ -d "$BASE/template/.kura" ] || die "見本のライブラリがない。SKILL.md の「見本を作る」を先に行う"
       cp -R "$BASE/template" "$dir/lib"; lib="$dir/lib" ;;
     *)
-      cp -R "$src_lib" "$dir/lib"; lib="$dir/lib" ;;
+      if [ "${KURA_IN_PLACE:-}" = 1 ]; then lib="$src_lib"; else cp -R "$src_lib" "$dir/lib"; lib="$dir/lib"; fi ;;
   esac
+  local also=""
+  if [ -n "${KURA_ALSO:-}" ]; then
+    also=$(cd "$KURA_ALSO" 2>/dev/null && pwd -P) || die "$KURA_ALSO がない"
+    [[ "$also/" == "$(cd "$BASE" && pwd -P)/"* ]] || die "$KURA_ALSO は $BASE の下にない"
+    [ -d "$also/.kura" ] || die "$KURA_ALSO はライブラリではない"
+  fi
   # 起動時、アプリは一覧の先頭のライブラリを自動で開く。空なら選択画面
-  python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1:]))' ${lib:+"$lib"} >"$(data_dir "$id")/recent-libraries.json"
+  python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1:]))' ${lib:+"$lib"} ${also:+"$also"} >"$(data_dir "$id")/recent-libraries.json"
   # HOME を差し替えて、利用者の ~/Library/Application Support/dev.kk6.kura を読まない・書かない
   HOME="$dir/home" RUST_LOG=info nohup "$BIN" >"$dir/app.log" 2>&1 &
   local p=$!

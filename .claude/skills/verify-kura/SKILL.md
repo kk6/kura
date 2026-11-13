@@ -95,7 +95,9 @@ hdiutil detach -force /Volumes/KURAEX                                  # 保存�
 hdiutil attach -nobrowse <run>/kuraex.dmg                              # つなぎ直す
 ```
 
-つなぎ直しても、開いていた接続は元に戻らない。ライブラリを開き直すと、最後に保存できた状態から使える。
+マウント先を `.claude/tmp/verify-kura/` の下にすると（`hdiutil attach -nobrowse -mountpoint <BASE>/mnt/ex <dmg>`）、`KURA_IN_PLACE=1 $V launch <id> <BASE>/mnt/ex/lib` で選択画面を通さずにその場で開ける。`KURA_ALSO=<path>` で2つ目のライブラリを「最近使ったライブラリ」に足せる。
+
+つなぎ直しても、開いていた接続は元に戻らない。「再試行」は失敗し、ボードを開いていると切り替えと終了も止まる。`$V stop` で止めて起動し直すと、最後に保存できた状態から使える。
 
 ## Evidence
 
