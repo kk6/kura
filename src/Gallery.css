@@ -126,6 +126,36 @@
   flex: 1;
 }
 
+/* サムネイルの大きさのスライダーと、左右の1段ずつ変えるアイコン */
+.toolbar__size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar__step {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+  transition: transform var(--duration-fast) ease-out;
+}
+
+.toolbar__step:enabled:hover {
+  color: var(--color-text);
+}
+
+.toolbar__step:enabled:active {
+  transform: scale(var(--motion-press));
+}
+
+.toolbar__step:disabled {
+  color: var(--color-line);
+  cursor: default;
+}
+
 .search {
   position: relative;
   display: flex;

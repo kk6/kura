@@ -287,7 +287,9 @@ test('詳細パネルでタグやメモを変えても一覧のスクロール�
   await expect.poll(scrolled).toBe(0)
 })
 
-test('スライダーでサムネイルを小さくすると列が増え、大きさは開き直しても残る', async ({ page }) => {
+test('スライダーでサムネイルを小さくすると列が増え、大きさは開き直しても残る。左右のアイコンで1段ずつ変え、拡大表示の間は隠す', async ({
+  page,
+}) => {
   await openGallery(page)
   const before = await columnCount(page)
 
@@ -298,8 +300,26 @@ test('スライダーでサムネイルを小さくすると列が増え、大�
   const small = await columnCount(page)
 
   await openGallery(page)
-  await expect(page.getByRole('slider', { name: 'サムネイルの大きさ' })).toHaveValue('100')
+  const slider = page.getByRole('slider', { name: 'サムネイルの大きさ' })
+  await expect(slider).toHaveValue('100')
   await expect.poll(() => columnCount(page)).toBe(small)
+
+  // 左右のアイコンは1段（10px）ずつ小さく・大きくする。最小では小さくするボタンを押せない
+  const smaller = page.getByRole('button', { name: 'サムネイルを小さくする' })
+  const larger = page.getByRole('button', { name: 'サムネイルを大きくする' })
+  await expect(smaller).toBeDisabled()
+  await larger.click()
+  await expect(slider).toHaveValue('110')
+  await smaller.click()
+  await expect(slider).toHaveValue('100')
+
+  // 拡大表示の間は、見えないサムネイルの大きさを変えないよう、スライダーとアイコンを隠す
+  await thumbs(page).first().dblclick()
+  await expect(page.getByRole('region', { name: '拡大表示' })).toBeVisible()
+  await expect(slider).toHaveCount(0)
+  await expect(larger).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(slider).toHaveValue('100')
 })
 
 test('並べ替えを変えると並び順が変わる', async ({ page }) => {
