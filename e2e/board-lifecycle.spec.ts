@@ -149,9 +149,15 @@ test('低いウィンドウでも、右クリックのメニューはウィン�
   const { items } = await boardWith(page, 1)
   const imageId = (await stored(page)).items[0].source.image_id
   await page.setViewportSize({ width: 900, height: 320 })
-  const at = await box(items.first())
-  await page.mouse.click(at.x + 10, Math.min(at.y + 10, 300), { button: 'right' })
   const menu = page.getByRole('menu')
+  // キャンバスは大きさの変化を ResizeObserver で受けて配置を置き直し、置き直した後は画像の上端がキャンバスの外に出る。
+  // 画像のうちキャンバスに見えている所を押し、測ってから押すまでに置き直されたら、メニューが出るまで測り直す
+  const canvas = await box(page.getByRole('main'))
+  await expect(async () => {
+    const at = await box(items.first())
+    await page.mouse.click(at.x + 10, Math.max(at.y, canvas.y) + 10, { button: 'right' })
+    await expect(menu).toBeVisible({ timeout: 500 })
+  }).toPass()
   const shown = (await menu.boundingBox())!
   expect(shown.y).toBeGreaterThanOrEqual(0)
   expect(shown.y + shown.height).toBeLessThanOrEqual(320)
