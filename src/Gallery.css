@@ -764,6 +764,41 @@ body.is-dragging * {
   background: var(--color-selected);
 }
 
+/* 最近使ったタグ。付いているタグ（.tag）と見分けるため、地を塗らずに ＋ を付ける */
+.tag-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag-recent__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-sub);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease-out,
+    transform var(--duration-fast) ease-out;
+}
+
+.tag-recent__item:hover {
+  background: var(--color-raise);
+  color: var(--color-text);
+}
+
+.tag-recent__item:active {
+  transform: scale(var(--motion-press));
+}
+
 /* 一覧と同じ場所に重ねる。一覧を消さないので、閉じたときにスクロールの位置が残る */
 .gallery__zoom {
   grid-area: list;

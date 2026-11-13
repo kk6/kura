@@ -1,5 +1,5 @@
 import { describe, expect, it, test } from 'vitest'
-import { candidates, categoryOptions, filterCandidates, moveActive } from './choices'
+import { candidates, categoryOptions, filterCandidates, moveActive, recentCandidates, rememberTag } from './choices'
 import { NO_FILTER } from './filter'
 
 const TAGS = [
@@ -23,6 +23,20 @@ describe('candidates', () => {
   it('件数を limit までに絞る', () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ id: i, name: `タグ${i}` }))
     expect(candidates(many, 'タグ', new Set())).toHaveLength(8)
+  })
+})
+
+describe('rememberTag', () => {
+  it('使ったタグを先頭に置き、前にあった同じタグは消す', () => {
+    expect(rememberTag([], 1)).toEqual([1])
+    expect(rememberTag([2, 1, 3], 1)).toEqual([1, 2, 3])
+  })
+})
+
+describe('recentCandidates', () => {
+  it('使った新しい順に、選んだ画像のすべてに付いているタグと消えたタグを除いて limit まで返す', () => {
+    expect(recentCandidates(TAGS, [3, 9, 1, 2], new Set([1])).map((t) => t.id)).toEqual([3, 2])
+    expect(recentCandidates(TAGS, [3, 1, 2], new Set(), 2).map((t) => t.id)).toEqual([3, 1])
   })
 })
 
