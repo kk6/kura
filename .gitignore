@@ -12,7 +12,7 @@
 *.gif
 !src-tauri/icons/**
 # ドキュメントのスクリーンショット（npm run docs:screenshots で撮る）
-!docs/images/*.png
+!docs/images/*.jpg
 
 # ビルド成果物・依存関係
 node_modules/

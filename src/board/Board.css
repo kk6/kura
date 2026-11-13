@@ -1,0 +1,288 @@
+.board {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-board);
+}
+
+/* 狭いウィンドウでも操作が隠れないよう、収まらなければ折り返して段を増やす（docs/design.md）。
+   横にスクロールさせると、初めの大きさでも右端の保存の状態が隠れ、スクロールバーがボタンに重なる */
+.board__toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-height: var(--size-board-toolbar);
+  padding: var(--space-1) var(--space-4);
+  border-bottom: var(--border);
+  background: var(--color-surface);
+}
+
+.board__select {
+  flex: none;
+  max-width: var(--size-sidebar);
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-input);
+  font-weight: var(--font-weight-bold);
+}
+
+/* オンのトグルの見た目（docs/design.md「選択中のカテゴリ・オンのトグル」） */
+.board__pin[aria-pressed='true'] {
+  background: var(--color-selected);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 折り返す前に部品が縮んで、文字やアイコンが欠けないようにする */
+.board__toolbar > * {
+  flex: none;
+}
+
+.board__opacity .slider {
+  width: calc(var(--size-progress-bar) / 2);
+}
+
+.board__opacity {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+}
+
+/* 桁が変わっても隣の「100%に戻す」が動かないよう、4文字分の幅を取って右にそろえる */
+.board__percent {
+  min-width: 4ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.board__save {
+  flex: none;
+  margin-left: auto;
+  color: var(--color-text-faint);
+  font-size: var(--font-size-sm);
+}
+
+.board__error {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border);
+  background: var(--color-surface);
+}
+
+.board__canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.board__canvas--pan,
+.board__canvas--pan .board__item {
+  cursor: grab;
+}
+
+/* 配置の重なり順（z-index）をこの中に閉じ、選択枠と範囲選択の枠をいつも配置の上に描く */
+.board__items {
+  position: absolute;
+  inset: 0;
+  isolation: isolate;
+}
+
+/* 画像を読み込むまでと、元画像のない状態の枠も見分けられるよう、地を付ける */
+.board__item {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--color-raise);
+  cursor: default;
+}
+
+.board__item--selected {
+  border: var(--select-inner);
+  outline: var(--select-outline);
+}
+
+/* 選んだ配置の全体を囲む枠。四隅のハンドルだけが押せる */
+.board__frame {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.board__frame--outlined {
+  border: var(--border);
+  border-color: var(--color-text);
+}
+
+.board__handle {
+  position: absolute;
+  box-sizing: border-box;
+  width: var(--size-handle);
+  height: var(--size-handle);
+  border: var(--border);
+  border-color: var(--color-text);
+  background: var(--color-surface);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.board__handle--nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.board__handle--ne {
+  top: 0;
+  left: 100%;
+  cursor: nesw-resize;
+}
+
+.board__handle--sw {
+  top: 100%;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.board__handle--se {
+  top: 100%;
+  left: 100%;
+  cursor: nwse-resize;
+}
+
+/* 切り抜く範囲を選んでいる間の案内。上に帯を足すとキャンバスの高さが変わり、画像が動いてしまうので、重ねて出す */
+.board__hint {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border);
+  background: var(--color-surface);
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+}
+
+/* 回転のハンドル。枠の上の辺の中央から、少し離して置く */
+.board__handle--rotate {
+  top: calc(var(--space-5) * -1);
+  left: 50%;
+  cursor: grab;
+}
+
+.board__marquee {
+  position: absolute;
+  box-sizing: border-box;
+  border: var(--border);
+  border-color: var(--color-text);
+  pointer-events: none;
+}
+
+/* 切り抜いた配置では枠からはみ出すので、位置と大きさはキャンバスが決める */
+.board__image {
+  position: absolute;
+  max-width: none;
+}
+
+.board__status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-3);
+  overflow: hidden;
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.board__empty,
+.board__choose {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  overflow-y: auto;
+}
+
+.board__empty p,
+.board__choose p {
+  margin: 0;
+  color: var(--color-text-sub);
+}
+
+.board__list {
+  width: 100%;
+  max-width: var(--size-dialog);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: var(--border);
+}
+
+.board__list-item {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-3);
+  border: none;
+  border-bottom: var(--border);
+  background: var(--color-surface);
+  text-align: left;
+}
+
+.board__list-item:hover {
+  background: var(--color-selected);
+}
+
+.board__count {
+  color: var(--color-text-sub);
+}
+
+.board-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--color-text-sub);
+}
+
+.board-name__input {
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-input);
+}
+
+.board-name__input--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}
+
+.board-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.board-add > p {
+  margin: 0;
+}

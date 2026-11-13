@@ -1821,11 +1821,14 @@ dependencies = [
 
 [[package]]
 name = "kura"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "image",
  "libc",
  "log",
+ "objc2",
+ "objc2-app-kit",
+ "plist",
  "rusqlite",
  "serde",
  "serde_json",

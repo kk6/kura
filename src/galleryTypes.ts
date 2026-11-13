@@ -25,7 +25,8 @@ export type Gallery = { images: Image[]; categories: Category[]; tags: Tag[] }
 export type Detail = {
   path: string
   file_size: number
-  source: { image_url: string; page_url: string | null } | null
+  // link はブラウザで開ける URL（有効な掲載ページURLを優先し、なければ画像URL）。どちらも開けない値なら null
+  source: { image_url: string | null; page_url: string | null; link: string | null } | null
 }
 
 // src-tauri/src/tag.rs の Counted（image_tags コマンドの返り値）。count は選んだ画像のうちそのタグが付いている枚数
@@ -47,4 +48,16 @@ export type Done = { done: number[]; failed: { id: number; message: string }[] }
 export type Restored = Assigned & { uncategorized: number[] }
 
 // src-tauri/src/settings.rs の Settings（アプリ全体の設定。load_settings と save_settings）
-export type Settings = { confirm_category_move: boolean; thumb_width: number; tags_collapsed: boolean }
+export type Settings = {
+  confirm_category_move: boolean
+  thumb_width: number
+  tags_collapsed: boolean
+  // アイデアボードを使う（FR-711）
+  board_enabled: boolean
+  // ボードの専用ウィンドウの表示（FR-705、FR-707）。変えるのはボードの画面の set_board_display だけで、
+  // save_settings で送った値は Rust が捨てる
+  board_window: BoardDisplay & { frame: { x: number; y: number; width: number; height: number } | null }
+}
+
+// 最前面に固定するかと、不透明度（30〜100 の %）
+export type BoardDisplay = { always_on_top: boolean; opacity: number }

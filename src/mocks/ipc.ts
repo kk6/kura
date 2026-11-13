@@ -3,6 +3,8 @@ import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
 import type { Report, ScanReport } from '../importTypes'
+import type { Added, BoardSummary, EditingBoard, Item, Snapshot, Target, Viewport } from '../board/types'
+import photos from 'virtual:docs-photos'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
 
@@ -36,37 +38,50 @@ const SIZES = [
 ]
 let seed = 1
 const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
-const COUNT = Number(new URLSearchParams(location.search).get('images') ?? 2000)
+// 見本の写真（npm run docs:screenshots）があれば、最後の4枚をゴミ箱と見つからない画像に回し、残りを一覧に出す
+const COUNT = photos ? photos.length - 4 : Number(new URLSearchParams(location.search).get('images') ?? 2000)
+// カテゴリはフォルダの道筋（「動物/猫」）で見分ける。親が先に来るよう、道筋の短い順に id を振る
+const PHOTO_CATEGORIES = [
+  ...new Set(photos?.flatMap((p) => p.category.map((_, i) => p.category.slice(0, i + 1).join('/')))),
+].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b, 'ja'))
 const IMAGES: Image[] = Array.from({ length: COUNT }, (_, i) => {
   const [width, height] = SIZES[Math.floor(random() * SIZES.length)]
   // 写真らしいくすんだ色
   const channel = () => Math.floor(120 + random() * 100).toString(16)
+  const photo = photos?.[i]
   return {
     id: i + 1,
-    file_name: `ref_${String(i + 1).padStart(5, '0')}.jpg`,
+    file_name: photo?.file_name ?? `ref_${String(i + 1).padStart(5, '0')}.jpg`,
     hash: `hash${i + 1}`,
-    width,
-    height,
+    width: photo?.width ?? width,
+    height: photo?.height ?? height,
     color: `#${channel()}${channel()}${channel()}`,
-    category_id: i % 4 === 0 ? null : (i % 5) + 1,
+    category_id: photo ? PHOTO_CATEGORIES.indexOf(photo.category.join('/')) + 1 : i % 4 === 0 ? null : (i % 5) + 1,
     rating: i % 6,
     imported_at: 1_700_000_000_000 + ((i * 7919) % 2000) * 60_000,
     // 1枚目はメモと「あおり」「座り」を持つ。2〜10枚目はタグなし、11枚目からは id で決まるタグを持つ
-    memo: i === 0 ? '腕の角度と\n肩の線を見る' : '',
+    memo: i === 0 ? (photo ? '毛並みの流れと\n光の当たり方を見る' : '腕の角度と\n肩の線を見る') : '',
     tags: i === 0 ? [1, 2] : i < 10 ? [] : [1, 2, 3].filter((t) => (i + 1) % (t * 2 + 1) === 0),
   }
 })
 
 const GALLERY: Gallery = {
   images: IMAGES,
-  categories: [
-    { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
-    { id: 2, name: '座り', parent_id: 1, collapsed: false },
-    { id: 3, name: '振り返り', parent_id: 1, collapsed: false },
-    { id: 4, name: '服飾', parent_id: null, collapsed: false },
-    { id: 5, name: '制服', parent_id: 4, collapsed: false },
-    { id: 6, name: '背景', parent_id: null, collapsed: false },
-  ],
+  categories: photos
+    ? PHOTO_CATEGORIES.map((path, i) => ({
+        id: i + 1,
+        name: path.split('/').at(-1)!,
+        parent_id: PHOTO_CATEGORIES.indexOf(path.split('/').slice(0, -1).join('/')) + 1 || null,
+        collapsed: false,
+      }))
+    : [
+        { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+        { id: 2, name: '座り', parent_id: 1, collapsed: false },
+        { id: 3, name: '振り返り', parent_id: 1, collapsed: false },
+        { id: 4, name: '服飾', parent_id: null, collapsed: false },
+        { id: 5, name: '制服', parent_id: 4, collapsed: false },
+        { id: 6, name: '背景', parent_id: null, collapsed: false },
+      ],
   tags: [
     { id: 1, name: 'あおり' },
     { id: 2, name: '座り' },
@@ -87,6 +102,16 @@ const REPORT: Report = {
       message: '画像を読めません（Format error decoding Png）',
     },
   ],
+  source_notes: [
+    {
+      path: '/Users/me/Downloads/資料/ポーズ/立ち/ref_00020.jpg',
+      message: 'ダウンロード元の記録を解析できません',
+    },
+    {
+      path: '/Users/me/Downloads/資料/ポーズ/立ち/ref_00021.jpg',
+      message: 'ダウンロード元の記録の画像URLが不正なため、掲載ページURLだけを保存しました',
+    },
+  ],
 }
 
 // 進み具合を途中で止めて、e2e で取り込み中の表示を確かめられるようにする
@@ -99,18 +124,35 @@ const importPaths: Handler = async () => {
   return REPORT
 }
 
-// 1枚目だけ元URLを持つ
+// 1枚目は両方の元URL、3枚目は画像URLだけ、4枚目は開けない値を持つ。ほかは元URLがない
+const SOURCES: Record<number, { image_url: string | null; page_url: string | null; link: string | null }> = {
+  1: {
+    image_url: 'https://example.com/images/ref_00001.jpg',
+    page_url: 'https://example.com/gallery/pose',
+    link: 'https://example.com/gallery/pose',
+  },
+  3: {
+    image_url: 'https://example.com/images/ref_00003.jpg',
+    page_url: null,
+    link: 'https://example.com/images/ref_00003.jpg',
+  },
+  4: { image_url: 'ftp://example.com/images/ref_00004.jpg', page_url: null, link: null },
+}
+
 const imageDetail: Handler = (args) => {
   const image = IMAGES.find((i) => i.id === args?.id)
   if (!image) throw `画像が見つかりません（${args?.id}）`
-  const first = image.id === 1
   return {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
-    source: first
-      ? { image_url: 'https://example.com/images/ref_00001.jpg', page_url: 'https://example.com/gallery/pose' }
-      : null,
+    source: SOURCES[image.id] ?? null,
   }
+}
+
+// e2e で失敗の表示を確かめるため、3枚目の元URLは開けない
+const openSourceUrl: Handler = (args) => {
+  if (args?.id === 3) throw 'exit status: 1'
+  console.info(`browser: ${SOURCES[Number(args?.id)]?.link}`)
 }
 
 // e2e で失敗の表示を確かめるため、「失敗」を含むメモは保存しない
@@ -343,16 +385,40 @@ const SCAN: ScanReport = {
   categories_added: 1,
   categories_removed: 0,
   skipped: [{ path: '/Users/me/Pictures/Kura ライブラリ/_未分類/メモ.txt', kind: 'unsupported' }],
+  source_notes: [
+    {
+      path: '/Users/me/Pictures/Kura ライブラリ/_未分類/ref_00030.jpg',
+      message: 'ダウンロード元の記録に、保存できるURLがありません',
+    },
+  ],
 }
 
 // 本物と同じく進み具合を送り、e2e でステータスバーの表示を確かめられるよう少し待つ
 const scanLibrary: Handler = async () => {
-  if (created) return { ...SCAN, added: 0, moved: 0, missing: 0, categories_added: 0, skipped: [] }
+  if (created) return { ...SCAN, added: 0, moved: 0, missing: 0, categories_added: 0, skipped: [], source_notes: [] }
   await emit('scan-progress', { done: 0, total: 4 })
   await emit('scan-progress', { done: 2, total: 4 })
   await new Promise((r) => setTimeout(r, 500))
   await emit('scan-progress', { done: 4, total: 4 })
+  // e2e が「見つからない」の画像が元の場所に戻った場合を作る
+  if (sessionStorage.getItem('mock.returnMissing')) IMAGES.push(...MISSING.splice(0, 1))
   return structuredClone(SCAN)
+}
+
+// 元URLの補完（FR-208）。本物と同じく1枚ごとに進み具合を送り、e2e で中断できるよう少しずつ待つ
+let backfillCancelled = false
+const backfillSources: Handler = async () => {
+  backfillCancelled = false
+  const c = { total: 6, done: 0, filled: 0, none: 0, failed: 0, excluded: 1994, cancelled: false }
+  await emit('backfill-progress', { ...c })
+  for (const kind of ['filled', 'filled', 'none', 'failed', 'filled', 'none'] as const) {
+    await new Promise((r) => setTimeout(r, 300))
+    if (backfillCancelled) return { ...c, cancelled: true }
+    c[kind]++
+    c.done++
+    await emit('backfill-progress', { ...c })
+  }
+  return c
 }
 
 const forgetImages: Handler = (args) => {
@@ -365,7 +431,200 @@ const forgetImages: Handler = (args) => {
 // 本物は設定を settings.json に、カテゴリの開閉を DB に残す。開き直し（page.goto）でも残るよう sessionStorage に置く
 const stored = <T>(key: string, init: T): T => JSON.parse(sessionStorage.getItem(key) ?? 'null') ?? init
 const store = (key: string, value: unknown) => sessionStorage.setItem(key, JSON.stringify(value))
-const DEFAULT_SETTINGS: Settings = { confirm_category_move: true, thumb_width: 200, tags_collapsed: false }
+const DEFAULT_SETTINGS: Settings = {
+  confirm_category_move: true,
+  thumb_width: 200,
+  tags_collapsed: false,
+  board_enabled: true,
+  board_window: { always_on_top: false, opacity: 100, frame: null },
+}
+
+// アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
+// e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない。
+// 「保存できない」という名前のボードは配置を保存できない
+// removed は外した配置。本物の DB も非表示の行として残し、取り消しで同じ配置 ID を表示に戻す
+type MockBoard = BoardSummary & { items?: Item[]; removed?: Item[]; viewport?: Viewport; revision?: number }
+type MockBoards = { boards: MockBoard[]; last: number | null; next: number; reveal?: Added | null }
+const boardStore = () => stored<MockBoards>('mock.boards', { boards: [], last: null, next: 1 })
+const SESSION = 1
+
+const checkBoardName = (data: MockBoards, raw: unknown, except?: number) => {
+  const name = String(raw).trim().normalize('NFC')
+  if (name.length < 1 || [...name].length > 100) throw 'ボード名は前後の空白を除いて1〜100文字で入力してください'
+  if (data.boards.some((b) => b.id !== except && key(b.name) === key(name))) throw '同じ名前のボードがあります'
+  return name
+}
+
+const checkSession = (args: Record<string, unknown> | undefined) => {
+  if (args?.session !== SESSION) throw 'ライブラリが切り替わったため、ボードの操作を中止しました'
+}
+
+const boardOf = (data: MockBoards, args: Record<string, unknown> | undefined) => {
+  checkSession(args)
+  const board = data.boards.find((b) => b.id === args?.id)
+  if (!board) throw `ボードが見つかりません（${args?.id}）`
+  return board
+}
+
+const summary = ({ id, name, items, placement_count, updated_at }: MockBoard): BoardSummary => ({
+  id,
+  name,
+  placement_count: items?.length ?? placement_count,
+  updated_at,
+})
+
+const editing = (b: MockBoard): EditingBoard => ({
+  edit: { library_session: SESSION, board_id: b.id, token: 1 },
+  board: {
+    id: b.id,
+    name: b.name,
+    viewport: b.viewport ?? { x: 0, y: 0, scale: 1 },
+    updated_at: b.updated_at,
+    revision: b.revision ?? 0,
+    items: b.items ?? [],
+  },
+})
+
+const listBoards: Handler = () => {
+  const data = boardStore()
+  const boards = [...data.boards].sort((a, b) => b.updated_at - a.updated_at || b.id - a.id).map(summary)
+  return { session: SESSION, boards, last_board_id: data.last }
+}
+
+const openBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = boardOf(data, args)
+  if (board.name === '開けない') throw 'database disk image is malformed'
+  store('mock.boards', { ...data, last: board.id })
+  return editing(board)
+}
+
+const newBoard = (data: MockBoards, name: unknown): MockBoard => ({
+  id: data.next,
+  name: checkBoardName(data, name),
+  placement_count: 0,
+  updated_at: Date.now(),
+})
+
+const createBoard: Handler = (args) => {
+  const data = boardStore()
+  checkSession(args)
+  const board = newBoard(data, args?.name)
+  store('mock.boards', { ...data, boards: [...data.boards, board], last: board.id, next: data.next + 1 })
+  return editing(board)
+}
+
+const renameBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = boardOf(data, args)
+  board.name = checkBoardName(data, args?.name, board.id)
+  store('mock.boards', data)
+  return summary(board)
+}
+
+const deleteBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = boardOf(data, args)
+  if (board.name === '削除できない') throw 'database is locked'
+  store('mock.boards', {
+    ...data,
+    boards: data.boards.filter((b) => b !== board),
+    last: data.last === board.id ? null : data.last,
+  })
+}
+
+const saveBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = data.boards.find((b) => b.id === (args?.edit as EditingBoard['edit']).board_id)
+  if (!board) throw 'このボードの編集は終了しています'
+  // e2e で失敗と再試行を確かめるため、名前が「保存できない」のボードか mock.failBoardSave があれば保存しない
+  if (board.name === '保存できない' || sessionStorage.getItem('mock.failBoardSave'))
+    throw 'attempt to write a readonly database'
+  const snapshot = args?.snapshot as Snapshot
+  const old = new Map([...(board.removed ?? []), ...(board.items ?? [])].map((i) => [i.id, i]))
+  board.items = snapshot.items.map((d) => {
+    const item = old.get(d.id!)
+    if (item?.source.id !== d.source_id) throw '配置のボード・元画像は変更できません'
+    return { ...item, geometry: d.geometry }
+  })
+  const kept = new Set(board.items.map((i) => i.id))
+  board.removed = [...old.values()].filter((i) => !kept.has(i.id))
+  board.viewport = snapshot.viewport
+  board.revision = args?.revision as number
+  store('mock.boards', data)
+  return editing(board)
+}
+
+// src-tauri/src/board.rs の place と同じ並べ方。空のボードでは原点を中心に、あれば右側に、縦横比を保って格子状に並べる
+const CELL = 240
+const GAP = 24
+const MARGIN = 96
+const addToBoard: Handler = (args) => {
+  const data = boardStore()
+  checkSession(args)
+  const ids = args?.images as number[]
+  if (!ids.length) throw 'ボードに追加する画像を選んでください'
+  const images = ids.map((id) => {
+    const image = IMAGES.find((i) => i.id === id)
+    if (!image) throw 'ゴミ箱・見つからない・削除された画像はボードに追加できません'
+    return image
+  })
+  const target = args?.target as Target
+  const board = 'new' in target ? newBoard(data, target.new) : data.boards.find((b) => b.id === target.board)
+  if (!board) throw `ボードが見つかりません（${(target as { board: number }).board}）`
+  const items = board.items ?? []
+  const columns = Math.ceil(Math.sqrt(images.length))
+  const span = (n: number) => n * CELL + (n - 1) * GAP
+  const left = items.length
+    ? Math.max(...items.map((i) => i.geometry.x + i.geometry.width * i.geometry.scale)) + MARGIN
+    : -span(columns) / 2
+  const top = items.length ? Math.min(...items.map((i) => i.geometry.y)) : -span(Math.ceil(images.length / columns)) / 2
+  // 外した配置の ID も使い直さない
+  let next = Math.max(0, ...data.boards.flatMap((b) => [...(b.items ?? []), ...(b.removed ?? [])].map((i) => i.id))) + 1
+  const order = Math.max(-1, ...items.map((i) => i.geometry.stack_order)) + 1
+  const added = images.map((image, n): Item => {
+    const scale = CELL / Math.max(image.width, image.height)
+    return {
+      id: next++,
+      source: {
+        id: image.id,
+        image_id: image.id,
+        file_name: image.file_name,
+        width: image.width,
+        height: image.height,
+        status: 'available',
+      },
+      geometry: {
+        width: image.width,
+        height: image.height,
+        x: left + (n % columns) * (CELL + GAP) + (CELL - image.width * scale) / 2,
+        y: top + Math.floor(n / columns) * (CELL + GAP) + (CELL - image.height * scale) / 2,
+        scale,
+        rotation: 0,
+        flipped: false,
+        grayscale: false,
+        crop: null,
+        stack_order: order + n,
+      },
+    }
+  })
+  board.items = [...items, ...added]
+  board.revision = (board.revision ?? 0) + 1
+  const boards = 'new' in target ? [...data.boards, board] : data.boards
+  const reveal = { board_id: board.id, placements: added.map((i) => i.id) }
+  store('mock.boards', { boards, last: board.id, next: 'new' in target ? data.next + 1 : data.next, reveal })
+  // 本物はここで専用ウィンドウを開く。モックは e2e が確かめられるようにコンソールに出す
+  console.info('board window')
+}
+
+const takeBoardReveal: Handler = () => {
+  const data = boardStore()
+  store('mock.boards', { ...data, reveal: null })
+  return data.reveal ?? null
+}
+
+// e2e が確かめられるように、開いたことをコンソールに出す。別ウィンドウはモックでは開けない
+const showBoardWindow: Handler = () => console.info('board window')
 
 const loadGallery: Handler = () => {
   if (created) return { images: [], categories: [], tags: [] }
@@ -385,17 +644,41 @@ const setCollapsed: Handler = (args) => {
 
 // Tauri のコマンドを足したら、同じ名前でここに応答を足す
 const handlers: Record<string, Handler> = {
-  list_recent_libraries: () => RECENT,
+  list_recent_libraries: () => [...RECENT],
+  missing_recent_libraries: () => RECENT.filter((path) => path.startsWith('/Volumes/')),
+  forget_recent_library: (args) => {
+    RECENT.splice(RECENT.indexOf(String(args?.path)), 1)
+    return [...RECENT]
+  },
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
-  save_settings: (args) => store('mock.settings', args?.settings),
+  // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない
+  // 本物と同じく、ボードのウィンドウの表示はギャラリーから送られた値で上書きしない
+  save_settings: (args) => {
+    if (sessionStorage.getItem('mock.failSettings')) throw '設定を保存できません（Permission denied）'
+    const { board_window } = stored('mock.settings', DEFAULT_SETTINGS)
+    store('mock.settings', { ...(args?.settings as Settings), board_window })
+  },
+  // モックのウィンドウは最前面にも半透明にもならない。保存する値だけを本物に合わせる
+  set_board_display: (args) => {
+    if (sessionStorage.getItem('mock.failSettings')) throw '表示の設定を保存できません（Permission denied）'
+    const { alwaysOnTop, opacity } = args as { alwaysOnTop: boolean; opacity: number }
+    if (opacity < 30 || opacity > 100) throw '不透明度は30〜100%の範囲で指定してください'
+    const settings = stored('mock.settings', DEFAULT_SETTINGS)
+    store('mock.settings', {
+      ...settings,
+      board_window: { ...settings.board_window, always_on_top: alwaysOnTop, opacity },
+    })
+  },
   location_warning: () => null,
   open_library: openLibrary,
   create_library: createLibrary,
   import_paths: importPaths,
   load_gallery: loadGallery,
+  report_gallery: (args) => console.info(`report_gallery: ${args?.addable} ${args?.dialog}`),
   image_detail: imageDetail,
   // e2e が確かめられるように、開いたものをコンソールに出す
   show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),
+  open_source_url: openSourceUrl,
   set_memo: setMemo,
   set_rating: setRating,
   set_category: setCategory,
@@ -421,6 +704,32 @@ const handlers: Record<string, Handler> = {
   scan_library: scanLibrary,
   forget_images: forgetImages,
   backup_library: () => null,
+  backfill_sources: backfillSources,
+  cancel_backfill: () => {
+    backfillCancelled = true
+  },
+  list_boards: listBoards,
+  open_board: openBoard,
+  create_board: createBoard,
+  rename_board: renameBoard,
+  delete_board: deleteBoard,
+  save_board: saveBoard,
+  add_to_board: addToBoard,
+  take_board_reveal: takeBoardReveal,
+  // 元画像の状態は、e2e が sessionStorage の配置の source を書き換えて変える
+  board_sources: (args) => {
+    checkSession(args)
+    const all = boardStore().boards.flatMap((b) => [...(b.items ?? []), ...(b.removed ?? [])].map((i) => i.source))
+    return (args?.ids as number[]).map((id) => all.find((s) => s.id === id))
+  },
+  // e2e が確かめられるように、頼まれた画像をコンソールに出す。モックではウィンドウは手前に出ない
+  show_in_gallery: (args) => console.info(`gallery: ${args?.id}`),
+  show_board_window: showBoardWindow,
+  // 本物では Rust がボードの保存を待ってから閉じる。モックには閉じるウィンドウがない
+  close_board_window: () => null,
+  flush_ready: () => null,
+  // e2e が保存待ちの結果を確かめられるように、コンソールに出す
+  flush_done: (args) => console.info(`flush_done: ${args?.error ?? 'ok'}`),
   'plugin:dialog|save': (args) => `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
   // e2e が中身を確かめられるように、出したダイアログの文をコンソールに出す
   'plugin:dialog|message': (args) => console.info(`dialog: ${args?.message}`),
@@ -432,7 +741,9 @@ const handlers: Record<string, Handler> = {
 
 export function installMockIPC() {
   // ドラッグ＆ドロップは getCurrentWebview() で受けるので、ウィンドウの情報も用意する
-  mockWindows('main')
+  // ボードの画面は ?board で開く。本物では専用ウィンドウ（ラベル board）で開く
+  if (new URLSearchParams(location.search).has('board')) mockWindows('board', 'main')
+  else mockWindows('main')
   // listen と emit を IPC なしで動かす。e2e ではドロップを tauri://drag-drop の emit で起こす
   mockIPC(
     (cmd, args) => {
@@ -446,7 +757,13 @@ export function installMockIPC() {
   // e2e で読みに行ったパスを確かめられるように、パスをURLの末尾に残す
   const internals = (window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (path: string) => string } })
     .__TAURI_INTERNALS__
-  internals.convertFileSrc = (path) => `${BLANK}#${path}`
+  // 見本の写真があれば、サムネイル（hash<id>.jpg）と元の画像（ファイル名）のパスをその写真へ向ける
+  const urls = new Map(photos?.map((p, i) => [`hash${i + 1}.jpg`, p.url]))
+  for (const image of [...IMAGES, ...TRASH, ...MISSING]) {
+    const url = urls.get(`${image.hash}.jpg`)
+    if (url) urls.set(image.file_name, url)
+  }
+  internals.convertFileSrc = (path) => urls.get(path.split('/').pop()!) ?? `${BLANK}#${path}`
 }
 
 const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='

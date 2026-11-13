@@ -1,0 +1,5 @@
+{
+  "identifier": "spike",
+  "windows": ["main", "board"],
+  "permissions": ["core:default"]
+}

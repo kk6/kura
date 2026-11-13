@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { CategorySelect, TagEditor } from './Classify'
+import { useFlush } from './flush'
 import { Icon, ICONS } from './icons'
 import Status from './Status'
 import type { Category, Detail as DetailData, Image, Tag } from './galleryTypes'
@@ -28,6 +29,8 @@ type Props = {
   onMemo: (id: number, memo: string) => void
   // 選んだ画像をゴミ箱へ移す（FR-511）
   onTrash: (ids: number[]) => void
+  // 選んだ画像の「ボードに追加」。アイデアボードが OFF ならなく、ボタンを出さない（FR-711）
+  onAddToBoard?: () => void
   // 画像を Finder で選んだ状態で開く
   onReveal: (id: number) => void
   onClose: () => void
@@ -140,21 +143,42 @@ function FileName({ image, onRename }: { image: Image; onRename: Props['onRename
   )
 }
 
-// メモ（FR-411）。入力欄から離れたときに保存する
+// メモ（FR-411）。入力欄から離れたときと、閉じる・終了・切り替えの前に保存する
+// 元URLを既定のブラウザで開くリンク（FR-208）。URL は渡さず、Rust が DB の値を確かめ直して開く。
+// a 要素にしない。WebKit の右クリックメニューの「リンクを開く」で、アプリのウィンドウが外のページへ移ってしまうため
+function SourceLink({ id, url }: { id: number; url: string }) {
+  const [error, setError] = useState<string | null>(null)
+  const open = () => {
+    setError(null)
+    invoke('open_source_url', { id }).catch((e) => setError(String(e)))
+  }
+  return (
+    <>
+      <button type="button" role="link" className="detail__link" onClick={open}>
+        {url}
+      </button>
+      {error && <Status kind="error">ブラウザで開けません（{error}）</Status>}
+    </>
+  )
+}
+
 function Memo({ id, initial, onSaved }: { id: number; initial: string; onSaved: (memo: string) => void }) {
   const [saved, setSaved] = useState(initial)
   const [error, setError] = useState<string | null>(null)
-  const save = (memo: string) => {
+  const input = useRef<HTMLTextAreaElement>(null)
+  const save = async (memo: string) => {
     if (memo === saved) return
-    invoke('set_memo', { id, memo }).then(
-      () => {
-        setSaved(memo)
-        setError(null)
-        onSaved(memo)
-      },
-      (e) => setError(String(e)),
-    )
+    try {
+      await invoke('set_memo', { id, memo })
+    } catch (e) {
+      setError(String(e))
+      throw `メモを保存できません（${e}）`
+    }
+    setSaved(memo)
+    setError(null)
+    onSaved(memo)
   }
+  useFlush(() => (input.current ? save(input.current.value) : Promise.resolve()))
   return (
     <>
       <textarea
@@ -162,8 +186,10 @@ function Memo({ id, initial, onSaved }: { id: number; initial: string; onSaved: 
         autoCapitalize="off"
         id="detail-memo"
         className={error ? 'detail__memo detail__memo--error' : 'detail__memo'}
+        ref={input}
         defaultValue={initial}
-        onBlur={(e) => save(e.target.value)}
+        // 失敗は入力欄の下に出す
+        onBlur={(e) => save(e.target.value).catch(() => {})}
         aria-invalid={!!error}
         aria-describedby={error ? 'detail-memo-error' : undefined}
       />
@@ -203,6 +229,12 @@ export default function Detail(props: Props) {
       </dd>
     </>
   )
+  const add = props.onAddToBoard && (
+    <button type="button" className="button" title="ボードに追加（⇧⌘B）" onClick={props.onAddToBoard}>
+      <Icon d={ICONS.board} />
+      ボードに追加
+    </button>
+  )
   // 元に戻せるので確認は出さない
   const trash = (
     <button type="button" className="button" onClick={() => props.onTrash(ids)}>
@@ -231,7 +263,10 @@ export default function Detail(props: Props) {
         <>
           <h2 className="detail__name">{selected.length}枚を選んでいます</h2>
           <dl className="detail__fields">{classify}</dl>
-          <div className="detail__actions">{trash}</div>
+          <div className="detail__actions">
+            {add}
+            {trash}
+          </div>
         </>
       ) : (
         <>
@@ -258,8 +293,15 @@ export default function Detail(props: Props) {
           <dl className="detail__fields">
             {classify}
             <dt>元URL</dt>
-            {/* shortcut: 文字として出すだけで、ブラウザでは開けない。ダウンロード元の記録（FR-208、フェーズ2）で元URLが入るようになったら開けるようにする */}
-            <dd className="detail__url">{detail && (detail.source?.page_url ?? detail.source?.image_url ?? 'なし')}</dd>
+            {/* 開けない値（HTTP・HTTPS 以外など）はリンクにせず、文字として出す */}
+            <dd className="detail__url">
+              {detail &&
+                (detail.source?.link ? (
+                  <SourceLink key={image.id} id={image.id} url={detail.source.link} />
+                ) : (
+                  (detail.source?.page_url ?? detail.source?.image_url ?? 'なし')
+                ))}
+            </dd>
             <dt>
               <label htmlFor="detail-memo">メモ</label>
             </dt>
@@ -276,6 +318,7 @@ export default function Detail(props: Props) {
             <dd>{dateTime(image.imported_at)}</dd>
           </dl>
           <div className="detail__actions">
+            {add}
             <button type="button" className="button" onClick={() => props.onReveal(image.id)}>
               <Icon d={ICONS.folder} />
               Finderで表示

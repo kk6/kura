@@ -41,13 +41,20 @@
   border-top: var(--border);
 }
 
+/* 見つからない項目だけ、右に「一覧から外す」を並べる */
+.select__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: var(--border);
+}
+
 .select__item {
   display: flex;
   flex-direction: column;
   width: 100%;
   padding: var(--space-3);
   border: none;
-  border-bottom: var(--border);
   text-align: left;
   background: none;
   cursor: pointer;
@@ -71,4 +78,14 @@
 .select__empty {
   margin: 0;
   color: var(--color-text-sub);
+}
+
+.select__missing {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-sub);
+}
+
+.select__forget {
+  flex: none;
+  margin-right: var(--space-3);
 }

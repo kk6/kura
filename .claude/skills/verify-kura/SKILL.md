@@ -63,13 +63,13 @@ $V doctor <id>
 
 ## Drive
 
-computer-use を使う。準備：
-- `request_access` に `dev.kk6.kura`（取り込み元を Finder で見せるときは Finder も）。
-- **WKWebView の中のボタンは、背景操作（`app_click`）では押せない**（「canvas/custom view」と断られる）。画面の中を押すには `request_full_control` で全画面操作の承認をもらい、`computer_batch` を使う。承認を求める前に、どの手順のためかを利用者に1行で伝える。
-- 背景操作でできること：`app_screenshot`（AX の要約にボタン名が出る。位置確認に使う）、`app_menu`（メニューバー）。メニューは `app_menu` を優先する：
-  - `["ファイル", "ライブラリを切り替える…"]`（⌘⇧O）
+画面を操作する前に、実行環境に対応する手順を読む。操作・画面の保存・UI ツールの終了処理はこのファイルに従う。
 
-座標は毎回 `computer_batch` の `screenshot` から読む。ウインドウの位置は起動ごとに変わる。押す相手は画面の文字（ボタン名、aria-label）で探す。主な目印：
+- Claude Code：[drivers/claude.md](drivers/claude.md)
+- Codex：[drivers/codex.md](drivers/codex.md)
+
+必要な UI ツールが使えない場合は、画面操作を未検証として報告する。
+座標は直前のスクリーンショットから読み、押す相手は画面の文字（ボタン名、aria-label）で探す。主な目印：
 
 | 場所 | 目印 |
 | --- | --- |
@@ -83,12 +83,28 @@ computer-use を使う。準備：
 
 フォルダ選択のダイアログ（NSOpenPanel）は、⌘⇧G → 絶対パスを入力 → Return → 右下の「開く」（または「選択」）で選ぶ。`.claude` は隠しフォルダだが、⌘⇧G なら入れる。
 
+## 保存を失敗させる
+
+Kura は DB を排他モードで開き、開いたファイルに書き続ける。別の `sqlite3` でロックを握る方法や、`.kura/` の権限を変える方法では保存を止められない（exFAT・FAT32 は Unix の権限も持たない）。ライブラリをディスクイメージに置いて外す：
+
+```bash
+hdiutil create -size 256m -fs ExFAT -volname KURAEX <run>/kuraex.dmg   # APFS なら -fs APFS
+hdiutil attach -nobrowse <run>/kuraex.dmg
+cp -R .claude/tmp/verify-kura/template /Volumes/KURAEX/lib            # 選択画面の「ライブラリを開く」で開く
+hdiutil detach -force /Volumes/KURAEX                                  # 保存中に外す。次の保存が「保存できませんでした」になる
+hdiutil attach -nobrowse <run>/kuraex.dmg                              # つなぎ直す
+```
+
+マウント先を `.claude/tmp/verify-kura/` の下にすると（`hdiutil attach -nobrowse -mountpoint <BASE>/mnt/ex <dmg>`）、`KURA_IN_PLACE=1 $V launch <id> <BASE>/mnt/ex/lib` で選択画面を通さずにその場で開ける。`KURA_ALSO=<path>` で2つ目のライブラリを「最近使ったライブラリ」に足せる。
+
+つなぎ直してから「再試行」を押すと、Kura が DB を開き直して保存する（`app.log` に「ライブラリの DB を開き直しました」）。つなぐ前の「再試行」は「ライブラリが見つかりません」のエラーのまま。
+
 ## Evidence
 
 置き場所：`.claude/tmp/verify-kura/runs/<id>/evidence/`。`stop` してもここは消えない。
 
-- 画面：`computer_batch` に `save_to_disk: true` をつけて `screenshot` する。結果に出る `source:` のパス（`~/.claude/projects/…/tool-results/…jpg`）を `evidence/<feature>-<step>.jpg` に `cp` する。操作の前と後の両方を撮る。
-- DB：`$V db <id> "<SQL>"`（読み取り専用で開く）。例：`select id, file_name, category_id, rating, memo, deleted_at from images`。結果を `evidence/<feature>-db.txt` に保存する。
+- 画面：選択した環境の手順で、操作の前後のスクリーンショットを `evidence/<feature>-<step>.png` または `.jpg` に保存する。
+- DB：`$V db <id> "<SQL>"`（DB と WAL の写しを読む。Kura は DB を排他モードで開くので、動いている間はほかのプロセスが DB を開けない。`sqlite3` で直接開かない）。例：`select id, file_name, category_id, rating, memo, deleted_at from images`。結果を `evidence/<feature>-db.txt` に保存する。
 - ファイル：`ls -R .claude/tmp/verify-kura/runs/<id>/lib` で実ファイルの位置と名前を確かめる（カテゴリはフォルダ、ゴミ箱は `lib/.kura/trash/`）。
 - ログ：`app.log`（`stop` で `evidence/app.log` に写る）。
 
@@ -103,7 +119,7 @@ computer-use を使う。準備：
 ```bash
 $V stop <id>
 ```
-自分が起動した pid だけを止め（名前で kill しない。pid、起動時刻、実行ファイル、HOME がすべて合うときだけシグナルを送る。この run の HOME で動く Kura が残っていれば、何も消さずにエラーにする）、`home/`、`lib/`、`src/`、`app.log` を消す。`evidence/` は残す。全画面操作を使ったら `release_full_control`、最後に `app_release` を呼ぶ。失敗した試行のあとも必ず `stop` する。run のフォルダごと消すのは、証跡が要らなくなってから利用者が決める。
+自分が起動した pid だけを止め（名前で kill しない。pid、起動時刻、実行ファイル、HOME がすべて合うときだけシグナルを送る。この run の HOME で動く Kura が残っていれば、何も消さずにエラーにする）、`home/`、`lib/`、`src/`、`app.log` を消す。`evidence/` は残す。UI ツールの終了処理は、選択した環境の手順に従う。失敗した試行のあとも必ず `stop` する。run のフォルダごと消すのは、証跡が要らなくなってから利用者が決める。
 
 ## Helpers
 
@@ -111,13 +127,14 @@ $V stop <id>
 
 | コマンド | 内容 |
 | --- | --- |
-| `build` | `npm run tauri build -- --debug --bundles app` |
+| `build` | `npm run tauri build -- --debug --bundles app`。`KURA_BUILD=release` を付けるとリリース用ビルド。`launch`、`stop` なども同じ変数でリリース用の `.app` と、`debug/` の付かないアプリのデータフォルダを使う（性能の確認用） |
 | `launch <id> [empty\|template\|<lib>]` | 隔離して起動し、doctor を流す。`<lib>` は `.claude/tmp/verify-kura/` の下のライブラリだけを受け付け、run の `lib/` に複製して開く |
 | `doctor <id>` | 上の確認 |
 | `src <id> [枚数]` | 取り込み元のダミー画像を `runs/<id>/src/` に作る（`scripts/gen_dev_library.py`） |
 | `db <id> "<SQL>"` | run のライブラリの DB を読み取り専用で引く |
+| `windows <id>` | 自分が起動した Kura のウィンドウごとの層（最前面の固定で 0 以外）、不透明度（alpha）、位置と大きさ。WindowServer の値を読む |
 | `template <id>` | アプリを止め、run の `lib/` を見本として保存する |
 | `stop <id>` | 停止と後片付け。証跡は残す |
 | `real-data-mtime` | 利用者のアプリデータのファイルの更新日時（中身は読まない） |
 
-機能ごとの手順は `features/README.md` から引く。
+機能ごとの手順は `features/README.md` から引く。元URLの記録（拡張属性）を付けたダミー画像は `uv run scripts/gen_source_urls.py <出力先>` で作る（features/source-url.md）。

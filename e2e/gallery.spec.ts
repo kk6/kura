@@ -11,7 +11,7 @@ test('起動時に前回のライブラリが見つからなければ、選択�
   await expect(screen.getByRole('alert')).toHaveText(
     'エラー：ライブラリが見つかりません（/Volumes/外付けSSD/参考資料）',
   )
-  await expect(screen.getByRole('button', { name: /参考資料/ })).toBeVisible()
+  await expect(screen.getByRole('button', { name: /^参考資料 / })).toBeVisible()
   await expect(screen.getByRole('button', { name: /Kura ライブラリ/ })).toBeVisible()
   expect(errors).toEqual([])
 
@@ -20,9 +20,23 @@ test('起動時に前回のライブラリが見つからなければ、選択�
 
 test('見つからないライブラリを一覧から開いても、選択画面のまま見つからないと出す', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: /参考資料/ }).click()
+  await page.getByRole('button', { name: /^参考資料 / }).click()
   await expect(page.getByRole('alert')).toContainText('見つかりません')
   await expect(page.getByRole('banner')).toHaveCount(0)
+})
+
+test('見つからないライブラリだけに「一覧から外す」を出し、押すと確認なしで一覧から消える', async ({ page }) => {
+  await page.goto('/')
+  const screen = page.getByRole('main', { name: 'ライブラリ選択' })
+  await expect(screen.getByRole('button', { name: /^参考資料 .*見つかりません/ })).toBeVisible()
+  await expect(screen.getByRole('button', { name: /一覧から外す/ })).toHaveCount(1)
+  await page.screenshot({ path: 'test-results/library-forget.png' })
+
+  await screen.getByRole('button', { name: '参考資料を一覧から外す' }).click()
+
+  await expect(screen.getByRole('button', { name: /^参考資料 / })).toHaveCount(0)
+  await expect(screen.getByRole('button', { name: /Kura ライブラリ/ })).toBeVisible()
+  await expect(screen.getByRole('dialog')).toHaveCount(0)
 })
 
 test('ライブラリを新しく作るとギャラリー画面を出す', async ({ page }) => {
@@ -91,6 +105,15 @@ test('フォルダを取り込むと、ステータスバーに進み具合と�
   await expect(dialog).toContainText('注意：対応していない形式です')
   await expect(dialog).toContainText('エラー：取り込めませんでした（画像を読めません')
   await page.screenshot({ path: 'test-results/import-skipped.png' })
+  await page.keyboard.press('Escape')
+
+  // 取り込めたが元URLを全部は保存できなかった画像は、スキップとは別に数えて一覧を出す（FR-208）
+  await status.getByRole('button', { name: '注意：元URLの注意 2件' }).click()
+  const notes = page.getByRole('dialog', { name: '元URLの注意（2枚）' })
+  await expect(notes.getByRole('listitem')).toHaveCount(2)
+  await expect(notes).toContainText('ref_00020.jpg')
+  await expect(notes).toContainText('注意：ダウンロード元の記録を解析できません')
+  await expect(notes).toContainText('注意：ダウンロード元の記録の画像URLが不正なため、掲載ページURLだけを保存しました')
 
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
@@ -134,6 +157,13 @@ test('ライブラリを切り替えると選択画面に戻り、入力中の�
   await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
   await page.keyboard.press('Escape')
   await memo.click()
+
+  // メモを保存できなければ切り替えず、入力欄の下とステータスバーにエラーを出す
+  await memo.fill('失敗するメモ')
+  await switchLibrary(page)
+  await expect(page.getByRole('contentinfo')).toContainText('メモを保存できないため、ライブラリを切り替えられません')
+  await expect(page.getByRole('complementary', { name: '詳細' })).toContainText('エラー：メモを保存できません')
+  await memo.fill('切り替える前に書いたメモ')
 
   await switchLibrary(page)
   const screen = page.getByRole('main', { name: 'ライブラリ選択' })
@@ -222,6 +252,41 @@ test('一番下までスクロールしても、表示範囲のサムネイル�
   await page.screenshot({ path: 'test-results/gallery-bottom.png' })
 })
 
+test('詳細パネルでタグやメモを変えても一覧のスクロールは先頭に戻らず、並べ替えると先頭に戻る', async ({ page }) => {
+  await openGallery(page)
+  const list = page.getByRole('main', { name: '画像の一覧' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  await list.evaluate((el) => (el.scrollTop = 3000))
+  const scrolled = () => list.evaluate((el) => el.scrollTop)
+  await expect.poll(scrolled).toBe(3000)
+
+  // 一覧の枠の中ほどに見えているサムネイルを選ぶ
+  const at = await list.evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    const img = Array.from(el.querySelectorAll('img')).find((i) => {
+      const r = i.getBoundingClientRect()
+      return r.top > box.top + 100 && r.bottom < box.bottom - 100
+    })!
+    const r = img.getBoundingClientRect()
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+  })
+  await page.mouse.click(at.x, at.y)
+  await expect(detail.getByRole('heading')).not.toHaveText(/枚を選んでいます/)
+
+  const tagInput = detail.getByRole('combobox', { name: 'タグ' })
+  await tagInput.fill('スクロール確認')
+  await tagInput.press('Enter')
+  await expect(detail.locator('.tag')).toContainText(['スクロール確認'])
+  const memo = detail.getByRole('textbox', { name: 'メモ' })
+  await memo.fill('メモ')
+  await memo.blur()
+  await expect(page.getByRole('contentinfo')).not.toContainText('エラー')
+  expect(await scrolled()).toBe(3000)
+
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  await expect.poll(scrolled).toBe(0)
+})
+
 test('スライダーでサムネイルを小さくすると列が増え、大きさは開き直しても残る', async ({ page }) => {
   await openGallery(page)
   const before = await columnCount(page)
@@ -293,6 +358,40 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   await expect(category.locator('option:checked')).toHaveText('ポーズ / 座り')
   await expect(detail).toContainText('タグなし元URLなし')
   expect(errors).toEqual([])
+})
+
+test('詳細パネルの元URLはリンクになり、押すと既定のブラウザへ渡し、開けない値はリンクにしない（FR-208）', async ({
+  page,
+}) => {
+  const opened: string[] = []
+  page.on('console', (m) => m.text().startsWith('browser: ') && opened.push(m.text()))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  // 掲載ページURLを優先して出し、押すと確認なしで開く
+  await thumb(page, 1).click()
+  await detail.getByRole('link', { name: 'https://example.com/gallery/pose' }).click()
+  await expect.poll(() => opened).toEqual(['browser: https://example.com/gallery/pose'])
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  // 掲載ページURLがなければ画像URLを出す。開けなかったら、詳細パネルにエラーを出す
+  await thumb(page, 3).click()
+  await detail.getByRole('link', { name: 'https://example.com/images/ref_00003.jpg' }).click()
+  await expect(detail).toContainText('エラー：ブラウザで開けません（exit status: 1）')
+  await page.screenshot({ path: 'test-results/detail-source-url.png' })
+
+  // 別の画像へ移ったら、前の画像のエラーを残さない。HTTP・HTTPS 以外の値は文字として出すだけにする
+  await thumb(page, 4).click()
+  await expect(detail).toContainText('元URLftp://example.com/images/ref_00004.jpg')
+  await expect(detail).not.toContainText('ブラウザで開けません')
+  await expect(detail.getByRole('link')).toHaveCount(0)
+
+  // 元URLがなければ「なし」
+  await thumb(page, 2).click()
+  await expect(detail).toContainText('元URLなし')
+  await expect(detail.getByRole('link')).toHaveCount(0)
+  expect(opened).toHaveLength(1)
 })
 
 test('詳細パネルは滑り出てから外れ、滑り出る間はフォーカスを受けない。動きを減らす設定ではすぐ切り替える', async ({
@@ -1212,6 +1311,23 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
   expect(errors).toEqual([])
 })
 
+test('選んでいた「見つからない」の画像が差分確認で戻ると、その一覧での選択を外す', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const status = page.getByRole('contentinfo')
+  await expect(status).toContainText('注意：見つからない画像 2枚')
+  await sidebar.getByRole('button', { name: /^見つからない/ }).click()
+  const panel = page.getByRole('complementary', { name: '見つからない画像' })
+  await page.getByRole('main', { name: '画像の一覧' }).getByAltText('missing_1.jpg').click()
+  await expect(panel.getByRole('heading')).toHaveText('missing_1.jpg')
+
+  await page.evaluate(() => sessionStorage.setItem('mock.returnMissing', '1'))
+  await sidebar.getByRole('button', { name: '差分を確認' }).click()
+  await expect(thumbs(page)).toHaveCount(1)
+  await expect(panel.getByRole('heading')).toHaveText('見つからない画像')
+})
+
 test('開いた後に差分を確認して結果を出し、見つからない画像を開いて確かめてから一覧から外す', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -1235,6 +1351,11 @@ test('開いた後に差分を確認して結果を出し、見つからない�
   await expect(missingItem).toContainText('2')
   await status.getByRole('button', { name: /スキップ 1枚/ }).click()
   await expect(page.getByRole('dialog', { name: '登録しなかったファイル（1件）' })).toContainText('メモ.txt')
+  await page.keyboard.press('Escape')
+  await status.getByRole('button', { name: '注意：元URLの注意 1件' }).click()
+  await expect(page.getByRole('dialog', { name: '元URLの注意（1枚）' })).toContainText(
+    '注意：ダウンロード元の記録に、保存できるURLがありません',
+  )
   await page.keyboard.press('Escape')
   await page.screenshot({ path: 'test-results/scan.png' })
 

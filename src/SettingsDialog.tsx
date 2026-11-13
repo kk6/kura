@@ -2,19 +2,34 @@ import { invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
 import { useEffect, useRef, useState } from 'react'
 import type { Settings } from './galleryTypes'
+import type { Backfill, BackfillCounts } from './importTypes'
 import Status from './Status'
+import { Progress } from './StatusbarResult'
 import './SkipDialog.css'
+
+const backfillSummary = (c: BackfillCounts) =>
+  `${c.cancelled ? '中断しました。' : ''}補完 ${c.filled}枚、記録なし ${c.none}枚、読み取り失敗 ${c.failed}枚、対象外 ${c.excluded}枚`
 
 // 設定ダイアログ（NFR-07）。サムネイルの大きさは一覧のスライダーの値を覚えるので、ここには置かない
 export default function SettingsDialog({
   root,
   settings,
   onSettings,
+  backfill,
+  busy,
+  onBackfill,
+  onCancelBackfill,
   onClose,
 }: {
   root: string
   settings: Settings
   onSettings: (next: Partial<Settings>) => void
+  // 元URLの補完（FR-208）。補完はギャラリーが持つので、ダイアログを閉じても続き、開き直すと進み具合を出す
+  backfill: Backfill | null
+  // 取り込みか差分検出の途中。その間は補完を始められない
+  busy: boolean
+  onBackfill: () => void
+  onCancelBackfill: () => void
   onClose: () => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -47,6 +62,41 @@ export default function SettingsDialog({
         />
         サイドバーでカテゴリを移すときに確認する
       </label>
+      <h3 className="dialog__section">アイデアボード</h3>
+      <label className="dialog__check">
+        <input
+          type="checkbox"
+          checked={settings.board_enabled}
+          onChange={(e) => onSettings({ board_enabled: e.target.checked })}
+        />
+        アイデアボードを使う
+      </label>
+      <p>オフにするとボタンとメニューが消え、開いているボードは閉じます。作ったボードは消えません。</p>
+      <h3 className="dialog__section">元URL</h3>
+      <p>
+        元URLがまだない画像について、ブラウザが残したダウンロード元の記録を読み、元URLとして登録します。読むのはライブラリの中のファイルだけです。登録済みの元URLは変えません。
+      </p>
+      <div className="dialog__row">
+        <button type="button" className="button" disabled={busy || backfill?.running} onClick={onBackfill}>
+          元URLを補完
+        </button>
+        {backfill?.running && (
+          <button type="button" className="button" onClick={onCancelBackfill}>
+            中断
+          </button>
+        )}
+      </div>
+      {busy && !backfill?.running && <p>取り込みか Finder での変更の反映が終わってから補完できます。</p>}
+      {backfill?.running && (
+        <p className="dialog__row" role="status">
+          {backfill.counts ? `補完中 ${backfill.counts.done} / ${backfill.counts.total}枚` : '補完する画像を確認中…'}
+          <Progress label="元URLを補完する進み具合" value={backfill.counts ?? { done: 0, total: 0 }} />
+        </p>
+      )}
+      {backfill && !backfill.running && backfill.counts && (
+        <Status kind={backfill.counts.cancelled ? 'info' : 'success'}>{backfillSummary(backfill.counts)}</Status>
+      )}
+      {backfill?.error && <Status kind="error">{backfill.error}</Status>}
       <h3 className="dialog__section">バックアップ</h3>
       <p>ライブラリの管理情報（カテゴリ、タグ、メモなど）を1つのファイルに書き出します。画像ファイルは含みません。</p>
       <div>

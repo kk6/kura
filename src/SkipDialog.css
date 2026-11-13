@@ -81,6 +81,13 @@
 }
 
 /* 設定ダイアログの区切りの見出し */
+/* ボタンや進み具合のバーを横に並べる */
+.dialog__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .dialog__section {
   margin: var(--space-5) 0 var(--space-1);
   font-size: var(--font-size-md);

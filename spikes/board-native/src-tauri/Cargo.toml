@@ -1,0 +1,11 @@
+[package]
+name = "kura-board-native-spike"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWindow"] }

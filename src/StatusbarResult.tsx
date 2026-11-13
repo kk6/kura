@@ -1,5 +1,5 @@
 import Status from './Status'
-import type { ImportProgress, Report, ScanReport, Skipped } from './importTypes'
+import type { BackfillCounts, ImportProgress, Report, ScanReport, Skipped, SourceNote } from './importTypes'
 
 // ステータスバーに出す一括操作の結果
 export type Failed = { file_name: string; message: string }[]
@@ -17,6 +17,8 @@ export type Result =
   | { kind: 'restored'; count: number; uncategorized: number; failed: Failed }
 
 type Props = {
+  // 元URLの補完（FR-208）の途中なら、その進み具合。補完の間は取り込みと差分検出が待つので、こちらを先に出す
+  backfill: { counts: BackfillCounts | null } | null
   // 差分検出と取り込みの進み具合。どちらかがあれば、結果ではなく進み具合を出す
   scanning: ImportProgress | null
   progress: ImportProgress | null
@@ -24,23 +26,28 @@ type Props = {
   // 移せなかった画像かスキップしたファイルの一覧を開く
   onShowFailed: () => void
   onShowMissing: () => void
+  // 元URLの注意の一覧を開く（FR-208）
+  onShowNotes: () => void
 }
 
-export default function StatusbarResult({ scanning, progress, result, onShowFailed, onShowMissing }: Props) {
+export default function StatusbarResult(props: Props) {
   return (
     <span className="statusbar__import" role="status">
-      <Content
-        scanning={scanning}
-        progress={progress}
-        result={result}
-        onShowFailed={onShowFailed}
-        onShowMissing={onShowMissing}
-      />
+      <Content {...props} />
     </span>
   )
 }
 
-function Content({ scanning, progress, result, onShowFailed, onShowMissing }: Props) {
+function Content({ backfill, scanning, progress, result, onShowFailed, onShowMissing, onShowNotes }: Props) {
+  if (backfill) {
+    const c = backfill.counts
+    return (
+      <>
+        {c ? `元URLを補完中 ${c.done} / ${c.total}枚` : '元URLを補完する画像を確認中…'}
+        <Progress label="元URLを補完する進み具合" value={c ?? { done: 0, total: 0 }} />
+      </>
+    )
+  }
   const now = scanning ?? progress
   if (now) {
     return (
@@ -94,6 +101,7 @@ function Content({ scanning, progress, result, onShowFailed, onShowMissing }: Pr
             </button>
           )}
           <SkippedLinks skipped={result.report.skipped} errorLabel="登録できない" onShow={onShowFailed} />
+          <NotesLink notes={result.report.source_notes} onShow={onShowNotes} />
         </>
       )
     case 'report':
@@ -102,6 +110,7 @@ function Content({ scanning, progress, result, onShowFailed, onShowMissing }: Pr
           <Status kind="success">取り込み {result.report.added}枚</Status>
           {result.report.moved > 0 && <Status kind="success">未分類から移した {result.report.moved}枚</Status>}
           <SkippedLinks skipped={result.report.skipped} errorLabel="取り込めない" onShow={onShowFailed} />
+          <NotesLink notes={result.report.source_notes} onShow={onShowNotes} />
         </>
       )
     default:
@@ -143,6 +152,14 @@ function SkippedLinks({ skipped, errorLabel, onShow }: { skipped: Skipped[]; err
   )
 }
 
+// 画像は登録できているので、スキップやエラーとは別に数える
+const NotesLink = ({ notes, onShow }: { notes: SourceNote[]; onShow: () => void }) =>
+  notes.length > 0 && (
+    <button type="button" className="statusbar__link" onClick={onShow}>
+      <Status kind="warning">元URLの注意 {notes.length}件</Status>
+    </button>
+  )
+
 const TRASH_DONE = {
   trashed: 'ゴミ箱へ移した',
   restored: '元に戻した',
@@ -166,7 +183,7 @@ function scanSummary(r: ScanReport) {
 }
 
 // 数え終わるまで（total が0の間）は、バーを空のまま出す
-const Progress = ({ label, value }: { label: string; value: ImportProgress }) => (
+export const Progress = ({ label, value }: { label: string; value: ImportProgress }) => (
   <span
     className="progress"
     role="progressbar"

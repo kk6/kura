@@ -92,11 +92,87 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE images ADD COLUMN category_deleted INTEGER NOT NULL DEFAULT 0",
     // サイドバーで閉じたカテゴリ（FR-503）。カテゴリと一緒に消え、ライブラリを移しても DB のバックアップ（NFR-07）でも残る
     "ALTER TABLE categories ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE boards(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        name_key TEXT NOT NULL UNIQUE,
+        viewport_x REAL NOT NULL DEFAULT 0,
+        viewport_y REAL NOT NULL DEFAULT 0,
+        viewport_scale REAL NOT NULL DEFAULT 1 CHECK(viewport_scale > 0),
+        updated_at INTEGER NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0)
+    );
+    CREATE TABLE board_sources(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        image_id INTEGER UNIQUE REFERENCES images(id) ON DELETE SET NULL,
+        file_name TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL
+    );
+    INSERT INTO board_sources(image_id, file_name, width, height)
+        SELECT id, file_name, width, height FROM images ORDER BY id;
+    CREATE TRIGGER board_source_insert AFTER INSERT ON images BEGIN
+        INSERT INTO board_sources(image_id, file_name, width, height)
+        VALUES (NEW.id, NEW.file_name, NEW.width, NEW.height);
+    END;
+    CREATE TRIGGER board_source_update AFTER UPDATE OF file_name, width, height ON images BEGIN
+        UPDATE board_sources SET file_name = NEW.file_name, width = NEW.width, height = NEW.height
+        WHERE image_id = OLD.id;
+    END;
+    CREATE TRIGGER board_source_delete BEFORE DELETE ON images BEGIN
+        UPDATE board_sources SET image_id = NULL, file_name = OLD.file_name,
+            width = OLD.width, height = OLD.height WHERE image_id = OLD.id;
+    END;
+    CREATE TABLE board_items(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+        source_id INTEGER NOT NULL REFERENCES board_sources(id),
+        active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0, 1)),
+        width REAL NOT NULL CHECK(width > 0),
+        height REAL NOT NULL CHECK(height > 0),
+        x REAL NOT NULL,
+        y REAL NOT NULL,
+        scale REAL NOT NULL CHECK(scale > 0),
+        rotation REAL NOT NULL,
+        flipped INTEGER NOT NULL CHECK(flipped IN (0, 1)),
+        grayscale INTEGER NOT NULL CHECK(grayscale IN (0, 1)),
+        crop_x REAL,
+        crop_y REAL,
+        crop_width REAL,
+        crop_height REAL,
+        stack_order INTEGER NOT NULL,
+        CHECK((crop_x IS NULL AND crop_y IS NULL AND crop_width IS NULL AND crop_height IS NULL)
+           OR (crop_x IS NOT NULL AND crop_y IS NOT NULL AND crop_width IS NOT NULL AND crop_height IS NOT NULL
+               AND crop_x >= 0 AND crop_y >= 0 AND crop_width > 0 AND crop_height > 0
+               AND crop_x + crop_width <= 1 AND crop_y + crop_height <= 1))
+    );
+    CREATE INDEX board_items_board ON board_items(board_id, active, stack_order, id);
+    CREATE TABLE board_state(
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        last_board_id INTEGER REFERENCES boards(id) ON DELETE SET NULL
+    );
+    INSERT INTO board_state(id) VALUES (1)",
+    // ダウンロード元の記録（FR-208）は、画像URLが不正で掲載ページURLだけが有効なことがある。
+    // SQLite は列の NOT NULL を外せないので、表を作り直す
+    "CREATE TABLE image_sources_new(
+        image_id INTEGER PRIMARY KEY REFERENCES images(id),
+        image_url TEXT,
+        page_url TEXT,
+        fetched_at INTEGER NOT NULL,
+        CHECK(image_url IS NOT NULL OR page_url IS NOT NULL)
+    );
+    INSERT INTO image_sources_new SELECT image_id, image_url, page_url, fetched_at FROM image_sources;
+    DROP TABLE image_sources;
+    ALTER TABLE image_sources_new RENAME TO image_sources",
 ];
 
 pub struct Library {
     pub root: PathBuf,
     pub conn: Connection,
+    pub(crate) board_session: crate::board::Session,
+    /// 接続がディスクの I/O エラーで使えなくなったか。外付けドライブが外れると、つなぎ直しても
+    /// 開いていた接続は戻らないので、次に使う前に開き直す
+    broken: bool,
 }
 
 pub(crate) fn err(e: impl Display) -> String {
@@ -146,13 +222,25 @@ pub fn open(root: &Path) -> Result<Library, String> {
 
 fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
     let mut conn = Connection::open(root.join(KURA_DIR).join("kura.db")).map_err(err)?;
+    // 排他モードは WAL を使い始める前に設定したときだけ、共有メモリ（-shm の mmap）の代わりにヒープを使う。
+    // mmap だと外付けドライブが外れたときに読み取りでプロセスが落ちる（SIGBUS）ため。
     // WAL：取り込み中も一覧を読めるようにするため。FULL：電源断でも直前のコミットを失わないため
-    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")
-        .map_err(err)?;
+    conn.execute_batch(
+        "PRAGMA locking_mode = EXCLUSIVE; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
+    )
+    .map_err(|e| match e.sqlite_error_code() {
+        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) => {
+            "このライブラリは、ほかの Kura が開いています。そちらを閉じてから開き直してください"
+                .into()
+        }
+        _ => err(e),
+    })?;
     migrate(&mut conn, migrations, &root.join(BACKUP_DIR))?;
     let mut lib = Library {
         root: root.to_path_buf(),
         conn,
+        board_session: crate::board::Session::new(),
+        broken: false,
     };
     for op in fileops::recover(&mut lib, &apply_op)? {
         // shortcut: ログに残すだけで画面には出さない。不整合を画面に出す差分検出（FR-104）で利用者に知らせる
@@ -272,12 +360,46 @@ impl Access for Mutex<Option<Library>> {
     fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
         // 途中で panic しても DB はトランザクションで、ファイルの移動は pending_ops で整合が保たれるので、
         // poison を理由に以後のコマンドをすべて止めずに使い続ける
-        f(self
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_mut()
-            .ok_or("ライブラリを開いていません")?)
+        let mut guard = self.lock().unwrap_or_else(PoisonError::into_inner);
+        let lib = guard.as_mut().ok_or("ライブラリを開いていません")?;
+        if lib.broken {
+            reconnect(lib)?;
+        }
+        f(lib).map_err(|e| {
+            if !io_failure(&e) {
+                return e;
+            }
+            lib.broken = true;
+            // SQLite の「database disk image is malformed」などは DB が壊れたように読めるので、画面には出さない
+            log::warn!("ライブラリの DB を読み書きできません：{e}");
+            "ライブラリのドライブを読めません。ドライブをつなぎ直してから、もう一度試してください"
+                .into()
+        })
     }
+}
+
+/// 接続が使えなくなったことを示す SQLite のエラー。エラーはここへ文字列で届くので、SQLite の決まった文言で見分ける。
+/// 排他モードの接続はページを使い回すので、失敗の後に読み直して確かめる方法では見分けられない
+fn io_failure(message: &str) -> bool {
+    [
+        "disk I/O error",
+        "database disk image is malformed",
+        "unable to open database file",
+        "file is not a database",
+    ]
+    .iter()
+    .any(|m| message.contains(m))
+}
+
+/// 同じライブラリの DB を開き直す。ボードの編集（セッションと編集トークン、保存済みの revision）はそのまま残し、
+/// 外れていた間の編集を続けて保存できるようにする。DB の中身が変わっていれば、保存の revision の確かめで断られる
+fn reconnect(lib: &mut Library) -> Result<(), String> {
+    // 排他ロックを外すため、開く前に古い接続を閉じる。開けなければ壊れたままにし、次の操作で開き直す
+    lib.conn = Connection::open_in_memory().map_err(err)?;
+    lib.conn = open(&lib.root)?.conn;
+    lib.broken = false;
+    log::info!("ライブラリの DB を開き直しました：{}", lib.root.display());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -398,6 +520,35 @@ mod tests {
     }
 
     #[test]
+    fn 排他モードで開き書き込んでも共有メモリのファイルを作らない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = create(dir.path()).unwrap();
+        lib.conn
+            .execute("INSERT INTO tags(name) VALUES ('t')", [])
+            .unwrap();
+
+        let mode: String = lib
+            .conn
+            .query_row("PRAGMA locking_mode", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mode, "exclusive");
+        assert!(dir.path().join(".kura/kura.db-wal").is_file());
+        assert!(!dir.path().join(".kura/kura.db-shm").exists());
+    }
+
+    #[test]
+    fn 開いている間は同じライブラリをもう一度開けず閉じれば開ける() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = create(dir.path()).unwrap();
+
+        let e = open(dir.path()).err().unwrap();
+        assert!(e.contains("ほかの Kura"), "{e}");
+
+        drop(lib);
+        open(dir.path()).unwrap();
+    }
+
+    #[test]
     fn ds_storeだけのフォルダにもライブラリを作れる() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(".DS_Store"), b"").unwrap();
@@ -472,6 +623,70 @@ mod tests {
 
         assert!(err.contains("ライブラリではありません"), "{err}");
         assert_eq!(entries(dir.path()), ["a.jpg"]);
+    }
+
+    #[test]
+    fn 元urlは掲載ページurlだけでも保存できどちらもない行は保存できない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = create(dir.path()).unwrap();
+        let image = crate::category::tests::put(&lib, None, "a.png", "a");
+        let insert = |image_url: Option<&str>, page_url: Option<&str>| {
+            lib.conn.execute(
+                "INSERT INTO image_sources(image_id, image_url, page_url, fetched_at) VALUES (?1, ?2, ?3, 1)",
+                rusqlite::params![image, image_url, page_url],
+            )
+        };
+        assert!(insert(None, None).is_err());
+        insert(None, Some("https://example.test/")).unwrap();
+    }
+
+    #[test]
+    fn フェーズ1のdbを移行しても画像とカテゴリとタグと元urlを残す() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut lib = create_with(dir.path(), &MIGRATIONS[..7]).unwrap();
+        let category = crate::category::create(&mut lib, None, "服飾").unwrap();
+        crate::category::set_collapsed(&lib, &[category], true).unwrap();
+        let image = crate::category::tests::put(&lib, Some(category), "参考.png", "画像の内容");
+        crate::tag::add(&mut lib, &[image], "資料").unwrap();
+        lib.conn
+            .execute(
+                "UPDATE images SET memo = '覚え書き', rating = 4 WHERE id = ?1",
+                [image],
+            )
+            .unwrap();
+        lib.conn.execute("INSERT INTO image_sources(image_id, image_url, page_url, fetched_at) VALUES (?1, 'https://example.test/image', NULL, 123)", [image]).unwrap();
+        assert_eq!(user_version(&lib.conn), 7);
+        drop(lib);
+        let lib = open(dir.path()).unwrap();
+        assert_eq!(user_version(&lib.conn), MIGRATIONS.len() as i64);
+        assert_eq!(
+            crate::category::tests::row(&lib, image),
+            ("参考.png".into(), Some(category))
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("服飾/参考.png")).unwrap(),
+            "画像の内容"
+        );
+        assert_eq!(crate::tag::of(&lib, &[image]).unwrap()[0].name, "資料");
+        let metadata: (String, i64, String) = lib.conn.query_row(
+            "SELECT memo, rating, image_url FROM images JOIN image_sources ON image_id = images.id WHERE images.id = ?1",
+            [image], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ).unwrap();
+        assert_eq!(
+            metadata,
+            ("覚え書き".into(), 4, "https://example.test/image".into())
+        );
+        let s = crate::board::session(&lib);
+        assert!(crate::board::list(&lib, s).unwrap().boards.is_empty());
+        assert!(crate::board::last(&lib, s).unwrap().is_none());
+        let sources = crate::board::sources(&lib, s, &[image]).unwrap();
+        assert_eq!(sources[0].file_name, "参考.png");
+        drop(lib);
+        let lib = open(dir.path()).unwrap();
+        assert_eq!(
+            crate::board::sources(&lib, crate::board::session(&lib), &[image]).unwrap(),
+            sources
+        );
     }
 
     #[test]

@@ -1,0 +1,625 @@
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import ConfirmDialog from '../ConfirmDialog'
+import { Icon, ICONS } from '../icons'
+import { useFlush } from '../flush'
+import Status from '../Status'
+import Canvas from './Canvas'
+import NameDialog from './NameDialog'
+import { defaultName } from './names'
+import { saveQueue, type SaveState } from './saveQueue'
+import { restack, type Restack } from './stack'
+import type { BoardDisplay, Settings } from '../galleryTypes'
+import type {
+  Added,
+  BoardSummary,
+  Boards,
+  Edit,
+  EditingBoard,
+  Geometry,
+  Item,
+  Snapshot,
+  Source,
+  Viewport,
+} from './types'
+import './Board.css'
+
+// 開いたボード。ボードがなければ「ボードを作成」、最後のボードが削除済みなら選択画面（FR-701）
+type View = { kind: 'loading' } | { kind: 'empty' } | { kind: 'choose' } | { kind: 'board'; board: EditingBoard }
+type Dialog = 'create' | 'rename' | 'delete' | null
+// 取り消し・やり直しで戻す先。配置を変える前の配置と選択
+type Moment = { items: Item[]; selected: Set<number> }
+
+// 表示の位置と倍率は、操作が止まってこれだけ経ったら保存する（FR-704）。ホイール1刻みごとには保存しない
+const VIEW_SETTLE = 300
+
+// 不透明度の範囲（FR-707）。src-tauri/src/settings.rs の OPACITY と同じ
+const OPACITY_MIN = 30
+const OPACITY_MAX = 100
+
+// 画像を出す配置の画像 ID。ゴミ箱・見つからない・削除された画像は枠だけなので含めない
+const shownImages = (items: Item[]) => [
+  ...new Set(items.filter((i) => i.source.status === 'available').map((i) => i.source.image_id!)),
+]
+
+// 画像 ID から元画像のパス。読めなかった画像は空のパスにする
+const locate = async (ids: number[]): Promise<Record<number, string>> =>
+  Object.fromEntries(
+    await Promise.all(
+      ids.map((id) =>
+        invoke<{ path: string }>('image_detail', { id }).then(
+          (d) => [id, d.path] as const,
+          () => [id, ''] as const,
+        ),
+      ),
+    ),
+  )
+
+// アイデアボードの専用ウィンドウ。ギャラリーの画面とは別に、開くときに読み込む（FR-711）
+export default function BoardApp() {
+  const [session, setSession] = useState(0)
+  const [boards, setBoards] = useState<BoardSummary[]>([])
+  const [view, setView] = useState<View>({ kind: 'loading' })
+  const [dialog, setDialog] = useState<Dialog>(null)
+  const [error, setError] = useState<string | null>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 })
+  // 画面に描く前の、最新の表示。続けて届くホイールと、保存に使う
+  const viewNow = useRef(viewport)
+  // 表示の保存を待っているタイマー
+  const viewTimer = useRef<number>(undefined)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  // 追加した配置。キャンバスがこれを全部見える表示にしたら null に戻す
+  const [fit, setFit] = useState<number[] | null>(null)
+  const fitted = useCallback(() => setFit(null), [])
+  // 画像 ID から元画像のパス
+  const [paths, setPaths] = useState<Record<number, string>>({})
+  // 最後に保存できた revision。次の保存はこれより1つ大きい値で送る。失敗では進めない
+  const revision = useRef(0)
+  const [save, setSave] = useState<SaveState>({ kind: 'saved' })
+  const queue = useRef(
+    saveQueue<{ edit: Edit; snapshot: Snapshot }>(async ({ edit, snapshot }) => {
+      const saved = await invoke<EditingBoard>('save_board', { edit, revision: revision.current + 1, snapshot })
+      revision.current = saved.board.revision
+      // 取り消しで戻した配置は、外したときの画像の状態を持っている。その間に画像が削除されていたら、
+      // Rust が DB から返した状態に合わせて枠にする。配置は、保存中に重ねた変更を消さないよう画面のままにする
+      const sources = new Map(saved.board.items.map((i) => [i.id, i.source]))
+      const stale = (i: Item) => sources.has(i.id) && sources.get(i.id)!.status !== i.source.status
+      setView((v) =>
+        v.kind === 'board' && v.board.board.id === saved.board.id && v.board.board.items.some(stale)
+          ? {
+              kind: 'board',
+              board: {
+                ...v.board,
+                board: {
+                  ...v.board.board,
+                  items: v.board.board.items.map((i) => (stale(i) ? { ...i, source: sources.get(i.id)! } : i)),
+                },
+              },
+            }
+          : v,
+      )
+    }, setSave),
+  ).current
+  // 閉じる・終了・追加の保存待ちの間（held）と、追加の後に開き直す間（revealing）は編集を受け付けない。
+  // 受け付けると、Rust が保存を確かめた後の変更が、閉じたボードや終わった編集へ送られて消える
+  const held = useRef(false)
+  const revealing = useRef(0)
+  const locked = useCallback(() => held.current || revealing.current > 0, [])
+  // 取り消し・やり直しの履歴（FR-702）。今のボードを開いている間だけ持ち、ボードを切り替えると捨てる。
+  // ウィンドウを閉じると画面ごと破棄されるので、そこでも残らない
+  const history = useRef<{ past: Moment[]; future: Moment[] }>({ past: [], future: [] })
+  useFlush(async () => {
+    settleView()
+    held.current = true
+    await queue.flush()
+  })
+
+  // ウィンドウの表示（FR-705、FR-707）。Rust が保存してウィンドウに当て終えた値を applied に持ち、
+  // 失敗したら画面をそこへ戻す。スライダーを動かす間は続けて届くので、配置と同じく1つずつ送る
+  const [display, setDisplay] = useState<BoardDisplay>({ always_on_top: false, opacity: OPACITY_MAX })
+  const applied = useRef(display)
+  const displayQueue = useRef(
+    saveQueue<BoardDisplay>(
+      async (next) => {
+        await invoke('set_board_display', { alwaysOnTop: next.always_on_top, opacity: next.opacity })
+        applied.current = next
+        setError(null)
+      },
+      (state) => {
+        if (state.kind !== 'failed') return
+        displayQueue.clear()
+        setDisplay(applied.current)
+        setError(state.error)
+      },
+    ),
+  ).current
+  function changeDisplay(change: Partial<BoardDisplay>) {
+    const next = { ...display, ...change }
+    setDisplay(next)
+    displayQueue.push(next)
+  }
+
+  const current = view.kind === 'board' ? view.board.board : null
+  const latest = useRef(view)
+  latest.current = view
+
+  // 配置と表示をまとめて保存のキューに入れる。表示だけの保存を待っていたら、ここに含めて取り消す
+  function commit(edit: Edit, items: Item[]) {
+    clearTimeout(viewTimer.current)
+    viewTimer.current = undefined
+    queue.push({
+      edit,
+      snapshot: {
+        viewport: viewNow.current,
+        items: items.map((i) => ({ id: i.id, source_id: i.source.id, geometry: i.geometry })),
+      },
+    })
+  }
+
+  // 待っている表示の保存を、今キューに入れる。閉じる・切り替えの前の保存待ちに含めるため
+  function settleView() {
+    if (viewTimer.current === undefined) return
+    const v = latest.current
+    if (v.kind === 'board') commit(v.board.edit, v.board.board.items)
+  }
+  const settleRef = useRef(settleView)
+  settleRef.current = settleView
+
+  // 表示の位置と倍率を変える（FR-703）。保存は、操作が止まってから1度だけ送る
+  const look = useCallback(
+    (update: (viewport: Viewport) => Viewport) => {
+      if (locked()) return
+      viewNow.current = update(viewNow.current)
+      setViewport(viewNow.current)
+      clearTimeout(viewTimer.current)
+      viewTimer.current = window.setTimeout(() => settleRef.current(), VIEW_SETTLE)
+    },
+    [locked],
+  )
+  // ウィンドウを破棄するときに、タイマーを残さない
+  useEffect(() => () => clearTimeout(viewTimer.current), [])
+  const summary = boards.find((b) => b.id === current?.id)
+
+  async function reload() {
+    const list = await invoke<Boards>('list_boards')
+    setSession(list.session)
+    setBoards(list.boards)
+    return list
+  }
+
+  // added はギャラリーから今追加した配置。追加も取り消せるよう、追加する前の配置を履歴に積む（FR-702）
+  function show(board: EditingBoard, added: number[] = []) {
+    const before = latest.current
+    if (before.kind !== 'board' || before.board.board.id !== board.board.id) history.current = { past: [], future: [] }
+    if (added.length) {
+      history.current.past.push({
+        items: board.board.items.filter((i) => !added.includes(i.id)),
+        selected: new Set(),
+      })
+      history.current.future = []
+    }
+    setView({ kind: 'board', board })
+    clearTimeout(viewTimer.current)
+    viewTimer.current = undefined
+    viewNow.current = board.board.viewport
+    setViewport(board.board.viewport)
+    setSelected(new Set(added))
+    revision.current = board.board.revision
+  }
+
+  // 開けたかを返す。開けなければ今の表示のままエラーを出す。
+  // 今のボードを保存できなければ切り替えない（FR-704）。失敗は保存の状態に出す
+  async function open(id: number, s = session, added: number[] = []) {
+    setError(null)
+    settleView()
+    try {
+      await queue.flush()
+    } catch {
+      return false
+    }
+    try {
+      show(await invoke<EditingBoard>('open_board', { session: s, id }), added)
+      return true
+    } catch (e) {
+      setError(String(e))
+      return false
+    }
+  }
+
+  // ギャラリーから追加したボードを開き、追加分を選んで全部見える表示にする（FR-701）。追加がなければ false。
+  // 開いたときの分は1度だけ受け取る。開発時の StrictMode が開く処理を2回流しても、2回目に追加を失わないため
+  const mounted = useRef<Promise<Added | null>>(null)
+  async function reveal(s: number, onMount = false) {
+    const take = () => invoke<Added | null>('take_board_reveal')
+    const added = await (onMount ? (mounted.current ??= take()) : take())
+    if (!added) return false
+    if (await open(added.board_id, s, added.placements)) setFit(added.placements)
+    return true
+  }
+  // 追加の後に開き直し終わるまで、編集を止める。Rust の release はこれより先に届く
+  async function revealAfterAdd() {
+    revealing.current++
+    try {
+      await revealRef.current((await reload()).session)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      revealing.current--
+    }
+  }
+  const revealRef = useRef(reveal)
+  revealRef.current = reveal
+
+  // 開いただけでは空のボードを作らない
+  useEffect(() => {
+    reload()
+      .then(async (list) => {
+        if (await reveal(list.session, true)) return
+        // 最後のボードを開けなければ、ほかのボードを選べるよう選択画面にする
+        if (list.last_board_id !== null && (await open(list.last_board_id, list.session))) return
+        setView({ kind: list.boards.length ? 'choose' : 'empty' })
+      })
+      .catch((e) => {
+        setError(String(e))
+        setView({ kind: 'choose' })
+      })
+    // ウィンドウには Rust が開くときに当てている。ここでは操作部品に同じ値を出す
+    invoke<Settings>('load_settings').then(({ board_window: { always_on_top, opacity } }) => {
+      applied.current = { always_on_top, opacity }
+      setDisplay(applied.current)
+    })
+    // 開いている間の追加。ボードが増えたかもしれないので一覧も読み直す
+    const unlisten = [
+      getCurrentWindow().listen('board-reveal', () => revealAfterAdd()),
+      // Rust の保存待ちが終わった（遷移を中止した、または追加し終えた）。ギャラリー宛ての release では戻さない
+      getCurrentWindow().listen('release', () => (held.current = false)),
+      // ギャラリーで画像を削除・復元・移動した、または差分検出が終わった
+      getCurrentWindow().listen('images-changed', () => refreshRef.current().catch((e) => setError(String(e)))),
+    ]
+    return () => unlisten.forEach((p) => p.then((f) => f()))
+    // 開いたときに1度だけ読む
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const items = view.kind === 'board' ? view.board.board.items : null
+  // 元画像のパスは Rust が DB から組み立てる。ゴミ箱・見つからない・削除された画像は枠だけを出す。
+  // 読めなかった画像も空のパスとして覚え、読み直しを繰り返さない
+  useEffect(() => {
+    const ids = shownImages(items ?? []).filter((id) => !(id in paths))
+    if (ids.length) locate(ids).then((found) => setPaths((p) => ({ ...p, ...found })))
+  }, [items, paths])
+
+  // ギャラリーでの削除・復元・移動・名前変更を、開いているボードに反映する（FR-104、FR-511）。
+  // 元画像の状態は利用者の編集ではないので、apply を通さず履歴にも載せない。取り消しで前の状態の画像を
+  // 出さないよう、履歴の中の配置も今の状態にする。配置そのものは変えないので保存もしない
+  async function refresh() {
+    const v = latest.current
+    if (v.kind !== 'board') return
+    const moments = [...history.current.past, ...history.current.future]
+    const ids = [...new Set([v.board.board.items, ...moments.map((m) => m.items)].flat().map((i) => i.source.id))]
+    if (!ids.length) return
+    const found = await invoke<Source[]>('board_sources', { session: v.board.edit.library_session, ids })
+    const sources = new Map(found.map((s) => [s.id, s]))
+    const renew = (items: Item[]) => items.map((i) => ({ ...i, source: sources.get(i.source.id) ?? i.source }))
+    // 移動や名前変更で場所が変わるので、パスも引き直す。枠と同時に替えて、前の場所を読みに行かせない
+    const located = await locate(shownImages(renew(v.board.board.items)))
+    // 待つ間に積まれた操作にも当てるので、履歴はここで読み直す
+    const { past, future } = history.current
+    const renewAll = (list: Moment[]) => list.map((m) => ({ ...m, items: renew(m.items) }))
+    history.current = { past: renewAll(past), future: renewAll(future) }
+    setView((now) =>
+      now.kind === 'board' && now.board.board.id === v.board.board.id
+        ? { kind: 'board', board: { ...now.board, board: { ...now.board.board, items: renew(now.board.board.items) } } }
+        : now,
+    )
+    setPaths((p) => ({ ...p, ...located }))
+  }
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
+
+  // 配置を画面に出して保存する（FR-704）。保存中も失敗しても、変えた状態のまま見せる
+  function put({ edit, board }: EditingBoard, items: Item[]) {
+    setView({ kind: 'board', board: { edit, board: { ...board, items } } })
+    commit(edit, items)
+    // 削除の確認と選択画面に出す件数を合わせる。一覧は読み直さない
+    setBoards((list) => list.map((b) => (b.id === board.id ? { ...b, placement_count: items.length } : b)))
+  }
+
+  // 配置を変える操作は、すべてここを通す（FR-702）。変える前の配置を履歴に積むので、ここを通せば取り消せる
+  function apply(change: (items: Item[]) => Item[]) {
+    if (view.kind !== 'board' || locked()) return
+    history.current.past.push({ items: view.board.board.items, selected })
+    history.current.future = []
+    put(view.board, change(view.board.board.items))
+  }
+
+  // 取り消し（past から）とやり直し（future から）。戻した結果も、ほかの変更と同じ保存のキューを通す。
+  // 外した配置は同じ配置 ID で送るので、Rust が同じ行を表示に戻す
+  function travel(from: 'past' | 'future') {
+    if (view.kind !== 'board' || locked()) return
+    const moment = history.current[from].pop()
+    if (!moment) return
+    history.current[from === 'past' ? 'future' : 'past'].push({ items: view.board.board.items, selected })
+    put(view.board, moment.items)
+    setSelected(moment.selected)
+  }
+
+  // 移動と拡大・縮小。ドラッグを終えたときに1度だけ届く
+  function reshape(changed: Map<number, Geometry>) {
+    apply((items) => items.map((i) => (changed.has(i.id) ? { ...i, geometry: changed.get(i.id)! } : i)))
+  }
+
+  // 選んだ配置をボードから外す。スナップショットから外すだけで、元画像と同じ画像の別の配置は変わらない（FR-702）
+  function discard() {
+    if (locked()) return
+    apply((items) => items.filter((i) => !selected.has(i.id)))
+    setSelected(new Set())
+  }
+
+  // 重なり順を変える（FR-702）。順序が変わらなければ、履歴にも保存にも残さない
+  function reorder(to: Restack) {
+    if (view.kind !== 'board') return
+    const next = restack(view.board.board.items, selected, to)
+    if (next) apply(() => next)
+  }
+
+  function select(ids: number[]) {
+    if (!locked()) setSelected(new Set(ids))
+  }
+
+  async function create(name: string) {
+    // 今のボードを保存できなければ新しいボードに移らない
+    settleView()
+    await queue.flush().catch(() => {
+      throw '今のボードを保存できないため、新しいボードを作れません'
+    })
+    const board = await invoke<EditingBoard>('create_board', { session, name })
+    setDialog(null)
+    setError(null)
+    show(board)
+    await reload()
+  }
+
+  async function rename(name: string) {
+    const renamed = await invoke<BoardSummary>('rename_board', { session, id: current!.id, name })
+    setDialog(null)
+    setBoards((list) => list.map((b) => (b.id === renamed.id ? renamed : b)))
+    setView((v) =>
+      v.kind === 'board'
+        ? { kind: 'board', board: { ...v.board, board: { ...v.board.board, name: renamed.name } } }
+        : v,
+    )
+  }
+
+  // 失敗したら今のボードを開いたままエラーを出す
+  async function remove() {
+    setDialog(null)
+    try {
+      await invoke('delete_board', { session, id: current!.id })
+    } catch (e) {
+      setError(String(e))
+      return
+    }
+    setError(null)
+    clearTimeout(viewTimer.current)
+    viewTimer.current = undefined
+    queue.clear()
+    const list = await reload().catch(() => ({ boards: boards.filter((b) => b.id !== current!.id) }))
+    setView({ kind: list.boards.length ? 'choose' : 'empty' })
+  }
+
+  function openMenu(e: React.MouseEvent<HTMLButtonElement>) {
+    // ポップオーバーは最前面の層に出るので、ボタンの真下へ置く
+    const r = e.currentTarget.getBoundingClientRect()
+    menu.current?.style.setProperty('top', `${r.bottom}px`)
+    menu.current?.style.setProperty('left', `${r.left}px`)
+  }
+
+  function act(next: Dialog) {
+    menu.current?.hidePopover()
+    setDialog(next)
+  }
+
+  const names = boards.map((b) => b.name)
+  const placementCount = summary?.placement_count ?? current?.items.length ?? 0
+
+  if (view.kind === 'loading') return null
+  return (
+    <div className="board">
+      {view.kind === 'empty' ? (
+        <main className="board__empty" aria-label="アイデアボード">
+          <p>ボードはまだありません。</p>
+          <button type="button" className="button button--primary" onClick={() => setDialog('create')}>
+            <Icon d={ICONS.plus} />
+            ボードを作成
+          </button>
+          {error && (
+            <span role="alert">
+              <Status kind="error">{error}</Status>
+            </span>
+          )}
+        </main>
+      ) : (
+        <>
+          <header className="board__toolbar">
+            <select
+              className="board__select"
+              aria-label="ボード"
+              value={current?.id ?? ''}
+              onChange={(e) => open(Number(e.target.value))}
+            >
+              {!current && (
+                <option value="" disabled>
+                  ボードを選ぶ
+                </option>
+              )}
+              {boards.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            {current && (
+              <>
+                <button
+                  type="button"
+                  className="button button--icon"
+                  aria-label="ボードの操作"
+                  title="ボードの操作"
+                  aria-haspopup="menu"
+                  popoverTarget="board-menu"
+                  onClick={openMenu}
+                >
+                  <Icon d={ICONS.ellipsis} />
+                </button>
+                <div ref={menu} id="board-menu" className="menu" role="menu" popover="auto">
+                  <button type="button" role="menuitem" className="menu__item" onClick={() => act('rename')}>
+                    名前を変更…
+                  </button>
+                  <button type="button" role="menuitem" className="menu__item" onClick={() => act('delete')}>
+                    削除…
+                  </button>
+                </div>
+              </>
+            )}
+            <button type="button" className="button" onClick={() => setDialog('create')}>
+              <Icon d={ICONS.plus} />
+              新しいボード
+            </button>
+            {current && (
+              <>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={!current.items.length}
+                  onClick={() => setFit(current.items.map((i) => i.id))}
+                >
+                  <Icon d={ICONS.maximize} />
+                  全体を表示
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={!selected.size}
+                  onClick={() => setFit([...selected])}
+                >
+                  <Icon d={ICONS.scan} />
+                  選択画像を表示
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="button board__pin"
+              aria-pressed={display.always_on_top}
+              onClick={() => changeDisplay({ always_on_top: !display.always_on_top })}
+            >
+              <Icon d={ICONS.pin} />
+              最前面に固定
+            </button>
+            <label className="board__opacity">
+              不透明度
+              <input
+                className="slider"
+                type="range"
+                min={OPACITY_MIN}
+                max={OPACITY_MAX}
+                value={display.opacity}
+                onChange={(e) => changeDisplay({ opacity: Number(e.target.value) })}
+              />
+              {/* 値はスライダーが読み上げる。output にすると role="status" が保存の状態と重なる */}
+              <span className="board__percent" aria-hidden="true">
+                {display.opacity}%
+              </span>
+            </label>
+            <button
+              type="button"
+              className="button"
+              disabled={display.opacity === OPACITY_MAX}
+              onClick={() => changeDisplay({ opacity: OPACITY_MAX })}
+            >
+              100%に戻す
+            </button>
+            {current && save.kind !== 'failed' && (
+              <span className="board__save" role="status">
+                {save.kind === 'saving' ? '保存中…' : '保存済み'}
+              </span>
+            )}
+          </header>
+          {current && save.kind === 'failed' && (
+            <div className="board__error" role="alert">
+              <Status kind="error">保存できませんでした（{save.error}）</Status>
+              <button type="button" className="button" onClick={() => queue.retry()}>
+                再試行
+              </button>
+            </div>
+          )}
+          {error && (
+            <div className="board__error" role="alert">
+              <Status kind="error">{error}</Status>
+            </div>
+          )}
+          {current ? (
+            <Canvas
+              board={current}
+              paths={paths}
+              viewport={viewport}
+              selected={selected}
+              fit={fit}
+              locked={locked}
+              onViewport={look}
+              onFitted={fitted}
+              onSelect={select}
+              onGeometry={reshape}
+              onRemove={discard}
+              onUndo={() => travel('past')}
+              onRedo={() => travel('future')}
+              onRestack={reorder}
+              onReveal={(id) => invoke('show_in_gallery', { id }).catch((e) => setError(String(e)))}
+            />
+          ) : (
+            <main className="board__choose" aria-label="ボードを選ぶ">
+              <p>開くボードを選んでください。</p>
+              <ul className="board__list">
+                {boards.map((b) => (
+                  <li key={b.id}>
+                    <button type="button" className="board__list-item" onClick={() => open(b.id)}>
+                      <span>{b.name}</span>
+                      <span className="board__count">{b.placement_count}枚</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </main>
+          )}
+        </>
+      )}
+      {dialog === 'create' && (
+        <NameDialog
+          title="新しいボード"
+          action="作成"
+          initial={defaultName(names)}
+          onSubmit={create}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'rename' && current && (
+        <NameDialog
+          title="ボードの名前を変更"
+          action="変更"
+          initial={current.name}
+          onSubmit={rename}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'delete' && current && (
+        <ConfirmDialog title="ボードを削除" confirm="削除する" onConfirm={remove} onClose={() => setDialog(null)}>
+          「{current.name}」と、置いた画像 {placementCount}
+          枚の配置を削除します。元の画像はライブラリに残ります。削除は取り消せません。
+        </ConfirmDialog>
+      )}
+    </div>
+  )
+}

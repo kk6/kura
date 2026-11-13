@@ -1,9 +1,12 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
+import { useContextMenu } from './contextMenu'
+import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
 import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
@@ -29,10 +32,13 @@ import type {
   Settings,
   Tag,
 } from './galleryTypes'
-import type { ImportProgress, Report, ScanReport } from './importTypes'
+import type { Backfill, BackfillCounts, ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import './Gallery.css'
+
+// 追加先のダイアログはボードの画面の一部なので、ボードを使わない起動では読み込まない（FR-711）
+const AddDialog = lazy(() => import('./board/AddDialog'))
 
 const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
 
@@ -59,6 +65,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const [showSkipped, setShowSkipped] = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -89,6 +96,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const inMissing = aside === 'missing'
   // 差分検出の進み具合。total が0の間は、中身を読むファイルを数えている
   const [scanning, setScanning] = useState<ImportProgress | null>(null)
+  // 元URLの補完（FR-208）。終わった後も、設定を開き直したときに結果を出すため残す
+  const [backfill, setBackfill] = useState<Backfill | null>(null)
+  // 補完を終えた回数。補完した元URLを詳細パネルに出すため、詳細を読み直す
+  const [backfilled, setBackfilled] = useState(0)
 
   const thumbWidth = Math.min(THUMB_MAX, Math.max(THUMB_MIN, settings.thumb_width))
   function changeSettings(next: Partial<Settings>) {
@@ -140,10 +151,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     }
     busy.current = false
     setScanning(null)
-    // 差分検出の間も操作できるので、選択は外さず、なくなった画像だけを外す
-    const lists = await Promise.all([reload(), reloadTrash(), reloadMissing()])
-    const alive = new Set(lists.flat().map((i) => i.id))
-    setSelection((s) => keepOnly(s, alive))
+    // 差分検出の間も操作できるので、選択は外さない。今の一覧から消えた画像の選択は下の effect が外す
+    await Promise.all([reload(), reloadTrash(), reloadMissing()])
   }
 
   const scanRef = useRef(scan)
@@ -161,16 +170,13 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const counts = useMemo(() => countImages(data.images, data.categories), [data.images, data.categories])
   const filtered = images.length !== data.images.length
 
-  // 絞り込みを変えたら、見えなくなった画像の選択を外す。見えない画像までまとめて変えないため
+  // 絞り込みで見えなくなった画像の選択は、下の effect が外す。見えない画像までまとめて変えないため
   function changeFilter(next: Filter) {
     setFilter(next)
     if (aside) {
       setAside(null)
       setSelection(EMPTY_SELECTION)
-      return
     }
-    const visible = new Set(filterImages(data.images, data.categories, data.tags, next).map((i) => i.id))
-    setSelection((s) => keepOnly(s, visible))
   }
 
   // タグの付け外しとメモを手元の値に反映する。絞り込みと件数は手元の値で数えるため
@@ -180,8 +186,13 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   }
   // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
   const listed = inTrash ? trash : inMissing ? missing : images
+  // 一覧のスクロールを先頭に戻す契機。画像の中身（タグ・メモなど）の変化では戻さない
+  const listKey = JSON.stringify([sort, filter, aside])
   const order = useMemo(() => listed.map((i) => i.id), [listed])
   const ids = useMemo(() => [...selection.ids], [selection.ids])
+  // 今の一覧にない画像の選択を外す。差分確認で「見つからない」の画像が戻ったときなどに、
+  // 見えない画像を選んだまま詳細パネルに「N枚を選んでいます」と出さない
+  useEffect(() => setSelection((s) => keepOnly(s, new Set(order))), [order])
   const pool = listed === images ? data.images : listed
   const selected = useMemo(() => pool.filter((i) => selection.ids.has(i.id)), [pool, selection.ids])
   const only = !aside && ids.length === 1 ? ids[0] : null
@@ -200,7 +211,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     return () => {
       current = false
     }
-  }, [only, place])
+  }, [only, place, backfilled])
 
   // 拡大表示（FR-508）。左右キーか左右の端のボタンで、今の並び順の前後の画像に移る
   const zoomed = zoom ? selectedImage : null
@@ -283,6 +294,18 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const startRef = useRef(start)
   startRef.current = start
 
+  // 補完の間、取り込み・差分検出・ファイルを動かす操作・ライブラリ切り替えは Rust 側で補完の終了か中断を待つ
+  async function startBackfill() {
+    setBackfill({ running: true, counts: null, error: null })
+    try {
+      const counts = await invoke<BackfillCounts>('backfill_sources')
+      setBackfill({ running: false, counts, error: null })
+    } catch (e) {
+      setBackfill((b) => ({ running: false, counts: b?.counts ?? null, error: String(e) }))
+    }
+    setBackfilled((n) => n + 1)
+  }
+
   // 取り込みと差分検出の途中では戻らない。どちらも開いているライブラリを1枚ずつ読み書きするため
   function leave(path?: string) {
     // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
@@ -295,19 +318,101 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       })
       return
     }
-    // 入力中のメモは blur で保存される。ライブラリは次に開くまで Rust 側に残るので、保存は前のライブラリに届く
-    ;(document.activeElement as HTMLElement | null)?.blur()
-    onSwitch(path)
+    // 入力中のメモとボードを保存し終えてから切り替える。ライブラリは次に開くまで Rust 側に残るので、
+    // 保存は前のライブラリに届く。保存できなければ切り替えない（FR-105、FR-411）。メモの失敗は入力欄の下に出す
+    flushAll()
+      .then(
+        () =>
+          invoke('close_board_window').catch((e) => {
+            throw `ボードを保存できないため、ライブラリを切り替えられません（${e}）`
+          }),
+        () => {
+          throw 'メモを保存できないため、ライブラリを切り替えられません'
+        },
+      )
+      .then(
+        () => onSwitch(path),
+        (e) => setResult({ kind: 'error', message: String(e) }),
+      )
   }
   const leaveRef = useRef(leave)
   leaveRef.current = leave
 
+  // 画像を選んでいても追加はせず、専用ウィンドウを開くだけにする（FR-701）
+  function openBoard() {
+    if (!settings.board_enabled) return
+    invoke('show_board_window').catch((e) => setResult({ kind: 'error', message: String(e) }))
+  }
+  const openBoardRef = useRef(openBoard)
+  openBoardRef.current = openBoard
+
+  // 「ボードに追加」の追加先ダイアログに渡す画像（FR-701）。ゴミ箱と見つからない画像は追加できない
+  const [adding, setAdding] = useState<number[] | null>(null)
+  const canAdd = settings.board_enabled && !aside && ids.length > 0
+  function addToBoard() {
+    // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
+    if (!canAdd || document.querySelector('dialog[open]')) return
+    setMenuAt(null)
+    setAdding(ids)
+  }
+  const addRef = useRef(addToBoard)
+  addRef.current = addToBoard
+  // Rust に知らせ、メニューの「ボードに追加…」の有効・無効と、ダイアログの間にボードの最前面の固定を
+  // 外すのに使う。固定したボードの後ろにダイアログが隠れないように（FR-701、FR-705）
+  const dialogOpen = useDialogOpen()
+  useEffect(() => {
+    invoke('report_gallery', { addable: canAdd, dialog: dialogOpen }).catch((e) => console.error(e))
+  }, [canAdd, dialogOpen])
+  useEffect(
+    () => () => {
+      invoke('report_gallery', { addable: false, dialog: false }).catch((e) => console.error(e))
+    },
+    [],
+  )
+
+  const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
+  function openContextMenu(id: number, e: React.MouseEvent) {
+    if (!settings.board_enabled || aside) return
+    e.preventDefault()
+    // 右クリックした画像を選んでいなければ、その画像だけを選ぶ（Finder と同じ）
+    if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
+    setMenuAt({ x: e.clientX, y: e.clientY })
+  }
+  // ボードの「ギャラリーで表示」（FR-701）。絞り込みを外して画像を選び、見える所までスクロールする。
+  // ゴミ箱と見つからない画像は、その一覧を開いて選ぶ
+  const [revealed, setRevealed] = useState<{ id: number } | null>(null)
+  function revealImage(id: number) {
+    // 確認のダイアログは開いたときの選択を対象にする。その下で選択を変えない
+    if (document.querySelector('dialog[open]')) return
+    const next = trash.some((i) => i.id === id) ? 'trash' : missing.some((i) => i.id === id) ? 'missing' : null
+    if (!next && !data.images.some((i) => i.id === id)) {
+      setResult({ kind: 'error', message: '画像がギャラリーにありません。差分を確認してから、もう一度試してください' })
+      return
+    }
+    setMenuAt(null)
+    setZoom(false)
+    setAside(next)
+    if (!next) setFilter(NO_FILTER)
+    setSelection({ ids: new Set([id]), anchor: id })
+    setRevealed({ id })
+  }
+  const revealRef = useRef(revealImage)
+  revealRef.current = revealImage
   useEffect(() => {
     const unlisten = [
+      // このウィンドウ宛てのイベントは、ウィンドウの listen で受ける
+      getCurrentWindow().listen<number>('gallery-reveal', (e) => revealRef.current(e.payload)),
+      // 終わった後に届いた進み具合で、結果を戻さない
+      getCurrentWindow().listen<BackfillCounts>('backfill-progress', (e) =>
+        setBackfill((b) => (b?.running ? { ...b, counts: e.payload } : b)),
+      ),
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
       listen('switch-library', () => leaveRef.current()),
+      listen('open-board', () => openBoardRef.current()),
+      // 操作の対象は手前のウィンドウ。ボードのウィンドウが手前なら追加しない
+      listen('add-to-board', () => document.hasFocus() && addRef.current()),
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === 'drop') startRef.current(e.payload.paths)
       }),
@@ -571,6 +676,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             </span>
           )}
         </span>
+        {settings.board_enabled && (
+          <button type="button" className="button button--primary" title="アイデアボード（⌘B）" onClick={openBoard}>
+            <Icon d={ICONS.board} />
+            アイデアボード
+          </button>
+        )}
         <button
           type="button"
           className="button button--icon"
@@ -626,7 +737,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           </select>
         )}
         <input
-          className="gallery__size"
+          className="slider"
           type="range"
           aria-label="サムネイルの大きさ"
           min={THUMB_MIN}
@@ -650,6 +761,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       <Masonry
         root={root}
         images={listed}
+        scrollKey={listKey}
         empty={
           !aside && filtered
             ? '条件に合う画像がありません'
@@ -664,7 +776,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         }
         // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
         onOpen={() => !aside && setZoom(true)}
+        onContextMenu={openContextMenu}
         active={selection.anchor}
+        reveal={revealed}
         keys={!zoomed}
         onMove={moveTo}
       />
@@ -744,6 +858,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
             onTrash={trashImages}
             onReveal={reveal}
+            onAddToBoard={settings.board_enabled ? addToBoard : undefined}
             onClose={() => toggleDetail(false)}
           />
         )}
@@ -762,19 +877,38 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <StatusbarResult
+          backfill={backfill?.running ? backfill : null}
           scanning={scanning}
           progress={progress}
           result={result}
           onShowFailed={() => setShowSkipped(true)}
           onShowMissing={() => openAside('missing')}
+          onShowNotes={() => setShowNotes(true)}
         />
       </footer>
+
+      {menuAt && (
+        <div ref={contextMenu} className="menu" role="menu" popover="manual" style={{ top: menuAt.y, left: menuAt.x }}>
+          <button type="button" role="menuitem" className="menu__item" onClick={addToBoard}>
+            ボードに追加…
+          </button>
+        </div>
+      )}
+      {adding && (
+        <Suspense fallback={null}>
+          <AddDialog images={adding} onClose={() => setAdding(null)} />
+        </Suspense>
+      )}
 
       {settingsOpen && (
         <SettingsDialog
           root={root}
           settings={settings}
           onSettings={changeSettings}
+          backfill={backfill}
+          busy={!!(scanning || progress)}
+          onBackfill={startBackfill}
+          onCancelBackfill={() => invoke('cancel_backfill')}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -789,6 +923,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         />
       )}
 
+      {showNotes && (result?.kind === 'report' || result?.kind === 'scan') && (
+        <MoveFailDialog
+          title="元URLの注意"
+          kind="warning"
+          failed={result.report.source_notes.map((n) => ({ file_name: n.path, message: n.message }))}
+          onClose={() => setShowNotes(false)}
+        />
+      )}
       {showSkipped &&
         (result && result.kind !== 'report' && result.kind !== 'scan' && result.kind !== 'deleted' ? (
           <MoveFailDialog
@@ -849,3 +991,14 @@ const Chevron = ({ d }: { d: string }) => (
     <path d={d} />
   </svg>
 )
+
+// このウィンドウで dialog 要素を開いているか
+function useDialogOpen() {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const observer = new MutationObserver(() => setOpen(document.querySelector('dialog[open]') !== null))
+    observer.observe(document.body, { subtree: true, childList: true, attributeFilter: ['open'] })
+    return () => observer.disconnect()
+  }, [])
+  return open
+}

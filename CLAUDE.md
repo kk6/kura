@@ -37,11 +37,12 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 開発サーバー（アプリ）：`npm run tauri dev`
 - 開発サーバー（Tauri のコマンドをモックに差し替えた画面だけ）：`npm run dev:mock`（http://localhost:5173）。モックの応答は `src/mocks/ipc.ts` に書く
 - ダミーライブラリの生成：`npm run dev-library -- <枚数>`（`dev-library/` に出力。空でないと止まる）
+- 元URLの記録（拡張属性）を付けたダミー画像の生成：`uv run scripts/gen_source_urls.py <出力先>`（macOS だけ。通常の取り込み・重複・Finder・補完の確認用に分けて作る）
 - テスト（Rust）：`cargo test`（`src-tauri/` で実行）
 - テスト（Rust、別のファイルシステム）：`hdiutil create -size 64m -fs ExFAT -volname KURAEX <名前>.dmg` で作ったイメージを `hdiutil attach -nobrowse` でマウントし、`KURA_TEST_DIR=<マウント先> cargo test fileops` で同じテストを流す（HFS+ や大文字・小文字を区別する APFS も同じ）
 - テスト（画面の単体テスト）：`npm test`（Vitest。`src/**/*.test.ts` を流す）
 - テスト（画面）：`npm run test:e2e`（モックの開発サーバーを Playwright の WebKit で開き、`test-results/` にスクリーンショット（`gallery.png` など）を保存する）
-- ドキュメントのスクリーンショット：`npm run docs:screenshots`（モックの開発サーバーを Playwright の WebKit で開き、`docs/images/` に撮り直す。`e2e/docs-screenshots.ts`。CI では流さない）
+- ドキュメントのスクリーンショット：`KURA_DOCS_PHOTOS=<見本の写真のフォルダ> npm run docs:screenshots`（モックの開発サーバーに見本の写真を読ませ、Playwright の WebKit で開いて `docs/images/` に JPEG で撮り直す。`e2e/docs-screenshots.ts`。CI では流さない）
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
 - テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`
 - 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
@@ -74,7 +75,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 本物の資料フォルダには絶対に触れない。読み取りもしない。
 - 開発とテストには、`scripts/` のスクリプトで生成したダミー画像のライブラリを使う。
 - 画像ファイルをリポジトリにコミットしない。テスト用の画像も、テストの中で生成する。
-  - 例外は `docs/images/` のスクリーンショットだけ。README とユーザーガイドに載せる。中身は、ダミーのデータをモックの画面（`npm run dev:mock`）に出して `npm run docs:screenshots` で撮ったもの。本物の資料を写さない。1枚 300KB 以下を目安にする
+  - 例外は `docs/images/` のスクリーンショットだけ。README、ユーザーガイド、紹介ページに載せる。中身は、商用利用できる見本の写真（Unsplash）をモックの画面に出して `npm run docs:screenshots` で撮ったもの。本物の資料を写さない。見本の写真そのものもコミットしない。1枚 300KB 以下を目安にする
 - Rust のファイル操作は、テストを先に書いてから実装する。失敗時の動き（移動の途中で失敗した場合など）もテストする。
 
 ## 検証のスキル

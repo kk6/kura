@@ -123,3 +123,85 @@ textarea[aria-invalid='true']:focus-visible {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-faint);
 }
+
+/* ポップオーバーのメニュー（ボードの操作、画像の右クリック）。開く側が top と left を決める */
+.menu {
+  position: fixed;
+  inset: auto;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  /* 低いウィンドウでは、ウィンドウに収まる高さにしてメニューの中をスクロールさせる。下の項目まで押せるように */
+  max-height: calc(100vh - var(--space-1));
+  overflow-y: auto;
+}
+
+.menu:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 縮めて収めると項目が押せない高さになるので、縮めずにスクロールさせる */
+.menu > * {
+  flex-shrink: 0;
+}
+
+.menu__item {
+  height: var(--size-control);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  text-align: left;
+}
+
+.menu__item svg {
+  margin-left: var(--space-3);
+  vertical-align: middle;
+}
+
+.menu__rule {
+  width: 100%;
+  margin: var(--space-1) 0;
+  border: none;
+  border-top: var(--border);
+}
+
+.menu__item:hover,
+.menu__item:focus-visible {
+  background: var(--color-selected);
+  outline: none;
+}
+
+.menu__item:disabled {
+  background: none;
+  color: var(--color-text-faint);
+}
+
+/* ギャラリーのサムネイルの大きさと、ボードの不透明度で使う */
+.slider {
+  width: var(--size-progress-bar);
+  height: var(--size-control);
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+}
+
+/* OS の初期のつまみは丸く影が付くので、進み具合のバーと同じ細い溝と黒い四角にする（docs/design.md「スライダー」） */
+.slider::-webkit-slider-runnable-track {
+  height: var(--size-progress);
+  background: var(--color-line);
+}
+
+.slider::-webkit-slider-thumb {
+  width: var(--size-slider-thumb);
+  height: var(--size-slider-thumb);
+  margin-top: calc((var(--size-progress) - var(--size-slider-thumb)) / 2);
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-text);
+}
