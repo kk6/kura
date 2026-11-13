@@ -252,6 +252,41 @@ test('一番下までスクロールしても、表示範囲のサムネイル�
   await page.screenshot({ path: 'test-results/gallery-bottom.png' })
 })
 
+test('詳細パネルでタグやメモを変えても一覧のスクロールは先頭に戻らず、並べ替えると先頭に戻る', async ({ page }) => {
+  await openGallery(page)
+  const list = page.getByRole('main', { name: '画像の一覧' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  await list.evaluate((el) => (el.scrollTop = 3000))
+  const scrolled = () => list.evaluate((el) => el.scrollTop)
+  await expect.poll(scrolled).toBe(3000)
+
+  // 一覧の枠の中ほどに見えているサムネイルを選ぶ
+  const at = await list.evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    const img = Array.from(el.querySelectorAll('img')).find((i) => {
+      const r = i.getBoundingClientRect()
+      return r.top > box.top + 100 && r.bottom < box.bottom - 100
+    })!
+    const r = img.getBoundingClientRect()
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+  })
+  await page.mouse.click(at.x, at.y)
+  await expect(detail.getByRole('heading')).not.toHaveText(/枚を選んでいます/)
+
+  const tagInput = detail.getByRole('combobox', { name: 'タグ' })
+  await tagInput.fill('スクロール確認')
+  await tagInput.press('Enter')
+  await expect(detail.locator('.tag')).toContainText(['スクロール確認'])
+  const memo = detail.getByRole('textbox', { name: 'メモ' })
+  await memo.fill('メモ')
+  await memo.blur()
+  await expect(page.getByRole('contentinfo')).not.toContainText('エラー')
+  expect(await scrolled()).toBe(3000)
+
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  await expect.poll(scrolled).toBe(0)
+})
+
 test('スライダーでサムネイルを小さくすると列が増え、大きさは開き直しても残る', async ({ page }) => {
   await openGallery(page)
   const before = await columnCount(page)

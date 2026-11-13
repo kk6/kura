@@ -186,6 +186,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   }
   // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
   const listed = inTrash ? trash : inMissing ? missing : images
+  // 一覧のスクロールを先頭に戻す契機。画像の中身（タグ・メモなど）の変化では戻さない
+  const listKey = JSON.stringify([sort, filter, aside])
   const order = useMemo(() => listed.map((i) => i.id), [listed])
   const ids = useMemo(() => [...selection.ids], [selection.ids])
   // 今の一覧にない画像の選択を外す。差分確認で「見つからない」の画像が戻ったときなどに、
@@ -759,6 +761,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       <Masonry
         root={root}
         images={listed}
+        scrollKey={listKey}
         empty={
           !aside && filtered
             ? '条件に合う画像がありません'

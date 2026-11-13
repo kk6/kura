@@ -7,6 +7,9 @@ import { type Arrow, layout, neighbor, visible } from './layout'
 type Props = {
   root: string
   images: Image[]
+  // 変わったときだけスクロールを先頭に戻す。並べ替え・絞り込み・一覧の切り替えで変える。
+  // images で戻すと、タグやメモを変えただけで先頭に戻ってしまう
+  scrollKey: unknown
   // 1枚もないときに出す文言
   empty: string
   thumbWidth: number
@@ -29,6 +32,7 @@ const ARROWS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
 export default function Masonry({
   root,
   images,
+  scrollKey,
   empty,
   thumbWidth,
   selected,
@@ -61,7 +65,7 @@ export default function Masonry({
 
   useEffect(() => {
     ref.current!.scrollTop = 0
-  }, [images])
+  }, [scrollKey])
 
   const { width, height, gap } = viewport
   const l = useMemo(
