@@ -52,7 +52,7 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 
 `check.sh` の `DRIFT` は、上の関数の本体（空白を詰めたもの）が `coverage.tsv` の指紋と違うことを示す。整形だけの変更でも出る。
 
-**同期したコミット：`3820745`**（main の移行前の写し（`7ba2d66`）と、フェーズ2のタスク1（`3dd6db4`）を合わせたマージ。`connect` の差分は、移行に写しの置き場所を渡すことと、ボードの編集セッションの初期化だけで、移動と後始末の手順は変わらない。モデルは変更せず、TLC と故障モデルの検査後に指紋を同期した）
+**同期したコミット：`d1fe3a5`**（`connect` で `Library` に、接続が壊れたかの印 `broken: false` を足しただけ。開き直し（`library.rs` の `reconnect`）は `open` を通るので、後始末は `connect` の `recover` のまま。移動と後始末の手順は変わらない。モデルは変更せず、TLC と故障モデルの検査後に指紋を同期した。前の同期は `8a0fffe`）
 
 ## DRIFT や FAIL が出たとき
 

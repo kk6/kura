@@ -133,11 +133,19 @@ textarea[aria-invalid='true']:focus-visible {
   border: var(--border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
+  /* 低いウィンドウでは、ウィンドウに収まる高さにしてメニューの中をスクロールさせる。下の項目まで押せるように */
+  max-height: calc(100vh - var(--space-1));
+  overflow-y: auto;
 }
 
 .menu:popover-open {
   display: flex;
   flex-direction: column;
+}
+
+/* 縮めて収めると項目が押せない高さになるので、縮めずにスクロールさせる */
+.menu > * {
+  flex-shrink: 0;
 }
 
 .menu__item {

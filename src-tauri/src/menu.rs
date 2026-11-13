@@ -1,6 +1,7 @@
 //! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
 //! 終了は保存を待つ項目に置き換えた。
-//! 足したのは「ファイル」の「ライブラリを切り替える…」「ボードに追加…」と「ウインドウ」の「アイデアボードを開く」だけ
+//! 足したのは「ファイル」の「ライブラリを切り替える…」「ボードに追加…」と「ウインドウ」の「アイデアボードを開く」だけ。
+//! 「編集」の取り消す・やり直す・すべてを選択は、ボードとギャラリーに届くよう自前の項目に置き換えた
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
 use tauri::menu::{
@@ -17,6 +18,14 @@ pub const OPEN_BOARD: &str = "open-board";
 
 /// 選んだ画像をボードに追加する項目（FR-701）。選ぶと main.rs がギャラリーへ add-to-board イベントを送る
 pub const ADD_TO_BOARD: &str = "add-to-board";
+
+/// 「編集」の取り消す・やり直す・すべてを選択（FR-702、NFR-12）。選ぶと main.rs が手前のウィンドウへ
+/// edit-menu イベントで id を送る。標準の項目は入力欄の文字にしか効かず、ボードの配置やギャラリーの画像に
+/// 届かないので置き換えた。入力欄の文字の編集は画面が受け持つ（src/editMenu.ts）
+pub const UNDO: &str = "undo";
+pub const REDO: &str = "redo";
+pub const SELECT_ALL: &str = "select-all";
+pub const EDITS: [&str; 3] = [UNDO, REDO, SELECT_ALL];
 
 /// 終了の項目。既定の終了は AppKit の terminate: を直接呼び、保存待ちを通らないので置き換える
 /// （spikes/board-native）。選ぶと main.rs がボードとメモの保存を待ってから終了する（FR-704、FR-411）
@@ -52,13 +61,17 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
         true,
         Some("CmdOrCtrl+B"),
     )?;
+    // ギャラリーが手前で、追加できる画像を選んでいる間だけ、enable で有効にする
     let add_to_board = MenuItem::with_id(
         app,
         ADD_TO_BOARD,
         "ボードに追加…",
-        true,
+        false,
         Some("CmdOrCtrl+Shift+B"),
     )?;
+    let undo = MenuItem::with_id(app, UNDO, "取り消す", true, Some("CmdOrCtrl+Z"))?;
+    let redo = MenuItem::with_id(app, REDO, "やり直す", true, Some("CmdOrCtrl+Shift+Z"))?;
+    let select_all = MenuItem::with_id(app, SELECT_ALL, "すべてを選択", true, Some("CmdOrCtrl+A"))?;
     let file_close = PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?;
     let file_seps = [sep()?, sep()?];
     let mut file: Vec<&dyn IsMenuItem<R>> = vec![&switch, &file_seps[0]];
@@ -104,13 +117,13 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
                 "編集",
                 true,
                 &[
-                    &PredefinedMenuItem::undo(app, Some("取り消す"))?,
-                    &PredefinedMenuItem::redo(app, Some("やり直す"))?,
+                    &undo,
+                    &redo,
                     &sep()?,
                     &PredefinedMenuItem::cut(app, Some("カット"))?,
                     &PredefinedMenuItem::copy(app, Some("コピー"))?,
                     &PredefinedMenuItem::paste(app, Some("ペースト"))?,
-                    &PredefinedMenuItem::select_all(app, Some("すべてを選択"))?,
+                    &select_all,
                 ],
             )?,
             &Submenu::with_items(
@@ -127,4 +140,18 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
             &Submenu::with_id_and_items(app, HELP_SUBMENU_ID, "ヘルプ", true, &[])?,
         ],
     )
+}
+
+/// 項目 id を有効・無効にする。メニューにない（OFF で外した）ときは何もしない
+pub fn enable<R: Runtime>(app: &AppHandle<R>, id: &str, enabled: bool) -> tauri::Result<()> {
+    let Some(menu) = app.menu() else {
+        return Ok(());
+    };
+    for submenu in menu.items()? {
+        let item = submenu.as_submenu().and_then(|s| s.get(id));
+        if let Some(item) = item.as_ref().and_then(|i| i.as_menuitem()) {
+            item.set_enabled(enabled)?;
+        }
+    }
+    Ok(())
 }

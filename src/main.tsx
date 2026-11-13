@@ -4,6 +4,7 @@ import './styles/tokens.css'
 import './styles/base.css'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { serveFlush } from './flush'
+import { serveEditMenu } from './editMenu'
 
 if (import.meta.env.MODE === 'mock') {
   const { installMockIPC } = await import('./mocks/ipc.ts')
@@ -22,4 +23,5 @@ root.then(({ default: Root }) => {
   )
   // 閉じる・終了の前の保存の依頼を受ける（FR-704、FR-411）
   serveFlush().catch((e) => console.error(e))
+  serveEditMenu().catch((e) => console.error(e))
 })

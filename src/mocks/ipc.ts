@@ -386,6 +386,8 @@ const scanLibrary: Handler = async () => {
   await emit('scan-progress', { done: 2, total: 4 })
   await new Promise((r) => setTimeout(r, 500))
   await emit('scan-progress', { done: 4, total: 4 })
+  // e2e が「見つからない」の画像が元の場所に戻った場合を作る
+  if (sessionStorage.getItem('mock.returnMissing')) IMAGES.push(...MISSING.splice(0, 1))
   return structuredClone(SCAN)
 }
 
@@ -658,6 +660,7 @@ const handlers: Record<string, Handler> = {
   create_library: createLibrary,
   import_paths: importPaths,
   load_gallery: loadGallery,
+  report_gallery: (args) => console.info(`report_gallery: ${args?.addable} ${args?.dialog}`),
   image_detail: imageDetail,
   // e2e が確かめられるように、開いたものをコンソールに出す
   show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),

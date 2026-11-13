@@ -4,7 +4,10 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 BASE="$REPO/.claude/tmp/verify-kura"
-APP="$REPO/src-tauri/target/debug/bundle/macos/Kura.app"
+# KURA_BUILD=release でリリース用ビルド（npm run tauri build）の .app を同じ隔離で使う。性能の確認用
+BUILD="${KURA_BUILD:-debug}"
+[[ "$BUILD" == debug || "$BUILD" == release ]] || { echo "error: KURA_BUILD は debug か release" >&2; exit 1; }
+APP="$REPO/src-tauri/target/$BUILD/bundle/macos/Kura.app"
 BIN="$APP/Contents/MacOS/kura"
 REAL_DATA="$HOME/Library/Application Support/dev.kk6.kura"
 
@@ -13,7 +16,8 @@ die() { echo "error: $*" >&2; exit 1; }
 valid_id() { [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 run_dir() { valid_id "${1:-}" || die "run id は英数字と . _ - だけ（'${1:-}'）"; echo "$BASE/runs/$1"; }
 # 偽の HOME の中のアプリのデータフォルダ（recent-libraries.json と settings.json の置き場所）。デバッグビルドは debug/ の下を使う
-data_dir() { echo "$(run_dir "$1")/home/Library/Application Support/dev.kk6.kura/debug"; }
+# リリース用ビルドは debug/ を付けない
+data_dir() { echo "$(run_dir "$1")/home/Library/Application Support/dev.kk6.kura$([ "$BUILD" = debug ] && echo /debug)"; }
 # pid ファイルは「pid<TAB>起動時刻」。pid が別のプロセスに使い回されても、起動時刻が違えば自分のものと見なさない
 pid_of() { cut -f1 "$(run_dir "$1")/pid" 2>/dev/null || true; }
 started_of() { cut -f2 "$(run_dir "$1")/pid" 2>/dev/null || true; }
@@ -30,13 +34,19 @@ ours() {
 }
 
 cmd_build() {
-  cd "$REPO" && npm run tauri build -- --debug --bundles app
+  if [ "$BUILD" = release ]; then
+    cd "$REPO" && npm run tauri build -- --bundles app
+  else
+    cd "$REPO" && npm run tauri build -- --debug --bundles app
+  fi
 }
 
 # launch <id> [empty|template|<library>]
 #   empty    : ライブラリなし。選択画面から始まる（作る・開くの検証用）
 #   template : 取り込み済みの見本（$BASE/template）を run の lib/ に複製して開く（既定）
 #   <path>   : この手順で作ったライブラリ（.kura/ を持つフォルダ）を run の lib/ に複製して開く。本物の資料フォルダは渡さない
+#              KURA_IN_PLACE=1 なら複製せずにその場で開く（$BASE の下にマウントしたディスクイメージの確認用）。
+#              KURA_ALSO=<path> で、2つ目のライブラリを「最近使ったライブラリ」に足す（同じく $BASE の下だけ）
 cmd_launch() {
   local id=$1 mode=${2:-template} dir
   dir=$(run_dir "$id")
@@ -61,10 +71,16 @@ cmd_launch() {
       [ -d "$BASE/template/.kura" ] || die "見本のライブラリがない。SKILL.md の「見本を作る」を先に行う"
       cp -R "$BASE/template" "$dir/lib"; lib="$dir/lib" ;;
     *)
-      cp -R "$src_lib" "$dir/lib"; lib="$dir/lib" ;;
+      if [ "${KURA_IN_PLACE:-}" = 1 ]; then lib="$src_lib"; else cp -R "$src_lib" "$dir/lib"; lib="$dir/lib"; fi ;;
   esac
+  local also=""
+  if [ -n "${KURA_ALSO:-}" ]; then
+    also=$(cd "$KURA_ALSO" 2>/dev/null && pwd -P) || die "$KURA_ALSO がない"
+    [[ "$also/" == "$(cd "$BASE" && pwd -P)/"* ]] || die "$KURA_ALSO は $BASE の下にない"
+    [ -d "$also/.kura" ] || die "$KURA_ALSO はライブラリではない"
+  fi
   # 起動時、アプリは一覧の先頭のライブラリを自動で開く。空なら選択画面
-  python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1:]))' ${lib:+"$lib"} >"$(data_dir "$id")/recent-libraries.json"
+  python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1:]))' ${lib:+"$lib"} ${also:+"$also"} >"$(data_dir "$id")/recent-libraries.json"
   # HOME を差し替えて、利用者の ~/Library/Application Support/dev.kk6.kura を読まない・書かない
   HOME="$dir/home" RUST_LOG=info nohup "$BIN" >"$dir/app.log" 2>&1 &
   local p=$!
@@ -97,10 +113,16 @@ cmd_doctor() {
 }
 
 # db <id> <sql> : run の lib/ の DB を読み取り専用で見る
+# Kura は DB を排他モードで開くので、動いている間はほかのプロセスが開けない。DB と WAL を写して、写しを読む。
+# 書き込みの途中に写すと半端な写しになることがあるので、操作の後に少し待ってから使う
 cmd_db() {
-  local db; db="$(run_dir "$1")/lib/.kura/kura.db"
+  local db copy; db="$(run_dir "$1")/lib/.kura/kura.db"
   [ -f "$db" ] || die "$db がない"
-  sqlite3 -readonly -header "file:$db?mode=ro" "$2"
+  copy=$(mktemp -d "${TMPDIR:-/tmp}/kura-db.XXXXXX")
+  cp "$db" "$copy/kura.db"
+  [ -f "$db-wal" ] && cp "$db-wal" "$copy/kura.db-wal"
+  sqlite3 -header "$copy/kura.db" "$2"
+  rm -rf "$copy"
 }
 
 # stop <id> : 自分が起動した pid だけを止める。evidence/ は残し、ほかは消す

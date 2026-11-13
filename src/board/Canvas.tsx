@@ -206,8 +206,8 @@ export default function Canvas({
       // Mac の delete キーは Backspace として届く
       const remove = e.key === 'Delete' || e.key === 'Backspace'
       if (e.code !== 'Space' && !select && !undo && !remove) return
-      // 何もしないと、Space はスクロール、⌘A はウィンドウの文字の全選択、Backspace は前のページへ戻る操作、
-      // ⌘Z は前に使った入力欄の文字の取り消しになる。編集を受け付けない間も止める
+      // 何もしないと、Space はスクロール、Backspace は前のページへ戻る操作になり、⌘A と ⌘Z はメニューの項目から
+      // もう一度届く（src/editMenu.ts）。編集を受け付けない間も止める
       e.preventDefault()
       if (e.code === 'Space') setSpace(true)
       else if (k.locked()) return
