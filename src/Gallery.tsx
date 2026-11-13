@@ -151,10 +151,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     }
     busy.current = false
     setScanning(null)
-    // 差分検出の間も操作できるので、選択は外さず、なくなった画像だけを外す
-    const lists = await Promise.all([reload(), reloadTrash(), reloadMissing()])
-    const alive = new Set(lists.flat().map((i) => i.id))
-    setSelection((s) => keepOnly(s, alive))
+    // 差分検出の間も操作できるので、選択は外さない。今の一覧から消えた画像の選択は下の effect が外す
+    await Promise.all([reload(), reloadTrash(), reloadMissing()])
   }
 
   const scanRef = useRef(scan)
@@ -172,16 +170,13 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const counts = useMemo(() => countImages(data.images, data.categories), [data.images, data.categories])
   const filtered = images.length !== data.images.length
 
-  // 絞り込みを変えたら、見えなくなった画像の選択を外す。見えない画像までまとめて変えないため
+  // 絞り込みで見えなくなった画像の選択は、下の effect が外す。見えない画像までまとめて変えないため
   function changeFilter(next: Filter) {
     setFilter(next)
     if (aside) {
       setAside(null)
       setSelection(EMPTY_SELECTION)
-      return
     }
-    const visible = new Set(filterImages(data.images, data.categories, data.tags, next).map((i) => i.id))
-    setSelection((s) => keepOnly(s, visible))
   }
 
   // タグの付け外しとメモを手元の値に反映する。絞り込みと件数は手元の値で数えるため
@@ -193,6 +188,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const listed = inTrash ? trash : inMissing ? missing : images
   const order = useMemo(() => listed.map((i) => i.id), [listed])
   const ids = useMemo(() => [...selection.ids], [selection.ids])
+  // 今の一覧にない画像の選択を外す。差分確認で「見つからない」の画像が戻ったときなどに、
+  // 見えない画像を選んだまま詳細パネルに「N枚を選んでいます」と出さない
+  useEffect(() => setSelection((s) => keepOnly(s, new Set(order))), [order])
   const pool = listed === images ? data.images : listed
   const selected = useMemo(() => pool.filter((i) => selection.ids.has(i.id)), [pool, selection.ids])
   const only = !aside && ids.length === 1 ? ids[0] : null

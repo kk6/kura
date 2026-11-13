@@ -386,6 +386,8 @@ const scanLibrary: Handler = async () => {
   await emit('scan-progress', { done: 2, total: 4 })
   await new Promise((r) => setTimeout(r, 500))
   await emit('scan-progress', { done: 4, total: 4 })
+  // e2e が「見つからない」の画像が元の場所に戻った場合を作る
+  if (sessionStorage.getItem('mock.returnMissing')) IMAGES.push(...MISSING.splice(0, 1))
   return structuredClone(SCAN)
 }
 

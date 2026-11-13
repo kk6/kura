@@ -1276,6 +1276,23 @@ test('選んだ画像をゴミ箱へ移し、ゴミ箱で元に戻し、確か�
   expect(errors).toEqual([])
 })
 
+test('選んでいた「見つからない」の画像が差分確認で戻ると、その一覧での選択を外す', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const status = page.getByRole('contentinfo')
+  await expect(status).toContainText('注意：見つからない画像 2枚')
+  await sidebar.getByRole('button', { name: /^見つからない/ }).click()
+  const panel = page.getByRole('complementary', { name: '見つからない画像' })
+  await page.getByRole('main', { name: '画像の一覧' }).getByAltText('missing_1.jpg').click()
+  await expect(panel.getByRole('heading')).toHaveText('missing_1.jpg')
+
+  await page.evaluate(() => sessionStorage.setItem('mock.returnMissing', '1'))
+  await sidebar.getByRole('button', { name: '差分を確認' }).click()
+  await expect(thumbs(page)).toHaveCount(1)
+  await expect(panel.getByRole('heading')).toHaveText('見つからない画像')
+})
+
 test('開いた後に差分を確認して結果を出し、見つからない画像を開いて確かめてから一覧から外す', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
