@@ -4,6 +4,7 @@ import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
 import type { Report, ScanReport } from '../importTypes'
 import type { Added, BoardSummary, EditingBoard, Item, Snapshot, Target, Viewport } from '../board/types'
+import photos from 'virtual:docs-photos'
 
 type Handler = (args: Record<string, unknown> | undefined) => unknown
 
@@ -37,37 +38,50 @@ const SIZES = [
 ]
 let seed = 1
 const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
-const COUNT = Number(new URLSearchParams(location.search).get('images') ?? 2000)
+// 見本の写真（npm run docs:screenshots）があれば、最後の4枚をゴミ箱と見つからない画像に回し、残りを一覧に出す
+const COUNT = photos ? photos.length - 4 : Number(new URLSearchParams(location.search).get('images') ?? 2000)
+// カテゴリはフォルダの道筋（「動物/猫」）で見分ける。親が先に来るよう、道筋の短い順に id を振る
+const PHOTO_CATEGORIES = [
+  ...new Set(photos?.flatMap((p) => p.category.map((_, i) => p.category.slice(0, i + 1).join('/')))),
+].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b, 'ja'))
 const IMAGES: Image[] = Array.from({ length: COUNT }, (_, i) => {
   const [width, height] = SIZES[Math.floor(random() * SIZES.length)]
   // 写真らしいくすんだ色
   const channel = () => Math.floor(120 + random() * 100).toString(16)
+  const photo = photos?.[i]
   return {
     id: i + 1,
-    file_name: `ref_${String(i + 1).padStart(5, '0')}.jpg`,
+    file_name: photo?.file_name ?? `ref_${String(i + 1).padStart(5, '0')}.jpg`,
     hash: `hash${i + 1}`,
-    width,
-    height,
+    width: photo?.width ?? width,
+    height: photo?.height ?? height,
     color: `#${channel()}${channel()}${channel()}`,
-    category_id: i % 4 === 0 ? null : (i % 5) + 1,
+    category_id: photo ? PHOTO_CATEGORIES.indexOf(photo.category.join('/')) + 1 : i % 4 === 0 ? null : (i % 5) + 1,
     rating: i % 6,
     imported_at: 1_700_000_000_000 + ((i * 7919) % 2000) * 60_000,
     // 1枚目はメモと「あおり」「座り」を持つ。2〜10枚目はタグなし、11枚目からは id で決まるタグを持つ
-    memo: i === 0 ? '腕の角度と\n肩の線を見る' : '',
+    memo: i === 0 ? (photo ? '毛並みの流れと\n光の当たり方を見る' : '腕の角度と\n肩の線を見る') : '',
     tags: i === 0 ? [1, 2] : i < 10 ? [] : [1, 2, 3].filter((t) => (i + 1) % (t * 2 + 1) === 0),
   }
 })
 
 const GALLERY: Gallery = {
   images: IMAGES,
-  categories: [
-    { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
-    { id: 2, name: '座り', parent_id: 1, collapsed: false },
-    { id: 3, name: '振り返り', parent_id: 1, collapsed: false },
-    { id: 4, name: '服飾', parent_id: null, collapsed: false },
-    { id: 5, name: '制服', parent_id: 4, collapsed: false },
-    { id: 6, name: '背景', parent_id: null, collapsed: false },
-  ],
+  categories: photos
+    ? PHOTO_CATEGORIES.map((path, i) => ({
+        id: i + 1,
+        name: path.split('/').at(-1)!,
+        parent_id: PHOTO_CATEGORIES.indexOf(path.split('/').slice(0, -1).join('/')) + 1 || null,
+        collapsed: false,
+      }))
+    : [
+        { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+        { id: 2, name: '座り', parent_id: 1, collapsed: false },
+        { id: 3, name: '振り返り', parent_id: 1, collapsed: false },
+        { id: 4, name: '服飾', parent_id: null, collapsed: false },
+        { id: 5, name: '制服', parent_id: 4, collapsed: false },
+        { id: 6, name: '背景', parent_id: null, collapsed: false },
+      ],
   tags: [
     { id: 1, name: 'あおり' },
     { id: 2, name: '座り' },
@@ -743,7 +757,13 @@ export function installMockIPC() {
   // e2e で読みに行ったパスを確かめられるように、パスをURLの末尾に残す
   const internals = (window as unknown as { __TAURI_INTERNALS__: { convertFileSrc: (path: string) => string } })
     .__TAURI_INTERNALS__
-  internals.convertFileSrc = (path) => `${BLANK}#${path}`
+  // 見本の写真があれば、サムネイル（hash<id>.jpg）と元の画像（ファイル名）のパスをその写真へ向ける
+  const urls = new Map(photos?.map((p, i) => [`hash${i + 1}.jpg`, p.url]))
+  for (const image of [...IMAGES, ...TRASH, ...MISSING]) {
+    const url = urls.get(`${image.hash}.jpg`)
+    if (url) urls.set(image.file_name, url)
+  }
+  internals.convertFileSrc = (path) => urls.get(path.split('/').pop()!) ?? `${BLANK}#${path}`
 }
 
 const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
