@@ -70,7 +70,8 @@ export default function Sidebar(props: Props) {
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
   const scope = (category: Filter['category']) => onFilter({ ...filter, category })
 
-  // タグは一覧の画像と同じ選び方にする（FR-504）。Shift の範囲はサイドバーの並び順で決める
+  // タグは一覧の画像と同じ選び方にする（FR-504）。Shift の範囲は、選んだタグを先頭へ寄せる前の並び順で決める。
+  // 寄せた後の並びで決めると、押すたびに並びが変わり、範囲が予想できなくなるため
   const tagOrder = gallery.tags.map((t) => t.id)
   const [tagAnchor, setTagAnchor] = useState<number | null>(null)
   const setTags = (tags: number[], anchor: number | null) => {
@@ -421,34 +422,42 @@ export default function Sidebar(props: Props) {
             <Icon d={props.tagsCollapsed ? 'M9 6l6 6-6 6' : 'M6 9l6 6 6-6'} />
           </span>
         </button>
-        {/* 選んだタグをすべて含む（AND）か、どれかを含む（OR）か */}
-        <span className="sidebar__actions" role="group" aria-label="タグの組み合わせ">
-          {(['and', 'or'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={`sidebar__mode${filter.mode === mode ? ' sidebar__mode--on' : ''}`}
-              aria-pressed={filter.mode === mode}
-              title={mode === 'and' ? '選んだタグをすべて含む画像' : '選んだタグのどれかを含む画像'}
-              onClick={() => onFilter({ ...filter, mode })}
-            >
-              {mode.toUpperCase()}
-            </button>
-          ))}
+        <span className="sidebar__actions">
+          {/* 選んだタグをすべて含む（AND）か、どれかを含む（OR）か。つまみ（::before）が選んだ側へ滑る */}
+          <span
+            className={`sidebar__switch sidebar__switch--${filter.mode}`}
+            role="group"
+            aria-label="タグの組み合わせ"
+          >
+            {(['and', 'or'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`sidebar__mode${filter.mode === mode ? ' sidebar__mode--on' : ''}`}
+                aria-pressed={filter.mode === mode}
+                title={mode === 'and' ? '選んだタグをすべて含む画像' : '選んだタグのどれかを含む画像'}
+                onClick={() => onFilter({ ...filter, mode })}
+              >
+                {mode.toUpperCase()}
+              </button>
+            ))}
+          </span>
           <button type="button" className="sidebar__add" aria-label="タグを管理する" onClick={onManageTags}>
             <Icon d="M4 6h16M4 12h16M4 18h10" />
           </button>
         </span>
       </h2>
-      <ul className="sidebar__list" aria-labelledby="sidebar-tags" onKeyDown={onTagKey}>
+      <ul className="sidebar__tags" aria-labelledby="sidebar-tags" onKeyDown={onTagKey}>
         {/* 閉じていても選んでいるタグは出す。何で絞り込んでいるかが見えなくならないように */}
+        {/* 選んでいるタグは先頭へ寄せる。スクロールの外で選ばれたままのタグに気づかず、絞り込みを誤解しないように */}
         {gallery.tags
           .filter((t) => !props.tagsCollapsed || filter.tags.includes(t.id))
+          .sort((a, b) => Number(filter.tags.includes(b.id)) - Number(filter.tags.includes(a.id)))
           .map((t) => (
             <li key={t.id}>
               <button
                 type="button"
-                className={`sidebar__item sidebar__button${filter.tags.includes(t.id) ? ' sidebar__item--selected' : ''}`}
+                className={`sidebar__tag${filter.tags.includes(t.id) ? ' sidebar__tag--selected' : ''}`}
                 aria-pressed={filter.tags.includes(t.id)}
                 onClick={(e) => pickTag(e, t.id)}
               >

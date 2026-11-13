@@ -982,6 +982,8 @@ test('サイドバーのタグは一覧の画像と同じく、押すとそれ�
   await tag('あおり').click()
   await tag('振り返り').click()
   expect(await pressed()).toEqual(['振り返り'])
+  // 選んでいるタグは先頭へ寄せ、残りは元の並びのまま
+  await expect(tags.locator('.sidebar__name')).toHaveText(['振り返り', 'あおり', '座り'])
   await tag('あおり').click({ modifiers: ['Meta'] })
   expect(await pressed()).toEqual(['あおり', '振り返り'])
   await tag('振り返り').click({ modifiers: ['Meta'] })
@@ -1107,7 +1109,8 @@ test('タグ管理ダイアログで名前を変え、統合すると両方が�
   await input.fill('振り向き')
   await input.press('Enter')
   await expect(rows).toHaveText(['あおり', '座り', '振り向き'])
-  await expect(sideTags.locator('.sidebar__name')).toHaveText(['あおり', '座り', '振り向き'])
+  // サイドバーでは、選んでいる「座り」が先頭に来る
+  await expect(sideTags.locator('.sidebar__name')).toHaveText(['座り', 'あおり', '振り向き'])
 
   // 統合。「あおり」を「座り」にまとめる。1枚目は両方が付いているが「座り」1つになる
   await dialog.getByRole('button', { name: '「あおり」を統合する' }).click()
