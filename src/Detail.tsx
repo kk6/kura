@@ -33,6 +33,8 @@ type Props = {
   onAddToBoard?: () => void
   // 画像を Finder で選んだ状態で開く
   onReveal: (id: number) => void
+  // 拡大表示を開く（FR-508）。サムネイルのダブルクリックで呼ぶ
+  onOpen: () => void
   onClose: () => void
 }
 
@@ -274,6 +276,8 @@ export default function Detail(props: Props) {
             <img
               src={convertFileSrc(`${root}/.kura/thumbs/${image.hash}.jpg`)}
               alt={`${image.file_name} のプレビュー`}
+              title="ダブルクリックで拡大表示"
+              onDoubleClick={props.onOpen}
               style={{
                 // 高さの上限（--size-detail）に収まる幅にする。読み込むまでも枠の大きさを保つため
                 width: `min(100%, calc(var(--size-detail) * ${image.width / image.height}))`,
