@@ -1,13 +1,18 @@
 // README とユーザーガイドのスクリーンショット（docs/images/）を撮り直す。npm run docs:screenshots で流す。
-// モックの開発サーバーを開くので、写るのはモックのダミーのデータだけ（サムネイルは代表色の塗りつぶし）
+// モックの開発サーバーを開き、KURA_DOCS_PHOTOS の見本の写真（商用利用できるもの）を画像として写す
 import { expect, type Page, test } from '@playwright/test'
+import { boardWith } from './board-helpers'
 
 // Retina（2倍）で撮ると1枚 300KB を超えるので、等倍で撮る
 test.use({ deviceScaleFactor: 1 })
 // ダイアログが開く動きの途中で撮らないよう、動きを止める（docs/design.md「動き」）
 test.use({ contextOptions: { reducedMotion: 'reduce' } })
 
-const shot = (page: Page, name: string) => page.screenshot({ path: `docs/images/${name}.png` })
+// 写真は PNG だと1枚 300KB を超えるので JPEG にする。写真を読み終えてから撮る
+async function shot(page: Page, name: string) {
+  await page.waitForFunction(() => Array.from(document.images).every((i) => i.complete))
+  await page.screenshot({ path: `docs/images/${name}.jpg`, type: 'jpeg', quality: 65 })
+}
 
 async function openGallery(page: Page) {
   await page.goto('/')
@@ -24,10 +29,10 @@ test('ライブラリ選択画面', async ({ page }) => {
 
 test('一覧と詳細パネル', async ({ page }) => {
   await openGallery(page)
-  // メモとタグを持つ ref_00001.jpg を先頭に出して選ぶ
+  // メモとタグを持つ1枚目（ファイル名の順で先頭）を選ぶ
   await page.getByRole('combobox', { name: '並べ替え' }).selectOption('ファイル名')
   await page.getByRole('main', { name: '画像の一覧' }).getByRole('img').first().click()
-  await expect(page.getByRole('complementary', { name: '詳細' })).toContainText('腕の角度と')
+  await expect(page.getByRole('complementary', { name: '詳細' })).toContainText('を見る')
   await shot(page, 'gallery')
 })
 
@@ -74,18 +79,20 @@ test('設定', async ({ page }) => {
 })
 
 test('アイデアボード', async ({ page }) => {
-  // 専用ウィンドウの初めの大きさで撮る
-  await page.setViewportSize({ width: 1040, height: 640 })
   await page.addInitScript(() => {
+    if (sessionStorage.getItem('mock.boards')) return
     const board = (id: number, name: string) => ({ id, name, placement_count: 0, updated_at: id })
     sessionStorage.setItem(
       'mock.boards',
       JSON.stringify({ boards: [board(1, '構図'), board(2, '服のしわ')], last: 1, next: 3 }),
     )
   })
-  await page.goto('/?board')
-  await page.getByRole('button', { name: 'ボードの操作' }).click()
-  await expect(page.getByRole('menuitem', { name: '削除…' })).toBeVisible()
+  const { items } = await boardWith(page, 6)
+  // 専用ウィンドウの初めの大きさで撮る。狭いギャラリーではサムネイルを押しにくいので、ボードを開いてから縮める
+  await page.setViewportSize({ width: 1040, height: 640 })
+  await page.getByRole('button', { name: '全体を表示' }).click()
+  await items.nth(2).click()
+  await expect(page.getByRole('status')).toHaveText('保存済み')
   await shot(page, 'board')
 })
 

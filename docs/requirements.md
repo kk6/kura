@@ -728,7 +728,7 @@ ReferenceLibrary/          ← ルートフォルダ
 
 ### 主なテーブル
 
-フェーズ1で作ったのは pending_ops、categories、images、tags、image_tags、image_sources です。フェーズ2のタスク1で boards、board_items、board_sources、board_state を追加しました。ボードの画面とIPCは後続タスクで接続します。embeddings と tags のグループの列は、使うフェーズで足します。列の名前と型は `src-tauri/src/library.rs` の `MIGRATIONS` にあります。
+フェーズ1で作ったのは pending_ops、categories、images、tags、image_tags、image_sources です。フェーズ2のタスク1で boards、board_items、board_sources、board_state を追加しました。embeddings と tags のグループの列は、使うフェーズで足します。列の名前と型は `src-tauri/src/library.rs` の `MIGRATIONS` にあります。
 
 | テーブル | 主な項目 | 備考 |
 | --- | --- | --- |
