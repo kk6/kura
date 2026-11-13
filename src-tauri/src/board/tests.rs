@@ -771,3 +771,127 @@ fn 追加は開いている編集を失効させ古いライブラリの要求�
     let (_other, mut other) = setup();
     assert!(add(&mut other, s, &Target::New("遅延".into()), &[image]).is_err());
 }
+
+// ドライブが外れた後の保存の失敗を、SQLite の I/O エラーの文言で作る。実際に外すことは単体テストではできない
+fn fail_io(current: &Mutex<Option<Library>>) {
+    let r = current.with(|_| Err::<(), _>("ボードを保存できません（disk I/O error）".into()));
+    assert!(r.is_err());
+}
+
+// 開いている接続にだけある一時テーブル。開き直すと消える
+fn mark(current: &Mutex<Option<Library>>) {
+    current
+        .with(|lib| {
+            lib.conn
+                .execute_batch("CREATE TEMP TABLE marker(x)")
+                .map_err(library::err)
+        })
+        .unwrap();
+}
+
+fn marked(current: &Mutex<Option<Library>>) -> bool {
+    current
+        .with(|lib| {
+            lib.conn
+                .query_row(
+                    "SELECT count(*) FROM temp.sqlite_master WHERE name = 'marker'",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .map_err(library::err)
+        })
+        .unwrap()
+        == 1
+}
+
+#[test]
+fn ドライブが戻れば再試行で開き直し外れていた間の編集を保存できる() {
+    let (dir, mut lib) = setup();
+    let image = put(&lib, None, "画像.png", "画像");
+    let s = session(&lib);
+    let draft = snapshot(&lib, image);
+    let created = create(&mut lib, s, "外付け", &draft).unwrap();
+    let current = Mutex::new(Some(lib));
+    mark(&current);
+
+    fail_io(&current);
+    let mut changed = created.board.snapshot();
+    changed.items[0].geometry.x = 999.0;
+    let saved = current
+        .with(|lib| save(lib, created.edit, 1, &changed))
+        .unwrap();
+
+    assert!(!marked(&current));
+    assert_eq!(saved.edit, created.edit);
+    assert_eq!(saved.board.items[0].geometry.x, 999.0);
+    assert_eq!(current.with(|lib| Ok(session(lib))).unwrap(), s);
+    let mode: String = current
+        .with(|lib| {
+            lib.conn
+                .query_row("PRAGMA locking_mode", [], |r| r.get(0))
+                .map_err(library::err)
+        })
+        .unwrap();
+    assert_eq!(mode, "exclusive");
+    assert!(!dir.path().join(KURA_DIR).join("kura.db-shm").exists());
+    assert!(!dir.path().join(KURA_DIR).join("backups").exists());
+}
+
+#[test]
+fn ドライブが外れたままなら開き直せずにエラーを返し戻れば保存できる() {
+    let (dir, mut lib) = setup();
+    let image = put(&lib, None, "画像.png", "画像");
+    let s = session(&lib);
+    let draft = snapshot(&lib, image);
+    let created = create(&mut lib, s, "外付け", &draft).unwrap();
+    let current = Mutex::new(Some(lib));
+    let away = dir.path().with_extension("away");
+    fail_io(&current);
+    fs::rename(dir.path(), &away).unwrap();
+
+    let mut changed = created.board.snapshot();
+    changed.viewport.x = 321.0;
+    let r = current.with(|lib| save(lib, created.edit, 1, &changed));
+    fs::rename(&away, dir.path()).unwrap();
+
+    assert!(r.unwrap_err().contains("見つかりません"));
+    let saved = current
+        .with(|lib| save(lib, created.edit, 1, &changed))
+        .unwrap();
+    assert_eq!(saved.board.viewport.x, 321.0);
+}
+
+#[test]
+fn 開き直してもdbのrevisionが進んでいたら上書きせずに断る() {
+    let (_dir, mut lib) = setup();
+    let image = put(&lib, None, "画像.png", "画像");
+    let s = session(&lib);
+    let draft = snapshot(&lib, image);
+    let created = create(&mut lib, s, "外付け", &draft).unwrap();
+    lib.conn
+        .execute("UPDATE boards SET revision = revision + 5", [])
+        .unwrap();
+    let current = Mutex::new(Some(lib));
+    fail_io(&current);
+
+    let mut changed = created.board.snapshot();
+    changed.viewport.x = 321.0;
+    let r = current.with(|lib| save(lib, created.edit, 1, &changed));
+
+    assert!(r.unwrap_err().contains("古いボードの保存要求"));
+    let stored = current.with(|lib| load(lib, s, created.board.id)).unwrap();
+    assert_eq!(stored.revision, 5);
+    assert_eq!(stored.viewport, created.board.viewport);
+}
+
+#[test]
+fn io以外のエラーでは開き直さない() {
+    let (_dir, lib) = setup();
+    let current = Mutex::new(Some(lib));
+    mark(&current);
+
+    let r = current.with(|_| Err::<(), _>("attempt to write a readonly database".into()));
+
+    assert!(r.is_err());
+    assert!(marked(&current));
+}

@@ -170,6 +170,9 @@ pub struct Library {
     pub root: PathBuf,
     pub conn: Connection,
     pub(crate) board_session: crate::board::Session,
+    /// 接続がディスクの I/O エラーで使えなくなったか。外付けドライブが外れると、つなぎ直しても
+    /// 開いていた接続は戻らないので、次に使う前に開き直す
+    broken: bool,
 }
 
 pub(crate) fn err(e: impl Display) -> String {
@@ -237,6 +240,7 @@ fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
         root: root.to_path_buf(),
         conn,
         board_session: crate::board::Session::new(),
+        broken: false,
     };
     for op in fileops::recover(&mut lib, &apply_op)? {
         // shortcut: ログに残すだけで画面には出さない。不整合を画面に出す差分検出（FR-104）で利用者に知らせる
@@ -356,12 +360,41 @@ impl Access for Mutex<Option<Library>> {
     fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
         // 途中で panic しても DB はトランザクションで、ファイルの移動は pending_ops で整合が保たれるので、
         // poison を理由に以後のコマンドをすべて止めずに使い続ける
-        f(self
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_mut()
-            .ok_or("ライブラリを開いていません")?)
+        let mut guard = self.lock().unwrap_or_else(PoisonError::into_inner);
+        let lib = guard.as_mut().ok_or("ライブラリを開いていません")?;
+        if lib.broken {
+            reconnect(lib)?;
+        }
+        let r = f(lib);
+        if r.as_ref().is_err_and(|e| io_failure(e)) {
+            lib.broken = true;
+        }
+        r
     }
+}
+
+/// 接続が使えなくなったことを示す SQLite のエラー。エラーはここへ文字列で届くので、SQLite の決まった文言で見分ける。
+/// 排他モードの接続はページを使い回すので、失敗の後に読み直して確かめる方法では見分けられない
+fn io_failure(message: &str) -> bool {
+    [
+        "disk I/O error",
+        "database disk image is malformed",
+        "unable to open database file",
+        "file is not a database",
+    ]
+    .iter()
+    .any(|m| message.contains(m))
+}
+
+/// 同じライブラリの DB を開き直す。ボードの編集（セッションと編集トークン、保存済みの revision）はそのまま残し、
+/// 外れていた間の編集を続けて保存できるようにする。DB の中身が変わっていれば、保存の revision の確かめで断られる
+fn reconnect(lib: &mut Library) -> Result<(), String> {
+    // 排他ロックを外すため、開く前に古い接続を閉じる。開けなければ壊れたままにし、次の操作で開き直す
+    lib.conn = Connection::open_in_memory().map_err(err)?;
+    lib.conn = open(&lib.root)?.conn;
+    lib.broken = false;
+    log::info!("ライブラリの DB を開き直しました：{}", lib.root.display());
+    Ok(())
 }
 
 #[cfg(test)]
