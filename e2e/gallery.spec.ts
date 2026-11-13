@@ -992,6 +992,12 @@ test('サイドバーのタグは一覧の画像と同じく、押すとそれ�
   await tag('あおり').click()
   await tag('振り返り').click({ modifiers: ['Shift'] })
   expect(await pressed()).toEqual(['あおり', '座り', '振り返り'])
+  // 選んでいるタグを修飾キーなしで押すと、そのタグだけを外す。ほかのタグの選択は残す
+  await tag('座り').click()
+  expect(await pressed()).toEqual(['あおり', '振り返り'])
+  await tag('あおり').click()
+  await tag('振り返り').click()
+  expect(await pressed()).toEqual([])
 
   // タグにフォーカスがあるときの Escape はタグの選択を外し、画像の選択は残す
   await thumb(page, 1).click()

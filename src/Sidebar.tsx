@@ -70,7 +70,7 @@ export default function Sidebar(props: Props) {
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
   const scope = (category: Filter['category']) => onFilter({ ...filter, category })
 
-  // タグは一覧の画像と同じ選び方にする（FR-504）。Shift の範囲は、選んだタグを先頭へ寄せる前の並び順で決める。
+  // タグは一覧の画像と同じ選び方にする（FR-504）。ただし選んでいるタグは押すと外れる（pickTag）。Shift の範囲は、選んだタグを先頭へ寄せる前の並び順で決める。
   // 寄せた後の並びで決めると、押すたびに並びが変わり、範囲が予想できなくなるため
   const tagOrder = gallery.tags.map((t) => t.id)
   const [tagAnchor, setTagAnchor] = useState<number | null>(null)
@@ -81,9 +81,11 @@ export default function Sidebar(props: Props) {
   const pickTag = (e: MouseEvent<HTMLButtonElement>, id: number) => {
     // macOS の WebKit はクリックでボタンにフォーカスを移さない。続く Escape と ⌘A をタグに効かせるため移す
     e.currentTarget.focus()
+    // 選んでいるタグを修飾キーなしで押すと、⌘ と同じくそのタグだけを外す。一覧の画像と違い、
+    // タグは押して入れたり切ったりする部品に見えるので、押しても外れないと戸惑うため
     const s = select({ ids: new Set(filter.tags), anchor: tagAnchor }, tagOrder, id, {
       shift: e.shiftKey,
-      meta: e.metaKey,
+      meta: e.metaKey || (!e.shiftKey && filter.tags.includes(id)),
     })
     setTags([...s.ids], s.anchor)
   }
