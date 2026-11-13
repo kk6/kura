@@ -111,7 +111,7 @@ $V stop <id>
 
 | コマンド | 内容 |
 | --- | --- |
-| `build` | `npm run tauri build -- --debug --bundles app` |
+| `build` | `npm run tauri build -- --debug --bundles app`。`KURA_BUILD=release` を付けるとリリース用ビルド。`launch`、`stop` なども同じ変数でリリース用の `.app` と、`debug/` の付かないアプリのデータフォルダを使う（性能の確認用） |
 | `launch <id> [empty\|template\|<lib>]` | 隔離して起動し、doctor を流す。`<lib>` は `.claude/tmp/verify-kura/` の下のライブラリだけを受け付け、run の `lib/` に複製して開く |
 | `doctor <id>` | 上の確認 |
 | `src <id> [枚数]` | 取り込み元のダミー画像を `runs/<id>/src/` に作る（`scripts/gen_dev_library.py`） |

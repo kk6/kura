@@ -4,7 +4,10 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 BASE="$REPO/.claude/tmp/verify-kura"
-APP="$REPO/src-tauri/target/debug/bundle/macos/Kura.app"
+# KURA_BUILD=release でリリース用ビルド（npm run tauri build）の .app を同じ隔離で使う。性能の確認用
+BUILD="${KURA_BUILD:-debug}"
+[[ "$BUILD" == debug || "$BUILD" == release ]] || { echo "error: KURA_BUILD は debug か release" >&2; exit 1; }
+APP="$REPO/src-tauri/target/$BUILD/bundle/macos/Kura.app"
 BIN="$APP/Contents/MacOS/kura"
 REAL_DATA="$HOME/Library/Application Support/dev.kk6.kura"
 
@@ -13,7 +16,8 @@ die() { echo "error: $*" >&2; exit 1; }
 valid_id() { [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 run_dir() { valid_id "${1:-}" || die "run id は英数字と . _ - だけ（'${1:-}'）"; echo "$BASE/runs/$1"; }
 # 偽の HOME の中のアプリのデータフォルダ（recent-libraries.json と settings.json の置き場所）。デバッグビルドは debug/ の下を使う
-data_dir() { echo "$(run_dir "$1")/home/Library/Application Support/dev.kk6.kura/debug"; }
+# リリース用ビルドは debug/ を付けない
+data_dir() { echo "$(run_dir "$1")/home/Library/Application Support/dev.kk6.kura$([ "$BUILD" = debug ] && echo /debug)"; }
 # pid ファイルは「pid<TAB>起動時刻」。pid が別のプロセスに使い回されても、起動時刻が違えば自分のものと見なさない
 pid_of() { cut -f1 "$(run_dir "$1")/pid" 2>/dev/null || true; }
 started_of() { cut -f2 "$(run_dir "$1")/pid" 2>/dev/null || true; }
@@ -30,7 +34,11 @@ ours() {
 }
 
 cmd_build() {
-  cd "$REPO" && npm run tauri build -- --debug --bundles app
+  if [ "$BUILD" = release ]; then
+    cd "$REPO" && npm run tauri build -- --bundles app
+  else
+    cd "$REPO" && npm run tauri build -- --debug --bundles app
+  fi
 }
 
 # launch <id> [empty|template|<library>]
