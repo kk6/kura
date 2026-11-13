@@ -83,12 +83,26 @@ $V doctor <id>
 
 フォルダ選択のダイアログ（NSOpenPanel）は、⌘⇧G → 絶対パスを入力 → Return → 右下の「開く」（または「選択」）で選ぶ。`.claude` は隠しフォルダだが、⌘⇧G なら入れる。
 
+## 保存を失敗させる
+
+Kura は DB を排他モードで開き、開いたファイルに書き続ける。別の `sqlite3` でロックを握る方法や、`.kura/` の権限を変える方法では保存を止められない（exFAT・FAT32 は Unix の権限も持たない）。ライブラリをディスクイメージに置いて外す：
+
+```bash
+hdiutil create -size 256m -fs ExFAT -volname KURAEX <run>/kuraex.dmg   # APFS なら -fs APFS
+hdiutil attach -nobrowse <run>/kuraex.dmg
+cp -R .claude/tmp/verify-kura/template /Volumes/KURAEX/lib            # 選択画面の「ライブラリを開く」で開く
+hdiutil detach -force /Volumes/KURAEX                                  # 保存中に外す。次の保存が「保存できませんでした」になる
+hdiutil attach -nobrowse <run>/kuraex.dmg                              # つなぎ直す
+```
+
+つなぎ直しても、開いていた接続は元に戻らない。ライブラリを開き直すと、最後に保存できた状態から使える。
+
 ## Evidence
 
 置き場所：`.claude/tmp/verify-kura/runs/<id>/evidence/`。`stop` してもここは消えない。
 
 - 画面：選択した環境の手順で、操作の前後のスクリーンショットを `evidence/<feature>-<step>.png` または `.jpg` に保存する。
-- DB：`$V db <id> "<SQL>"`（読み取り専用で開く）。例：`select id, file_name, category_id, rating, memo, deleted_at from images`。結果を `evidence/<feature>-db.txt` に保存する。
+- DB：`$V db <id> "<SQL>"`（DB と WAL の写しを読む。Kura は DB を排他モードで開くので、動いている間はほかのプロセスが DB を開けない。`sqlite3` で直接開かない）。例：`select id, file_name, category_id, rating, memo, deleted_at from images`。結果を `evidence/<feature>-db.txt` に保存する。
 - ファイル：`ls -R .claude/tmp/verify-kura/runs/<id>/lib` で実ファイルの位置と名前を確かめる（カテゴリはフォルダ、ゴミ箱は `lib/.kura/trash/`）。
 - ログ：`app.log`（`stop` で `evidence/app.log` に写る）。
 

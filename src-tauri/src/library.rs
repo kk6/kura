@@ -219,9 +219,19 @@ pub fn open(root: &Path) -> Result<Library, String> {
 
 fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
     let mut conn = Connection::open(root.join(KURA_DIR).join("kura.db")).map_err(err)?;
+    // 排他モードは WAL を使い始める前に設定したときだけ、共有メモリ（-shm の mmap）の代わりにヒープを使う。
+    // mmap だと外付けドライブが外れたときに読み取りでプロセスが落ちる（SIGBUS）ため。
     // WAL：取り込み中も一覧を読めるようにするため。FULL：電源断でも直前のコミットを失わないため
-    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")
-        .map_err(err)?;
+    conn.execute_batch(
+        "PRAGMA locking_mode = EXCLUSIVE; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
+    )
+    .map_err(|e| match e.sqlite_error_code() {
+        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) => {
+            "このライブラリは、ほかの Kura が開いています。そちらを閉じてから開き直してください"
+                .into()
+        }
+        _ => err(e),
+    })?;
     migrate(&mut conn, migrations, &root.join(BACKUP_DIR))?;
     let mut lib = Library {
         root: root.to_path_buf(),
@@ -469,6 +479,35 @@ mod tests {
             .unwrap();
         assert_eq!(sync, 2); // FULL
         assert_eq!(user_version(&lib.conn), MIGRATIONS.len() as i64);
+    }
+
+    #[test]
+    fn 排他モードで開き書き込んでも共有メモリのファイルを作らない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = create(dir.path()).unwrap();
+        lib.conn
+            .execute("INSERT INTO tags(name) VALUES ('t')", [])
+            .unwrap();
+
+        let mode: String = lib
+            .conn
+            .query_row("PRAGMA locking_mode", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mode, "exclusive");
+        assert!(dir.path().join(".kura/kura.db-wal").is_file());
+        assert!(!dir.path().join(".kura/kura.db-shm").exists());
+    }
+
+    #[test]
+    fn 開いている間は同じライブラリをもう一度開けず閉じれば開ける() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = create(dir.path()).unwrap();
+
+        let e = open(dir.path()).err().unwrap();
+        assert!(e.contains("ほかの Kura"), "{e}");
+
+        drop(lib);
+        open(dir.path()).unwrap();
     }
 
     #[test]

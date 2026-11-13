@@ -642,12 +642,24 @@ fn create_library(
     current: State<Current>,
     path: PathBuf,
 ) -> Result<PathBuf, String> {
+    release(&current);
     activate(&app, &current, library::create(&path))
 }
 
 #[tauri::command]
 fn open_library(app: AppHandle, current: State<Current>, path: PathBuf) -> Result<PathBuf, String> {
+    release(&current);
     activate(&app, &current, library::open(&path))
+}
+
+/// 開いているライブラリを閉じ、DB の排他ロックを外す。同じライブラリを選び直しても開けるように、
+/// 次のライブラリを開く前に閉じる。選択画面には前のライブラリへ戻る操作がないので、残しておく必要はない
+fn release(current: &Current) {
+    current
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .take();
 }
 
 #[tauri::command]

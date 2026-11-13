@@ -2,7 +2,7 @@ use std::fs;
 use std::sync::Mutex;
 
 use super::*;
-use crate::category::tests::{lock, put, setup, unlock};
+use crate::category::tests::{put, setup};
 use crate::library::{self, Access, KURA_DIR};
 
 fn empty() -> Snapshot {
@@ -446,19 +446,13 @@ fn 読み取り専用dbの実際の保存エラーで配置を残しロック解
     let s = session(&lib);
     let draft = snapshot(&lib, image);
     let created = create(&mut lib, s, "保存済み", &draft).unwrap();
-    let kura = dir.path().join(KURA_DIR);
-    let db = kura.join("kura.db");
-    if !lock(&kura) {
-        return;
-    }
-    lib.conn =
-        rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .unwrap();
+    // ライブラリの接続は排他モードで、開いたファイルに書き続けるので、フォルダの権限では書き込みを止められない。
+    // SQLite 自身に書き込みを断らせ、実際の書き込みエラーを起こす
+    lib.conn.execute_batch("PRAGMA query_only = ON").unwrap();
     let before = load(&lib, s, created.board.id).unwrap();
     let mut changed = before.snapshot();
     changed.viewport.x = 321.0;
     let r = save(&mut lib, created.edit, 1, &changed);
-    unlock(&kura);
     let error = r.unwrap_err();
     assert!(
         error.contains("readonly"),
@@ -740,18 +734,10 @@ fn 読み取り専用dbでは追加せずロック解除後に追加できる() 
     let image = put(&lib, None, "画像.png", "画像");
     let s = session(&lib);
     let created = create(&mut lib, s, "既存", &empty()).unwrap();
-    let kura = dir.path().join(KURA_DIR);
-    if !lock(&kura) {
-        return;
-    }
-    lib.conn = rusqlite::Connection::open_with_flags(
-        kura.join("kura.db"),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .unwrap();
+    // 書き込みを断らせる理由は、上の読み取り専用dbの実際の保存エラーのテストと同じ
+    lib.conn.execute_batch("PRAGMA query_only = ON").unwrap();
     let existing = add(&mut lib, s, &Target::Board(created.board.id), &[image]);
     let new = add(&mut lib, s, &Target::New("新規".into()), &[image]);
-    unlock(&kura);
     assert!(existing.unwrap_err().contains("readonly"));
     assert!(new.unwrap_err().contains("readonly"));
     drop(lib);

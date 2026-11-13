@@ -105,10 +105,16 @@ cmd_doctor() {
 }
 
 # db <id> <sql> : run の lib/ の DB を読み取り専用で見る
+# Kura は DB を排他モードで開くので、動いている間はほかのプロセスが開けない。DB と WAL を写して、写しを読む。
+# 書き込みの途中に写すと半端な写しになることがあるので、操作の後に少し待ってから使う
 cmd_db() {
-  local db; db="$(run_dir "$1")/lib/.kura/kura.db"
+  local db copy; db="$(run_dir "$1")/lib/.kura/kura.db"
   [ -f "$db" ] || die "$db がない"
-  sqlite3 -readonly -header "file:$db?mode=ro" "$2"
+  copy=$(mktemp -d "${TMPDIR:-/tmp}/kura-db.XXXXXX")
+  cp "$db" "$copy/kura.db"
+  [ -f "$db-wal" ] && cp "$db-wal" "$copy/kura.db-wal"
+  sqlite3 -header "$copy/kura.db" "$2"
+  rm -rf "$copy"
 }
 
 # stop <id> : 自分が起動した pid だけを止める。evidence/ は残し、ほかは消す
