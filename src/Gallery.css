@@ -840,7 +840,7 @@ body.is-dragging * {
 /* 押せる行とボタンの手応え（docs/design.md「動き」）。行は幅いっぱいなので縮めず、背景だけ変える */
 .sidebar__button,
 .sidebar__item--category,
-.sidebar__mode,
+.sidebar__tag,
 .sidebar__add {
   transition:
     background-color var(--duration-fast) ease-out,
@@ -849,7 +849,7 @@ body.is-dragging * {
 
 .sidebar__button:not(.sidebar__item--selected):hover,
 .sidebar__item--category:not(.sidebar__item--selected, .sidebar__item--dragging):hover,
-.sidebar__mode:not(.sidebar__mode--on):hover {
+.sidebar__tag:not(.sidebar__tag--selected):hover {
   background: var(--color-raise);
 }
 
@@ -858,28 +858,97 @@ body.is-dragging * {
   background: var(--color-selected);
 }
 
-.sidebar__mode:active,
+.sidebar__switch:active,
+.sidebar__tag:active,
 .sidebar__add:enabled:active {
   transform: scale(var(--motion-press));
 }
 
-/* タグの AND と OR の切り替え */
-.sidebar__mode {
+/* タグの AND と OR の切り替え。2つの文字の下を、黒いつまみが選んだ側へ滑る。四角いタグと見分けられるよう両端を丸くする */
+.sidebar__switch {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
   height: var(--size-control-sm);
-  padding: 0 var(--space-1);
   border: var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
+  background: var(--color-input);
+  transition: transform var(--duration-fast) ease-out;
+}
+
+.sidebar__switch::before {
+  position: absolute;
+  inset: 0 50% 0 0;
+  border-radius: var(--radius-full);
+  background: var(--color-text);
+  transition: transform var(--duration-base) ease-out;
+  content: '';
+}
+
+.sidebar__switch--or::before {
+  transform: translateX(100%);
+}
+
+.sidebar__mode {
+  position: relative;
+  padding: 0 var(--space-3);
+  border: none;
   background: none;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-regular);
   color: var(--color-text-sub);
   cursor: pointer;
+  transition: color var(--duration-base) ease-out;
+}
+
+.sidebar__mode:not(.sidebar__mode--on):hover {
+  color: var(--color-text);
 }
 
 .sidebar__mode--on {
-  background: var(--color-selected);
   font-weight: var(--font-weight-bold);
+  color: var(--color-on-text);
+}
+
+/* タグの一覧。詳細パネルのタグと同じ四角を、折り返して並べる。選んでいるタグは黒く塗る */
+.sidebar__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0 var(--space-3);
+  list-style: none;
+}
+
+.sidebar__tags > li {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sidebar__tag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--color-input);
+  font-size: var(--font-size-sm);
   color: var(--color-text);
+  cursor: pointer;
+}
+
+.sidebar__tag--selected {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-on-text);
+}
+
+.sidebar__tag--selected .sidebar__count {
+  color: var(--color-on-text);
 }
 
 .search__option {
