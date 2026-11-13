@@ -355,6 +355,18 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   }
   const addRef = useRef(addToBoard)
   addRef.current = addToBoard
+  // Rust に知らせ、メニューの「ボードに追加…」の有効・無効と、ダイアログの間にボードの最前面の固定を
+  // 外すのに使う。固定したボードの後ろにダイアログが隠れないように（FR-701、FR-705）
+  const dialogOpen = useDialogOpen()
+  useEffect(() => {
+    invoke('report_gallery', { addable: canAdd, dialog: dialogOpen }).catch((e) => console.error(e))
+  }, [canAdd, dialogOpen])
+  useEffect(
+    () => () => {
+      invoke('report_gallery', { addable: false, dialog: false }).catch((e) => console.error(e))
+    },
+    [],
+  )
 
   const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
   function openContextMenu(id: number, e: React.MouseEvent) {
@@ -976,3 +988,14 @@ const Chevron = ({ d }: { d: string }) => (
     <path d={d} />
   </svg>
 )
+
+// このウィンドウで dialog 要素を開いているか
+function useDialogOpen() {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const observer = new MutationObserver(() => setOpen(document.querySelector('dialog[open]') !== null))
+    observer.observe(document.body, { subtree: true, childList: true, attributeFilter: ['open'] })
+    return () => observer.disconnect()
+  }, [])
+  return open
+}

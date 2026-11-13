@@ -279,7 +279,7 @@ async fn show_board_window(app: AppHandle) -> Result<(), String> {
             // 上部の操作が1段に収まる幅
             .inner_size(1040.0, 640.0)
             .min_inner_size(480.0, 320.0)
-            .always_on_top(display.always_on_top)
+            .always_on_top(pinned(&app, display.always_on_top))
             .visible(false)
             .build()?;
         if let Err(e) = place_board(&app, &w, display.frame) {
@@ -418,9 +418,64 @@ fn set_board_display(
     })
     .map_err(|e| format!("表示の設定を保存できません（{e}）"))?;
     window
-        .set_always_on_top(always_on_top)
+        .set_always_on_top(pinned(&app, always_on_top))
         .and_then(|_| set_alpha(&window, f64::from(opacity) / 100.0))
         .map_err(|e| format!("表示を変えられません（{e}）"))
+}
+
+/// ギャラリーの状態のうち、メニューとボードの最前面に効くもの（NFR-12、FR-705）
+#[derive(Default, Clone, Copy)]
+struct GalleryState {
+    /// ギャラリーが手前のウィンドウか
+    front: bool,
+    /// 追加できる画像を選んでいるか
+    addable: bool,
+    /// ギャラリーでダイアログを開いているか
+    dialog: bool,
+}
+
+/// ギャラリーの状態を変え、「ボードに追加…」の有効・無効に当てる。追加できるのは、ギャラリーが手前で
+/// 追加できる画像を選び、ダイアログを開いていないときだけ（FR-701）
+fn update_gallery(app: &AppHandle, change: impl FnOnce(&mut GalleryState)) {
+    let g = {
+        let state = app.state::<Mutex<GalleryState>>();
+        let mut g = state.lock().unwrap_or_else(PoisonError::into_inner);
+        change(&mut g);
+        *g
+    };
+    if let Err(e) = menu::enable(app, menu::ADD_TO_BOARD, g.front && g.addable && !g.dialog) {
+        log::warn!("「ボードに追加…」の有効・無効を変えられません：{e}");
+    }
+}
+
+/// ボードを最前面に固定するか。ギャラリーでダイアログを開いている間は外す。固定したボードの後ろに
+/// ギャラリーの設定や確認のダイアログが隠れ、押せなくなるため（FR-705）
+fn pinned(app: &AppHandle, always_on_top: bool) -> bool {
+    always_on_top
+        && !app
+            .state::<Mutex<GalleryState>>()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .dialog
+}
+
+/// ギャラリーが、追加できる画像を選んでいるかと、ダイアログを開いているかを知らせる。
+/// ライブラリ選択画面へ戻るときは両方 false で知らせる
+#[tauri::command]
+fn report_gallery(app: AppHandle, addable: bool, dialog: bool) {
+    update_gallery(&app, |g| {
+        g.addable = addable;
+        g.dialog = dialog;
+    });
+    let Some(w) = app.get_webview_window(BOARD) else {
+        return;
+    };
+    let always_on_top = settings_file(&app)
+        .map(|file| settings::load(&file).board_window.always_on_top)
+        .unwrap_or_default();
+    if let Err(e) = w.set_always_on_top(pinned(&app, always_on_top)) {
+        log::warn!("アイデアボードの最前面の固定を変えられません：{e}");
+    }
 }
 
 /// ボードの一覧と、以後のボードの操作に添えるライブラリのトークン
@@ -906,6 +961,19 @@ fn main() {
                 quit(app);
                 return;
             }
+            // 「編集」の項目は手前のウィンドウに効かせる。メニューを開いても手前のウィンドウは変わらない（NFR-12）
+            if let Some(edit) = menu::EDITS.iter().find(|id| event.id() == **id) {
+                let front = app
+                    .webview_windows()
+                    .into_values()
+                    .find(|w| w.is_focused().unwrap_or(false));
+                if let Some(w) = front {
+                    if let Err(e) = app.emit_to(w.label(), "edit-menu", edit) {
+                        log::warn!("メニューの操作を画面に送れません（{edit}）：{e}");
+                    }
+                }
+                return;
+            }
             // 開いているライブラリ（Current）は次のライブラリを開くまで残す。戻るかどうかは画面が決める。
             // ボードもギャラリーの画面が開く。ライブラリ選択画面ではボードを開かないため
             for id in [menu::SWITCH_LIBRARY, menu::OPEN_BOARD, menu::ADD_TO_BOARD] {
@@ -926,6 +994,9 @@ fn main() {
                     quit(window.app_handle());
                 }
             }
+            WindowEvent::Focused(focused) if window.label() == "main" => {
+                update_gallery(window.app_handle(), |g| g.front = *focused);
+            }
             WindowEvent::Moved(_) | WindowEvent::Resized(_) if window.label() == BOARD => {
                 track_board_frame(window);
             }
@@ -944,6 +1015,7 @@ fn main() {
         .manage(Reveal::default())
         .manage(settle::Settle::default())
         .manage(BoardFrame::default())
+        .manage(Mutex::new(GalleryState::default()))
         .manage(backfill::Gate::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
@@ -951,6 +1023,7 @@ fn main() {
             forget_recent_library,
             load_settings,
             save_settings,
+            report_gallery,
             location_warning,
             create_library,
             open_library,

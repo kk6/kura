@@ -660,6 +660,7 @@ const handlers: Record<string, Handler> = {
   create_library: createLibrary,
   import_paths: importPaths,
   load_gallery: loadGallery,
+  report_gallery: (args) => console.info(`report_gallery: ${args?.addable} ${args?.dialog}`),
   image_detail: imageDetail,
   // e2e が確かめられるように、開いたものをコンソールに出す
   show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),
