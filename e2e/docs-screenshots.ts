@@ -1,6 +1,7 @@
 // README とユーザーガイドのスクリーンショット（docs/images/）を撮り直す。npm run docs:screenshots で流す。
 // モックの開発サーバーを開くので、写るのはモックのダミーのデータだけ（サムネイルは代表色の塗りつぶし）
 import { expect, type Page, test } from '@playwright/test'
+import { boardWith } from './board-helpers'
 
 // Retina（2倍）で撮ると1枚 300KB を超えるので、等倍で撮る
 test.use({ deviceScaleFactor: 1 })
@@ -77,15 +78,23 @@ test('アイデアボード', async ({ page }) => {
   // 専用ウィンドウの初めの大きさで撮る
   await page.setViewportSize({ width: 1040, height: 640 })
   await page.addInitScript(() => {
+    if (sessionStorage.getItem('mock.boards')) return
     const board = (id: number, name: string) => ({ id, name, placement_count: 0, updated_at: id })
     sessionStorage.setItem(
       'mock.boards',
       JSON.stringify({ boards: [board(1, '構図'), board(2, '服のしわ')], last: 1, next: 3 }),
     )
   })
-  await page.goto('/?board')
-  await page.getByRole('button', { name: 'ボードの操作' }).click()
-  await expect(page.getByRole('menuitem', { name: '削除…' })).toBeVisible()
+  await openGallery(page)
+  const thumbs = page.locator('.list__thumb')
+  const colors = await thumbs.evaluateAll((els) => els.slice(0, 6).map((el) => (el as HTMLElement).style.background))
+  const { canvas, items } = await boardWith(page, 6)
+  // モックは画像の中身を読めず透明になるので、ギャラリーのサムネイルと同じ代表色で塗る（追加した順に並ぶ）
+  await canvas
+    .locator('.board__image')
+    .evaluateAll((els, colors) => els.forEach((el, i) => ((el as HTMLElement).style.background = colors[i])), colors)
+  await items.nth(2).click()
+  await expect(page.getByRole('status')).toHaveText('保存済み')
   await shot(page, 'board')
 })
 
