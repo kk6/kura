@@ -747,7 +747,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
               disabled={thumbWidth <= THUMB_MIN}
               onClick={() => changeSettings({ thumb_width: Math.max(THUMB_MIN, thumbWidth - THUMB_STEP) })}
             >
-              <Icon d={ICONS.grid3x3} />
+              <Icon d={ICONS.masonryMany} />
             </button>
             <input
               className="slider"
@@ -766,7 +766,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
               disabled={thumbWidth >= THUMB_MAX}
               onClick={() => changeSettings({ thumb_width: Math.min(THUMB_MAX, thumbWidth + THUMB_STEP) })}
             >
-              <Icon d={ICONS.grid2x2} />
+              <Icon d={ICONS.masonryFew} />
             </button>
           </span>
         )}
