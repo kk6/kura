@@ -8,7 +8,7 @@ import react from '@vitejs/plugin-react'
 // ドキュメントのスクリーンショット用に、モックの画面へ見本の写真を渡す（virtual:docs-photos）。
 // KURA_DOCS_PHOTOS に「カテゴリ名のフォルダ／写真」の形のフォルダを渡したときだけ働く。
 // 写真は縮小した写しを .claude/tmp/docs-photos/ に作って配る。元のフォルダには書かない。
-// shortcut: 写しはファイル名だけで使い回すので、写真を入れ替えたら .claude/tmp/docs-photos/ を消してから撮る
+// 写しの名前は元の写真の道筋から付ける。写真を足したり消したりしても、別の写真の写しを使わない
 function docsPhotos(dir: string | undefined): Plugin {
   const id = 'virtual:docs-photos'
   const out = resolve('.claude/tmp/docs-photos')
@@ -33,7 +33,7 @@ function docsPhotos(dir: string | undefined): Plugin {
         const leaf = path.at(-1)!
         count.set(leaf, (count.get(leaf) ?? 0) + 1)
         const file_name = `${leaf}_${String(count.get(leaf)).padStart(2, '0')}.jpg`
-        const copy = join(out, file_name)
+        const copy = join(out, [...path, file].join('__'))
         if (!existsSync(copy))
           execFileSync('sips', ['-Z', '960', '-s', 'formatOptions', '80', join(dir!, ...path, file), '--out', copy])
         const info = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', copy], { encoding: 'utf8' })
@@ -42,10 +42,13 @@ function docsPhotos(dir: string | undefined): Plugin {
       })
       .sort((a, b) => collator.compare(a.file_name, b.file_name))
   }
+  let photos: ReturnType<typeof prepare> | null = null
   return {
     name: 'docs-photos',
+    // 写しを作るのに数秒かかる。開発サーバーが応答する前に済ませ、最初の画面の読み込みを待たせない
+    configureServer: () => void (photos = dir ? prepare() : null),
     resolveId: (s) => (s === id ? `\0${id}` : undefined),
-    load: (s) => (s === `\0${id}` ? `export default ${JSON.stringify(dir ? prepare() : null)}` : undefined),
+    load: (s) => (s === `\0${id}` ? `export default ${JSON.stringify(photos ?? (dir ? prepare() : null))}` : undefined),
   }
 }
 
