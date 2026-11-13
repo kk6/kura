@@ -882,6 +882,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
             onTrash={trashImages}
             onReveal={reveal}
+            // ゴミ箱と見つからない画像を開いている間は、この詳細パネルを出さない
+            onOpen={() => setZoom(true)}
             onAddToBoard={settings.board_enabled ? addToBoard : undefined}
             onClose={() => toggleDetail(false)}
           />
