@@ -895,3 +895,21 @@ fn io以外のエラーでは開き直さない() {
     assert!(r.is_err());
     assert!(marked(&current));
 }
+
+#[test]
+fn ドライブを読めないエラーは壊れたと読める文言を出さずに知らせる() {
+    let (_dir, lib) = setup();
+    let current = Mutex::new(Some(lib));
+
+    let e = current
+        .with(|_| Err::<(), _>("タグを付けられません（database disk image is malformed）".into()))
+        .unwrap_err();
+
+    assert!(e.contains("ライブラリのドライブを読めません"), "{e}");
+    assert!(!e.contains("malformed"), "{e}");
+    // ほかのエラーの文言は変えない
+    let other = current
+        .with(|_| Err::<(), _>("attempt to write a readonly database".into()))
+        .unwrap_err();
+    assert_eq!(other, "attempt to write a readonly database");
+}

@@ -365,11 +365,16 @@ impl Access for Mutex<Option<Library>> {
         if lib.broken {
             reconnect(lib)?;
         }
-        let r = f(lib);
-        if r.as_ref().is_err_and(|e| io_failure(e)) {
+        f(lib).map_err(|e| {
+            if !io_failure(&e) {
+                return e;
+            }
             lib.broken = true;
-        }
-        r
+            // SQLite の「database disk image is malformed」などは DB が壊れたように読めるので、画面には出さない
+            log::warn!("ライブラリの DB を読み書きできません：{e}");
+            "ライブラリのドライブを読めません。ドライブをつなぎ直してから、もう一度試してください"
+                .into()
+        })
     }
 }
 
