@@ -167,12 +167,31 @@ cmd_src() {
   cd "$REPO" && uv run scripts/gen_dev_library.py "${2:-30}" --out "$dir/src"
 }
 
+# windows <id> : 自分が起動した Kura のウィンドウの名前、層（最前面の固定で 0 以外）、不透明度、位置と大きさ
+# 画面ではなく WindowServer の値なので、最前面の固定と不透明度の証跡になる（FR-705、FR-707）
+cmd_windows() {
+  ours "$1" || die "この run の Kura が動いていない"
+  local f; f=$(mktemp "${TMPDIR:-/tmp}/kura-windows.XXXXXX").swift
+  cat >"$f" <<'SWIFT'
+import CoreGraphics
+let pid = Int32(CommandLine.arguments[1])!
+let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as! [[String: Any]]
+for w in list where (w[kCGWindowOwnerPID as String] as? Int32) == pid {
+  guard let name = w[kCGWindowName as String] as? String, !name.isEmpty else { continue }
+  let b = w[kCGWindowBounds as String] as! [String: Any]
+  print("\(name)\tlayer=\(w[kCGWindowLayer as String]!)\talpha=\(w[kCGWindowAlpha as String]!)\tonscreen=\(w[kCGWindowIsOnscreen as String] ?? 0)\tx=\(b["X"]!) y=\(b["Y"]!) w=\(b["Width"]!) h=\(b["Height"]!)")
+}
+SWIFT
+  swift "$f" "$(pid_of "$1")"
+  rm -f "$f"
+}
+
 case "${1:-}" in
   build) cmd_build ;;
-  launch|doctor|db|stop|src|template)
+  launch|doctor|db|stop|src|template|windows)
     c=$1; shift
     valid_id "${1:-}" || die "run id は英数字と . _ - だけ（'${1:-}'）"
     "cmd_$c" "$@" ;;
   real-data-mtime) stat -f '%m %N' "$REAL_DATA"/* 2>/dev/null || true ;;
-  *) echo "usage: $0 build | launch <id> [empty|template|<lib>] | doctor <id> | src <id> [n] | db <id> <sql> | template <id> | stop <id> | real-data-mtime"; exit 2 ;;
+  *) echo "usage: $0 build | launch <id> [empty|template|<lib>] | doctor <id> | src <id> [n] | db <id> <sql> | windows <id> | template <id> | stop <id> | real-data-mtime"; exit 2 ;;
 esac

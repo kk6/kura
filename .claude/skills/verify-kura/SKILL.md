@@ -132,8 +132,9 @@ $V stop <id>
 | `doctor <id>` | 上の確認 |
 | `src <id> [枚数]` | 取り込み元のダミー画像を `runs/<id>/src/` に作る（`scripts/gen_dev_library.py`） |
 | `db <id> "<SQL>"` | run のライブラリの DB を読み取り専用で引く |
+| `windows <id>` | 自分が起動した Kura のウィンドウごとの層（最前面の固定で 0 以外）、不透明度（alpha）、位置と大きさ。WindowServer の値を読む |
 | `template <id>` | アプリを止め、run の `lib/` を見本として保存する |
 | `stop <id>` | 停止と後片付け。証跡は残す |
 | `real-data-mtime` | 利用者のアプリデータのファイルの更新日時（中身は読まない） |
 
-機能ごとの手順は `features/README.md` から引く。
+機能ごとの手順は `features/README.md` から引く。元URLの記録（拡張属性）を付けたダミー画像は `uv run scripts/gen_source_urls.py <出力先>` で作る（features/source-url.md）。
