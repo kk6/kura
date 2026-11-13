@@ -142,3 +142,27 @@ test('「ギャラリーで表示」を受けたギャラリーは、絞り込�
   await expect(status).toContainText('画像がギャラリーにありません')
   await expect(selected).toHaveAttribute('data-id', '2003')
 })
+
+test('低いウィンドウでも、右クリックのメニューはウィンドウに収まり、スクロールして最後の項目を押せる', async ({
+  page,
+}) => {
+  const { items } = await boardWith(page, 1)
+  const imageId = (await stored(page)).items[0].source.image_id
+  await page.setViewportSize({ width: 900, height: 320 })
+  const at = await box(items.first())
+  await page.mouse.click(at.x + 10, Math.min(at.y + 10, 300), { button: 'right' })
+  const menu = page.getByRole('menu')
+  const shown = (await menu.boundingBox())!
+  expect(shown.y).toBeGreaterThanOrEqual(0)
+  expect(shown.y + shown.height).toBeLessThanOrEqual(320)
+
+  await page.mouse.move(shown.x + shown.width / 2, shown.y + shown.height / 2)
+  await page.mouse.wheel(0, 1000)
+  await expect(menu).toBeVisible()
+  await expect.poll(() => menu.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+  await page.screenshot({ path: 'test-results/board-menu-short.png' })
+  const logs: string[] = []
+  page.on('console', (m) => logs.push(m.text()))
+  await menu.getByText('ギャラリーで表示').click()
+  await expect.poll(() => logs).toContain(`gallery: ${imageId}`)
+})
