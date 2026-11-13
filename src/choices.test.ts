@@ -1,5 +1,13 @@
 import { describe, expect, it, test } from 'vitest'
-import { candidates, categoryOptions, filterCandidates, moveActive, recentCandidates, rememberTag } from './choices'
+import {
+  candidates,
+  categoryCandidates,
+  categoryOptions,
+  filterCandidates,
+  moveActive,
+  recentCandidates,
+  rememberTag,
+} from './choices'
 import { NO_FILTER } from './filter'
 
 const TAGS = [
@@ -15,9 +23,14 @@ describe('candidates', () => {
     expect(candidates(TAGS, ' 返り ', new Set()).map((t) => t.id)).toEqual([3])
   })
 
-  it('選んだ画像のすべてに付いているタグと、空の入力では出さない', () => {
+  it('選んだ画像のすべてに付いているタグは出さない', () => {
     expect(candidates(TAGS, 'o', new Set([1]))).toEqual([])
-    expect(candidates(TAGS, '  ', new Set())).toEqual([])
+  })
+
+  it('空の入力では、選んだ画像のすべてに付いているタグを除いた全部を、件数を絞らずに返す', () => {
+    expect(candidates(TAGS, '  ', new Set([2])).map((t) => t.id)).toEqual([1, 3])
+    const many = Array.from({ length: 20 }, (_, i) => ({ id: i, name: `タグ${i}` }))
+    expect(candidates(many, '', new Set())).toHaveLength(20)
   })
 
   it('件数を limit までに絞る', () => {
@@ -37,6 +50,29 @@ describe('recentCandidates', () => {
   it('使った新しい順に、選んだ画像のすべてに付いているタグと消えたタグを除いて limit まで返す', () => {
     expect(recentCandidates(TAGS, [3, 9, 1, 2], new Set([1])).map((t) => t.id)).toEqual([3, 2])
     expect(recentCandidates(TAGS, [3, 1, 2], new Set(), 2).map((t) => t.id)).toEqual([3, 1])
+  })
+})
+
+describe('categoryCandidates', () => {
+  const categories = [
+    { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
+    { id: 2, name: '座り', parent_id: 1, collapsed: false },
+    { id: 4, name: '服飾', parent_id: null, collapsed: false },
+  ]
+
+  it('空の入力では、未分類とツリーの順のすべてのカテゴリを返す', () => {
+    expect(categoryCandidates(categories, '')).toEqual([
+      { id: null, label: '未分類' },
+      { id: 1, label: 'ポーズ' },
+      { id: 2, label: 'ポーズ / 座り' },
+      { id: 4, label: '服飾' },
+    ])
+  })
+
+  it('入力した文字を道筋に含むものを返すので、親の名前で子も出る', () => {
+    expect(categoryCandidates(categories, 'ぽーず').map((c) => c.id)).toEqual([])
+    expect(categoryCandidates(categories, 'ポーズ').map((c) => c.id)).toEqual([1, 2])
+    expect(categoryCandidates(categories, '未分').map((c) => c.id)).toEqual([null])
   })
 })
 

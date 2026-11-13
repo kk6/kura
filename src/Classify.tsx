@@ -2,10 +2,18 @@ import { invoke } from '@tauri-apps/api/core'
 import { type KeyboardEvent, useCallback, useEffect, useId, useState } from 'react'
 import { Icon, ICONS } from './icons'
 import Status from './Status'
-import { candidates, categoryOptions, moveActive, recentCandidates } from './choices'
+import { candidates, categoryCandidates, categoryOptions, moveActive, recentCandidates } from './choices'
 import type { Category, CountedTag, Image, Tag } from './galleryTypes'
 
-// 選んだ画像（1枚でも複数でも）のカテゴリ（FR-402、FR-407）。選ぶとすぐに移す
+// キーボードで選んでいる候補が、一覧のスクロールの外に出ないようにする
+function useKeepActiveVisible(listId: string, active: number) {
+  useEffect(() => {
+    if (active >= 0) document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: 'nearest' })
+  }, [listId, active])
+}
+
+// 選んだ画像（1枚でも複数でも）のカテゴリ（FR-402、FR-407）。入力欄を押すと未分類とすべてのカテゴリを出し、
+// 文字を入れると道筋で絞り込む。選ぶとすぐに移す
 export function CategorySelect({
   selected,
   categories,
@@ -18,15 +26,29 @@ export function CategorySelect({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 入力中の文字。null は候補を閉じていて、今のカテゴリを出している状態
+  const [text, setText] = useState<string | null>(null)
+  // 候補のうちキーボードで選んでいるもの。-1 はまだ選んでいない
+  const [active, setActive] = useState(-1)
+  const listId = useId()
+  useKeepActiveVisible(listId, active)
   const first = selected[0].category_id
   const mixed = selected.some((i) => i.category_id !== first)
+  const current = mixed ? '' : (categoryOptions(categories).find((o) => o.id === first)?.label ?? '未分類')
+  const shown = text === null ? [] : categoryCandidates(categories, text)
 
-  const change = async (value: string) => {
+  const close = () => {
+    setText(null)
+    setActive(-1)
+  }
+
+  const pick = async (id: number | null) => {
+    close()
     setBusy(true)
     try {
       await onAssign(
         selected.map((i) => i.id),
-        value === '' ? null : Number(value),
+        id,
       )
       setError(null)
     } catch (e) {
@@ -35,28 +57,72 @@ export function CategorySelect({
     setBusy(false)
   }
 
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    const next = moveActive(e.key, e.shiftKey, active, shown.length)
+    if (next !== null) {
+      e.preventDefault()
+      setActive(next)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      // 上下キーで選んでいなければ、文字を入れたときだけ先頭の候補にする（空の Enter で未分類へ移さない）
+      const choice = shown[active] ?? (text?.trim() ? shown[0] : undefined)
+      if (choice) pick(choice.id)
+    } else if (e.key === 'Escape') {
+      close()
+    }
+  }
+
   return (
     <>
-      <select
-        id="detail-category"
-        className={error ? 'detail__select detail__select--error' : 'detail__select'}
-        value={mixed ? 'mixed' : String(first ?? '')}
-        disabled={busy}
-        onChange={(e) => change(e.target.value)}
-        aria-invalid={!!error}
-      >
-        {mixed && (
-          <option value="mixed" disabled>
-            複数のカテゴリ
-          </option>
+      <div className="tag-input">
+        <input
+          autoCorrect="off"
+          autoCapitalize="off"
+          id="detail-category"
+          className={error ? 'tag-input__field tag-input__field--error' : 'tag-input__field'}
+          // 入力中は今のカテゴリを薄く出し、何から変えるのかを残す
+          placeholder={mixed ? '複数のカテゴリ' : text === null ? '' : current}
+          autoComplete="off"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={shown.length > 0}
+          aria-controls={listId}
+          aria-activedescendant={active >= 0 && shown[active] ? `${listId}-${active}` : undefined}
+          aria-invalid={!!error}
+          disabled={busy}
+          value={text ?? current}
+          onChange={(e) => {
+            setText(e.target.value)
+            setActive(-1)
+          }}
+          onKeyDown={onKeyDown}
+          onFocus={() => setText('')}
+          onClick={() => text === null && setText('')}
+          onBlur={close}
+        />
+        {/* セレクトボックスだったときと同じく、一覧から選べることを山形で示す */}
+        <span className="tag-input__chevron">
+          <Icon d="M6 9l6 6 6-6" />
+        </span>
+        {shown.length > 0 && (
+          <ul id={listId} className="tag-input__list" role="listbox" aria-label="カテゴリ">
+            {shown.map((c, i) => (
+              <li
+                key={c.id ?? 'none'}
+                id={`${listId}-${i}`}
+                className="tag-input__option"
+                role="option"
+                aria-selected={i === active}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(c.id)}
+              >
+                {c.label}
+              </li>
+            ))}
+          </ul>
         )}
-        <option value="">未分類</option>
-        {categoryOptions(categories).map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      </div>
       {error && <Status kind="error">カテゴリを変えられません（{error}）</Status>}
     </>
   )
@@ -87,6 +153,7 @@ export function TagEditor({
   const [active, setActive] = useState(-1)
   const [error, setError] = useState<string | null>(null)
   const listId = useId()
+  useKeepActiveVisible(listId, active)
 
   const refresh = useCallback(() => invoke<CountedTag[]>('image_tags', { ids }), [ids])
   useEffect(() => {

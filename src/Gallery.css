@@ -711,7 +711,6 @@ body.is-dragging * {
   cursor: pointer;
 }
 
-.detail__select,
 .tag-input__field {
   width: 100%;
   height: var(--size-control-sm);
@@ -721,7 +720,6 @@ body.is-dragging * {
   background: var(--color-input);
 }
 
-.detail__select--error,
 .tag-input__field--error {
   border: var(--focus-ring);
   border-color: var(--color-error);
@@ -736,6 +734,22 @@ body.is-dragging * {
   position: relative;
 }
 
+/* カテゴリの入力欄の右端の山形。押すと入力欄に届くよう、ポインターを受けない */
+.tag-input__chevron {
+  position: absolute;
+  top: 0;
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  height: var(--size-control-sm);
+  color: var(--color-text-sub);
+  pointer-events: none;
+}
+
+.tag-input:has(.tag-input__chevron) .tag-input__field {
+  padding-right: calc(var(--space-3) * 2 + var(--size-icon));
+}
+
 .tag-input__list {
   position: absolute;
   z-index: 1;
@@ -748,6 +762,9 @@ body.is-dragging * {
   border-radius: var(--radius-md);
   list-style: none;
   background: var(--color-surface);
+  /* 何も入れずに押すとタグやカテゴリを全部出すので、長いときはこの中でスクロールする */
+  max-height: var(--size-choices);
+  overflow-y: auto;
 }
 
 .tag-input__option {

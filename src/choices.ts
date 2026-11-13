@@ -4,11 +4,12 @@ import type { Category, Tag } from './galleryTypes'
 // src-tauri/src/fileops.rs の key と同じく、正規化（NFC）と大文字・小文字の違いを無視して比べる
 export const tagKey = (name: string) => name.trim().normalize('NFC').toLowerCase()
 
-// 入力中の文字を名前に含む既存のタグ。選んだ画像のすべてに付いているタグは出さない
+// 入力中の文字を名前に含む既存のタグ。選んだ画像のすべてに付いているタグは出さない。
+// 何も入れていなければ一覧から選べるよう、件数を絞らずに全部を返す（並びは読み込んだ順＝名前の順）
 export function candidates(tags: Tag[], typed: string, onAll: Set<number>, limit = 8): Tag[] {
   const key = tagKey(typed)
-  if (!key) return []
-  return tags.filter((t) => !onAll.has(t.id) && tagKey(t.name).includes(key)).slice(0, limit)
+  const rest = tags.filter((t) => !onAll.has(t.id))
+  return key ? rest.filter((t) => tagKey(t.name).includes(key)).slice(0, limit) : rest
 }
 
 // 最近使ったタグ（詳細パネル）。id を使った新しい順に持ち、使ったタグを先頭へ移す
@@ -33,6 +34,14 @@ export function categoryOptions(categories: Category[]): { id: number; label: st
       return [{ id: c.id, label }, ...walk(c.id, `${label} / `)]
     })
   return walk(null, '')
+}
+
+// 詳細パネルのカテゴリの候補。未分類（id が null）とツリーの順のカテゴリのうち、入力した文字を道筋に含むもの。
+// 何も入れていなければ全部を返す
+export function categoryCandidates(categories: Category[], typed: string): { id: number | null; label: string }[] {
+  const key = tagKey(typed)
+  const all = [{ id: null, label: '未分類' }, ...categoryOptions(categories)]
+  return key ? all.filter((c) => tagKey(c.label).includes(key)) : all
 }
 
 // 検索バーの候補（FR-504）。入力した文字を名前に含むカテゴリとタグで、選ぶとそれで絞り込む。
