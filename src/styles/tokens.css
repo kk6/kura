@@ -32,6 +32,7 @@
   --space-5: 16px;
   --radius-sm: 2px;
   --radius-md: 4px;
+  --radius-full: 999px;
   --border: 1px solid var(--color-line);
   --focus-ring: 2px solid var(--color-text);
   --select-outline: 2px solid var(--color-text);
