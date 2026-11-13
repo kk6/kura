@@ -37,6 +37,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 開発サーバー（アプリ）：`npm run tauri dev`
 - 開発サーバー（Tauri のコマンドをモックに差し替えた画面だけ）：`npm run dev:mock`（http://localhost:5173）。モックの応答は `src/mocks/ipc.ts` に書く
 - ダミーライブラリの生成：`npm run dev-library -- <枚数>`（`dev-library/` に出力。空でないと止まる）
+- 元URLの記録（拡張属性）を付けたダミー画像の生成：`uv run scripts/gen_source_urls.py <出力先>`（macOS だけ。通常の取り込み・重複・Finder・補完の確認用に分けて作る）
 - テスト（Rust）：`cargo test`（`src-tauri/` で実行）
 - テスト（Rust、別のファイルシステム）：`hdiutil create -size 64m -fs ExFAT -volname KURAEX <名前>.dmg` で作ったイメージを `hdiutil attach -nobrowse` でマウントし、`KURA_TEST_DIR=<マウント先> cargo test fileops` で同じテストを流す（HFS+ や大文字・小文字を区別する APFS も同じ）
 - テスト（画面の単体テスト）：`npm test`（Vitest。`src/**/*.test.ts` を流す）
