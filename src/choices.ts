@@ -11,6 +11,18 @@ export function candidates(tags: Tag[], typed: string, onAll: Set<number>, limit
   return tags.filter((t) => !onAll.has(t.id) && tagKey(t.name).includes(key)).slice(0, limit)
 }
 
+// 最近使ったタグ（詳細パネル）。id を使った新しい順に持ち、使ったタグを先頭へ移す
+export const rememberTag = (recent: number[], id: number) => [id, ...recent.filter((r) => r !== id)]
+
+// 最近使ったタグのうち、まだあり、選んだ画像のすべてには付いていないもの
+export function recentCandidates(tags: Tag[], recent: number[], onAll: Set<number>, limit = 5): Tag[] {
+  const byId = new Map(tags.map((t) => [t.id, t]))
+  return recent
+    .filter((id) => !onAll.has(id))
+    .flatMap((id) => byId.get(id) ?? [])
+    .slice(0, limit)
+}
+
 // カテゴリの選択肢。ツリーの順に、親からの道筋（例：ポーズ / 座り）を名前にする
 export function categoryOptions(categories: Category[]): { id: number; label: string }[] {
   const children = new Map<number | null, Category[]>()

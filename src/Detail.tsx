@@ -23,6 +23,8 @@ type Props = {
   // stem は拡張子より前の部分。失敗したら reject する
   onRename: (id: number, stem: string) => Promise<void>
   onTagCreated: (tag: Tag) => void
+  // この起動の間に付けたタグの id。新しい順
+  recentTags: number[]
   // タグを付けた・外した画像と、保存したメモ。一覧の絞り込みと件数に反映する
   onTagged: (tag: number, ids: number[]) => void
   onUntagged: (tag: number, ids: number[]) => void
@@ -224,6 +226,7 @@ export default function Detail(props: Props) {
           key={ids.join(',')}
           ids={ids}
           tags={tags}
+          recent={props.recentTags}
           onCreated={props.onTagCreated}
           onTagged={props.onTagged}
           onUntagged={props.onUntagged}

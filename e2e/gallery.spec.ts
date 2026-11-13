@@ -537,6 +537,39 @@ test('ダブルクリックで拡大し、左右キーで前後の画像に移�
   expect(errors).toEqual([])
 })
 
+test('タグの入力欄の下に、この起動の間に付けたタグを新しい順に5個まで出し、押すと付ける', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const tagInput = detail.getByRole('combobox', { name: 'タグ' })
+  const chips = detail.locator('.tag')
+  const recent = detail.getByRole('list', { name: '最近使ったタグ' })
+
+  // まだ付けていないので出さない
+  await thumb(page, 2).click()
+  await expect(recent).toHaveCount(0)
+
+  for (const name of ['あ', 'い', 'う', 'え', 'お', 'か']) {
+    await tagInput.fill(name)
+    await tagInput.press('Enter')
+  }
+  // 選んだ画像に付いているタグは出さない
+  await expect(recent).toHaveCount(0)
+
+  // 別の画像では、新しい順に5個まで出す
+  await thumb(page, 3).click()
+  await expect(recent.getByRole('button')).toHaveText(['か', 'お', 'え', 'う', 'い'])
+  await page.screenshot({ path: 'test-results/recent-tags.png' })
+
+  // 押すと付け、付いたタグは候補から外れて次のタグが出る
+  await recent.getByRole('button', { name: 'え' }).click()
+  await expect(chips).toHaveText(['え'])
+  await expect(recent.getByRole('button')).toHaveText(['か', 'お', 'う', 'い', 'あ'])
+  expect(errors).toEqual([])
+})
+
 test('詳細パネルで入力したメモと評価を保存する', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))

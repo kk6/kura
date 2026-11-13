@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { subtree } from './categoryTree'
+import { rememberTag } from './choices'
 import { useContextMenu } from './contextMenu'
 import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
@@ -61,6 +62,8 @@ type Props = {
 export default function Gallery({ root, recent, settings, onSettings, onSwitch }: Props) {
   const [data, setData] = useState(EMPTY)
   const [sort, setSort] = useState<SortKey>('imported')
+  // 詳細パネルの最近使ったタグ。起動の間だけ覚える（ライブラリを開き直すと Gallery ごと作り直すので空に戻る）
+  const [recentTags, setRecentTags] = useState<number[]>([])
   const [filter, setFilter] = useState(NO_FILTER)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
@@ -875,9 +878,11 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             onAssign={assign}
             onRename={renameImage}
             onTagCreated={addTag}
-            onTagged={(tag, ids) =>
+            recentTags={recentTags}
+            onTagged={(tag, ids) => {
+              setRecentTags((r) => rememberTag(r, tag))
               editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))
-            }
+            }}
             onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
             onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
             onTrash={trashImages}

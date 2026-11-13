@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { type KeyboardEvent, useCallback, useEffect, useId, useState } from 'react'
+import { Icon, ICONS } from './icons'
 import Status from './Status'
-import { candidates, categoryOptions, moveActive } from './choices'
+import { candidates, categoryOptions, moveActive, recentCandidates } from './choices'
 import type { Category, CountedTag, Image, Tag } from './galleryTypes'
 
 // 選んだ画像（1枚でも複数でも）のカテゴリ（FR-402、FR-407）。選ぶとすぐに移す
@@ -66,12 +67,15 @@ export function CategorySelect({
 export function TagEditor({
   ids,
   tags,
+  recent,
   onCreated,
   onTagged,
   onUntagged,
 }: {
   ids: number[]
   tags: Tag[]
+  // この起動の間に付けたタグの id。新しい順。入力欄の下に出し、押すと付ける
+  recent: number[]
   onCreated: (tag: Tag) => void
   onTagged: (tag: number, ids: number[]) => void
   onUntagged: (tag: number, ids: number[]) => void
@@ -119,6 +123,8 @@ export function TagEditor({
 
   const onAll = new Set((on ?? []).filter((t) => t.count === ids.length).map((t) => t.id))
   const shown = focused ? candidates(tags, text, onAll) : []
+  // 付いているタグを読むまでは、どれが付いているか分からないので出さない
+  const recents = on ? recentCandidates(tags, recent, onAll) : []
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // かな漢字変換を確定する Enter ではタグを付けない（Safari は確定の keydown の isComposing が false で、keyCode が 229 になる）
@@ -217,6 +223,18 @@ export function TagEditor({
           </ul>
         )}
       </div>
+      {recents.length > 0 && (
+        <ul className="tag-recent" aria-label="最近使ったタグ">
+          {recents.map((t) => (
+            <li key={t.id}>
+              <button type="button" className="tag-recent__item" onClick={() => add(t.name)}>
+                <Icon d={ICONS.plus} size={12} />
+                {t.name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <Status kind="error">タグを変えられません（{error}）</Status>}
     </>
   )
