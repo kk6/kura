@@ -1,0 +1,16 @@
+[project]
+name = "kura-worker"
+version = "0.1.0"
+description = "Kura の類似画像検索の特徴量を計算するワーカー"
+requires-python = ">=3.12"
+dependencies = ["numpy", "onnxruntime", "pillow"]
+
+[project.scripts]
+kura-worker = "kura_worker:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["onnx", "pytest"]

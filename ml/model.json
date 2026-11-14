@@ -1,0 +1,17 @@
+{
+  "threads": 1,
+  "aspects": [
+    {
+      "aspect": "content",
+      "model": "siglip2-base-patch16-224",
+      "dim": 768,
+      "file": {
+        "name": "siglip2-base-patch16-224-vision.onnx",
+        "url": "https://github.com/kk6/kura/releases/download/models-1/siglip2-base-patch16-224-vision.onnx",
+        "sha256": "c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad",
+        "size": 371807752
+      }
+    },
+    { "aspect": "composition", "model": "gray16-edge4x8-v1", "dim": 384, "file": null }
+  ]
+}
