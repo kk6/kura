@@ -7,13 +7,13 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { rememberTag } from './choices'
 import { useContextMenu } from './contextMenu'
 import { flushAll } from './flush'
+import GalleryHeader from './GalleryHeader'
+import GalleryToolbar, { THUMB_MAX, THUMB_MIN, ThumbSlider } from './GalleryToolbar'
 import { addTag, dropTag, editImages, named, removeImages, swapTag } from './galleryData'
-import { Icon, ICONS } from './icons'
 import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
-import SearchBox from './SearchBox'
 import SettingsDialog from './SettingsDialog'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
@@ -25,7 +25,7 @@ import TrashPanel from './TrashPanel'
 import type { Detail as DetailData, Done, Restored, Settings } from './galleryTypes'
 import type { Backfill, BackfillCounts, ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
-import { SORTS, type SortKey, sortImages } from './sort'
+import { type SortKey, sortImages } from './sort'
 import { useLibrary } from './useLibrary'
 import { useZoom, ZOOM_STEP } from './useZoom'
 import { actualSize, FIT } from './zoomView'
@@ -34,11 +34,6 @@ import './Gallery.css'
 
 // 追加先のダイアログはボードの画面の一部なので、ボードを使わない起動では読み込まない（FR-711）
 const AddDialog = lazy(() => import('./board/AddDialog'))
-
-// サムネイルの列の幅の目安。上限はサムネイルの幅（320）
-const THUMB_MIN = 100
-const THUMB_MAX = 320
-const THUMB_STEP = 10
 
 type Props = {
   root: string
@@ -114,11 +109,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     await Promise.all([reload(), reloadTrash(), reloadMissing()])
   }
 
-  const scanRef = useRef(scan)
-  scanRef.current = scan
   // 差分検出の前に、今の DB の一覧を先に出す。差分検出は時間がかかることがあるため
   useEffect(() => {
-    Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => scanRef.current())
+    Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => latest.current.scan())
   }, [reload, reloadTrash, reloadMissing])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
@@ -234,10 +227,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       document.getElementById('detail-tag')?.focus()
     }
   }
-  const keyRef = useRef(onKey)
-  keyRef.current = onKey
   useEffect(() => {
-    const listener = (e: KeyboardEvent) => keyRef.current(e)
+    const listener = (e: KeyboardEvent) => latest.current.onKey(e)
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
   }, [])
@@ -256,8 +247,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setProgress(null)
     reload()
   }
-  const startRef = useRef(start)
-  startRef.current = start
 
   // 補完の間、取り込み・差分検出・ファイルを動かす操作・ライブラリ切り替えは Rust 側で補完の終了か中断を待つ
   async function startBackfill() {
@@ -300,16 +289,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         (e) => setResult({ kind: 'error', message: String(e) }),
       )
   }
-  const leaveRef = useRef(leave)
-  leaveRef.current = leave
 
   // 画像を選んでいても追加はせず、専用ウィンドウを開くだけにする（FR-701）
   function openBoard() {
     if (!settings.board_enabled) return
     invoke('show_board_window').catch((e) => setResult({ kind: 'error', message: String(e) }))
   }
-  const openBoardRef = useRef(openBoard)
-  openBoardRef.current = openBoard
 
   // 「ボードに追加」の追加先ダイアログに渡す画像（FR-701）。ゴミ箱と見つからない画像は追加できない
   const [adding, setAdding] = useState<number[] | null>(null)
@@ -320,8 +305,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setMenuAt(null)
     setAdding(ids)
   }
-  const addRef = useRef(addToBoard)
-  addRef.current = addToBoard
   // Rust に知らせ、メニューの「ボードに追加…」の有効・無効と、ダイアログの間にボードの最前面の固定を
   // 外すのに使う。固定したボードの後ろにダイアログが隠れないように（FR-701、FR-705）
   const dialogOpen = useDialogOpen()
@@ -361,12 +344,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setSelection({ ids: new Set([id]), anchor: id })
     setRevealed({ id })
   }
-  const revealRef = useRef(revealImage)
-  revealRef.current = revealImage
+  // リスナーは一度だけ登録する。呼ばれたときに今の描画の関数を使うよう、ref を通す
+  const handlers = { scan, onKey, start, leave, openBoard, addToBoard, revealImage }
+  const latest = useRef(handlers)
+  latest.current = handlers
   useEffect(() => {
     const unlisten = [
       // このウィンドウ宛てのイベントは、ウィンドウの listen で受ける
-      getCurrentWindow().listen<number>('gallery-reveal', (e) => revealRef.current(e.payload)),
+      getCurrentWindow().listen<number>('gallery-reveal', (e) => latest.current.revealImage(e.payload)),
       // 終わった後に届いた進み具合で、結果を戻さない
       getCurrentWindow().listen<BackfillCounts>('backfill-progress', (e) =>
         setBackfill((b) => (b?.running ? { ...b, counts: e.payload } : b)),
@@ -374,12 +359,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
-      listen('switch-library', () => leaveRef.current()),
-      listen('open-board', () => openBoardRef.current()),
+      listen('switch-library', () => latest.current.leave()),
+      listen('open-board', () => latest.current.openBoard()),
       // 操作の対象は手前のウィンドウ。ボードのウィンドウが手前なら追加しない
-      listen('add-to-board', () => document.hasFocus() && addRef.current()),
+      listen('add-to-board', () => document.hasFocus() && latest.current.addToBoard()),
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type === 'drop') startRef.current(e.payload.paths)
+        if (e.payload.type === 'drop') latest.current.start(e.payload.paths)
       }),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
@@ -504,69 +489,19 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         if (e.animationName === 'detail-in' || e.animationName === 'detail-out') setDetailMotion(null)
       }}
     >
-      <header className="gallery__header">
-        <span className="gallery__brand">
-          <span className="gallery__mark">
-            <Icon d={ICONS.kura} size={28} />
-          </span>
-          <span className="gallery__brand-text">
-            <span className="gallery__logo">Kura</span>
-            {/* ネイティブのメニューにすると、今のライブラリに macOS のチェックが付く */}
-            <select
-              className="gallery__library"
-              aria-label="ライブラリ"
-              title={root}
-              value={root}
-              onChange={(e) => leave(e.target.value || undefined)}
-            >
-              <optgroup label="最近使ったライブラリ">
-                {(recent.includes(root) ? recent : [root, ...recent]).map((path) => (
-                  <option key={path} value={path}>
-                    {baseName(path)}
-                  </option>
-                ))}
-              </optgroup>
-              <option value="">ほかのライブラリを開く…</option>
-            </select>
-          </span>
-        </span>
-        <SearchBox filter={filter} categories={data.categories} tags={data.tags} onFilter={changeFilter} />
-        {/* 取り込みと差分検出の間は、押せないボタンを残さず処理中であることを出す。押せない理由がわからないと壊れたと思われるため。
-            ボタンは見えないまま場所を取り、ヘッダーの幅が変わらないようにする */}
-        <span className="gallery__import">
-          <span className="gallery__import-buttons" hidden={!!(scanning || progress)}>
-            <button type="button" className="button" onClick={() => pick(false)}>
-              <Icon d={ICONS.imagePlus} />
-              画像を取り込む
-            </button>
-            <button type="button" className="button" onClick={() => pick(true)}>
-              <Icon d={ICONS.folderPlus} />
-              フォルダを取り込む
-            </button>
-          </span>
-          {(scanning || progress) && (
-            <span className="gallery__busy" role="status">
-              <Spinner />
-              {scanning ? 'Finder での変更を反映中…' : '取り込み中…'}
-            </span>
-          )}
-        </span>
-        {settings.board_enabled && (
-          <button type="button" className="button button--primary" title="アイデアボード（⌘B）" onClick={openBoard}>
-            <Icon d={ICONS.board} />
-            アイデアボード
-          </button>
-        )}
-        <button
-          type="button"
-          className="button button--icon"
-          aria-label="設定"
-          title="設定（⌘,）"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Icon d={ICONS.settings} />
-        </button>
-      </header>
+      <GalleryHeader
+        root={root}
+        recent={recent}
+        filter={filter}
+        categories={data.categories}
+        tags={data.tags}
+        onFilter={changeFilter}
+        busy={scanning ? 'scan' : progress ? 'import' : null}
+        onPick={pick}
+        onOpenBoard={settings.board_enabled ? openBoard : undefined}
+        onSettings={() => setSettingsOpen(true)}
+        onLeave={leave}
+      />
 
       <Sidebar
         gallery={data}
@@ -593,72 +528,21 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
       />
 
-      <div className="gallery__toolbar">
-        <h1 className="toolbar__title">{title}</h1>
-        <span className="toolbar__count">{listed.length}枚</span>
-        <span className="toolbar__spacer" />
-        {!aside && (
-          <select
-            className="gallery__sort"
-            aria-label="並べ替え"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-          >
-            {Object.entries(SORTS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        )}
+      <GalleryToolbar
+        title={title}
+        count={listed.length}
+        sort={aside ? undefined : sort}
+        onSort={setSort}
+        detailShown={detailShown}
+        onToggleDetail={() => toggleDetail()}
+      >
         {/* 拡大表示の間は、サムネイルの大きさの代わりに画像の倍率を出す。後ろに隠れたサムネイルを変えても見えないため */}
         {zoomed && zoomView.frame ? (
           <ZoomSlider zoom={zoomView} image={zoomed} frame={zoomView.frame} />
         ) : (
-          !zoomed && (
-            <span className="toolbar__size">
-              <button
-                type="button"
-                className="toolbar__step"
-                aria-label="サムネイルを小さくする"
-                disabled={thumbWidth <= THUMB_MIN}
-                onClick={() => changeSettings({ thumb_width: Math.max(THUMB_MIN, thumbWidth - THUMB_STEP) })}
-              >
-                <Icon d={ICONS.masonryMany} />
-              </button>
-              <input
-                className="slider"
-                type="range"
-                aria-label="サムネイルの大きさ"
-                min={THUMB_MIN}
-                max={THUMB_MAX}
-                step={THUMB_STEP}
-                value={thumbWidth}
-                onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
-              />
-              <button
-                type="button"
-                className="toolbar__step"
-                aria-label="サムネイルを大きくする"
-                disabled={thumbWidth >= THUMB_MAX}
-                onClick={() => changeSettings({ thumb_width: Math.min(THUMB_MAX, thumbWidth + THUMB_STEP) })}
-              >
-                <Icon d={ICONS.masonryFew} />
-              </button>
-            </span>
-          )
+          !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
         )}
-        <button
-          type="button"
-          className="button button--icon"
-          aria-label={detailShown ? '詳細パネルを閉じる' : '詳細パネルを開く'}
-          aria-pressed={detailShown}
-          title={`詳細パネルを${detailShown ? '閉じる' : '開く'}（⌘I）`}
-          onClick={() => toggleDetail()}
-        >
-          <Icon d={ICONS.panelRight} />
-        </button>
-      </div>
+      </GalleryToolbar>
 
       <Masonry
         root={root}
@@ -839,25 +723,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     </div>
   )
 }
-
-const baseName = (path: string) => path.split('/').filter(Boolean).pop() ?? path
-
-// 処理中を示す、回る円弧のアイコン
-const Spinner = () => (
-  <svg
-    className="spinner"
-    width="15"
-    height="15"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    aria-hidden="true"
-  >
-    <path d="M12 3a9 9 0 1 1-9 9" />
-  </svg>
-)
 
 // このウィンドウで dialog 要素を開いているか
 function useDialogOpen() {
