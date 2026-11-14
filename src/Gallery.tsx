@@ -27,7 +27,9 @@ import type { Backfill, BackfillCounts, ImportProgress, Report, ScanReport } fro
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
 import { useLibrary } from './useLibrary'
-import { actualSize, FIT, panView, scaleOf, type Size, type View, zoomRange, zoomViewAt } from './zoomView'
+import { useZoom, ZOOM_STEP } from './useZoom'
+import { actualSize, FIT } from './zoomView'
+import ZoomPanel, { ZoomSlider } from './ZoomPanel'
 import './Gallery.css'
 
 // 追加先のダイアログはボードの画面の一部なので、ボードを使わない起動では読み込まない（FR-711）
@@ -37,12 +39,6 @@ const AddDialog = lazy(() => import('./board/AddDialog'))
 const THUMB_MIN = 100
 const THUMB_MAX = 320
 const THUMB_STEP = 10
-// 拡大表示の ⌘＋、⌘−、虫眼鏡のボタンで変える倍率
-const ZOOM_STEP = 1.25
-// ホイールのピンチ（ctrlKey 付き）の deltaY 1あたりの倍率の変わり方
-const PINCH_ZOOM = 0.01
-// 押してからドラッグとみなす動きの距離（px）。< > のボタンのクリックと区別する
-const PAN_START = 4
 
 type Props = {
   root: string
@@ -68,11 +64,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const [showNotes, setShowNotes] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
-  // 拡大表示の中の倍率と位置。画像の id ごとに持ち、前後の画像へ移ると枠に合わせた大きさ（FIT）に戻る
-  const [zoomView, setZoomView] = useState<{ id: number; view: View } | null>(null)
-  // 拡大表示の枠（余白を除いた大きさ）。測るまでは null で、CSS だけで枠に合わせる
-  const [frame, setFrame] = useState<Size | null>(null)
-  const zoomRef = useRef<HTMLElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // 詳細パネルを開いているか。保存せず、起動すると開いた状態に戻る
   const [detailOpen, setDetailOpen] = useState(true)
@@ -180,89 +171,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const zoomed = zoom ? selectedImage : null
   const at = zoomed ? order.indexOf(zoomed.id) : -1
   const moveTo = useCallback((id: number) => setSelection({ ids: new Set([id]), anchor: id }), [])
-  const view = zoomed && zoomView?.id === zoomed.id ? zoomView.view : FIT
-  // 倍率と位置を変える。イベントのリスナーから呼んでも古い値を使わないよう、前の値から計算する
-  const changeView = (edit: (v: View, image: Size, frame: Size) => View) => {
-    if (!zoomed || !frame) return
-    const { id, width, height } = zoomed
-    setZoomView((z) => ({ id, view: edit(z?.id === id ? z.view : FIT, { width, height }, frame) }))
-  }
-  const zoomBy = (factor: number) => changeView((v, i, f) => zoomViewAt(v, i, f, { x: 0, y: 0 }, factor))
-  const changeViewRef = useRef(changeView)
-  changeViewRef.current = changeView
-
-  // 枠の大きさを測る。ウィンドウや詳細パネルの開閉で変わる
-  const zoomOpen = zoomed !== null
-  useEffect(() => {
-    const el = zoomRef.current
-    if (!el) return setFrame(null)
-    const observer = new ResizeObserver(([entry]) =>
-      setFrame({ width: entry.contentRect.width, height: entry.contentRect.height }),
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [zoomOpen])
-
-  // ピンチ（Safari の gesture と、ctrlKey 付きのホイール）はポインターの位置を中心に拡大・縮小し、
-  // 2本指のスクロールは表示を動かす（プレビューと同じ）。React の onWheel は preventDefault できないので自分で登録する
-  useEffect(() => {
-    const el = zoomRef.current
-    if (!el) return
-    const fromCenter = (x: number, y: number) => {
-      const r = el.getBoundingClientRect()
-      return { x: x - (r.left + r.width / 2), y: y - (r.top + r.height / 2) }
-    }
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const at = fromCenter(e.clientX, e.clientY)
-      if (e.ctrlKey) changeViewRef.current((v, i, f) => zoomViewAt(v, i, f, at, Math.exp(-e.deltaY * PINCH_ZOOM)))
-      else changeViewRef.current((v, i, f) => panView(v, i, f, -e.deltaX, -e.deltaY))
-    }
-    // scale はピンチを始めてからの倍率なので、前の値との比を使う
-    let last = 1
-    const pinch = (e: Event) => {
-      e.preventDefault()
-      const g = e as Event & { scale: number; clientX: number; clientY: number }
-      if (e.type === 'gesturestart') last = 1
-      const at = fromCenter(g.clientX, g.clientY)
-      const factor = g.scale / last
-      last = g.scale
-      changeViewRef.current((v, i, f) => zoomViewAt(v, i, f, at, factor))
-    }
-    el.addEventListener('wheel', wheel, { passive: false })
-    el.addEventListener('gesturestart', pinch)
-    el.addEventListener('gesturechange', pinch)
-    return () => {
-      el.removeEventListener('wheel', wheel)
-      el.removeEventListener('gesturestart', pinch)
-      el.removeEventListener('gesturechange', pinch)
-    }
-  }, [zoomOpen])
-
-  // ドラッグで表示を動かす。PAN_START 以上動いたらドラッグとみなし、離した後のクリックを止める
-  // （< > のボタンの上から始めても、前後の画像へ移らないように）
-  const pan = useRef<{ x: number; y: number; moved: boolean } | null>(null)
-  const [panning, setPanning] = useState(false)
-  useEffect(() => {
-    if (!panning) return
-    const move = (e: PointerEvent) => {
-      const p = pan.current!
-      const dx = e.clientX - p.x
-      const dy = e.clientY - p.y
-      if (!p.moved && Math.hypot(dx, dy) < PAN_START) return
-      p.moved = true
-      p.x = e.clientX
-      p.y = e.clientY
-      changeViewRef.current((v, i, f) => panView(v, i, f, dx, dy))
-    }
-    const up = () => setPanning(false)
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    return () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
-  }, [panning])
+  const zoomView = useZoom(zoomed)
+  const { changeView, zoomBy } = zoomView
   const step = (by: number) => {
     const id = order[at + by]
     if (id !== undefined) moveTo(id)
@@ -702,82 +612,42 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           </select>
         )}
         {/* 拡大表示の間は、サムネイルの大きさの代わりに画像の倍率を出す。後ろに隠れたサムネイルを変えても見えないため */}
-        {zoomed && frame
-          ? (() => {
-              const image = { width: zoomed.width, height: zoomed.height }
-              const range = zoomRange(image, frame)
-              const scale = scaleOf(view, image, frame)
-              const toScale = (zoom: number) => scaleOf({ ...view, zoom }, image, frame)
-              return (
-                <span className="toolbar__size">
-                  <button
-                    type="button"
-                    className="toolbar__step"
-                    aria-label="縮小"
-                    title="縮小（⌘−）"
-                    disabled={view.zoom <= range.min}
-                    onClick={() => zoomBy(1 / ZOOM_STEP)}
-                  >
-                    <Icon d={ICONS.zoomOut} />
-                  </button>
-                  {/* 倍率は掛け算で変わるので、つまみの位置は倍率の対数にする */}
-                  <input
-                    className="slider"
-                    type="range"
-                    aria-label="画像の倍率"
-                    aria-valuetext={`${Math.round(scale * 100)}%`}
-                    min={Math.log2(toScale(range.min))}
-                    max={Math.log2(toScale(range.max))}
-                    step={0.01}
-                    value={Math.log2(scale)}
-                    onChange={(e) => zoomBy(2 ** Number(e.target.value) / scale)}
-                  />
-                  <button
-                    type="button"
-                    className="toolbar__step"
-                    aria-label="拡大"
-                    title="拡大（⌘＋）"
-                    disabled={view.zoom >= range.max}
-                    onClick={() => zoomBy(ZOOM_STEP)}
-                  >
-                    <Icon d={ICONS.zoomIn} />
-                  </button>
-                  <span className="toolbar__zoom-value">{Math.round(scale * 100)}%</span>
-                </span>
-              )
-            })()
-          : !zoomed && (
-              <span className="toolbar__size">
-                <button
-                  type="button"
-                  className="toolbar__step"
-                  aria-label="サムネイルを小さくする"
-                  disabled={thumbWidth <= THUMB_MIN}
-                  onClick={() => changeSettings({ thumb_width: Math.max(THUMB_MIN, thumbWidth - THUMB_STEP) })}
-                >
-                  <Icon d={ICONS.masonryMany} />
-                </button>
-                <input
-                  className="slider"
-                  type="range"
-                  aria-label="サムネイルの大きさ"
-                  min={THUMB_MIN}
-                  max={THUMB_MAX}
-                  step={THUMB_STEP}
-                  value={thumbWidth}
-                  onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
-                />
-                <button
-                  type="button"
-                  className="toolbar__step"
-                  aria-label="サムネイルを大きくする"
-                  disabled={thumbWidth >= THUMB_MAX}
-                  onClick={() => changeSettings({ thumb_width: Math.min(THUMB_MAX, thumbWidth + THUMB_STEP) })}
-                >
-                  <Icon d={ICONS.masonryFew} />
-                </button>
-              </span>
-            )}
+        {zoomed && zoomView.frame ? (
+          <ZoomSlider zoom={zoomView} image={zoomed} frame={zoomView.frame} />
+        ) : (
+          !zoomed && (
+            <span className="toolbar__size">
+              <button
+                type="button"
+                className="toolbar__step"
+                aria-label="サムネイルを小さくする"
+                disabled={thumbWidth <= THUMB_MIN}
+                onClick={() => changeSettings({ thumb_width: Math.max(THUMB_MIN, thumbWidth - THUMB_STEP) })}
+              >
+                <Icon d={ICONS.masonryMany} />
+              </button>
+              <input
+                className="slider"
+                type="range"
+                aria-label="サムネイルの大きさ"
+                min={THUMB_MIN}
+                max={THUMB_MAX}
+                step={THUMB_STEP}
+                value={thumbWidth}
+                onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
+              />
+              <button
+                type="button"
+                className="toolbar__step"
+                aria-label="サムネイルを大きくする"
+                disabled={thumbWidth >= THUMB_MAX}
+                onClick={() => changeSettings({ thumb_width: Math.min(THUMB_MAX, thumbWidth + THUMB_STEP) })}
+              >
+                <Icon d={ICONS.masonryFew} />
+              </button>
+            </span>
+          )
+        )}
         <button
           type="button"
           className="button button--icon"
@@ -816,70 +686,15 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       />
 
       {zoomed && (
-        <section
-          ref={zoomRef}
-          className={
-            'gallery__zoom' +
-            // 枠からはみ出していて動かせるときだけ、つかめる形のカーソルにする
-            (frame &&
-            (zoomed.width * scaleOf(view, zoomed, frame) > frame.width ||
-              zoomed.height * scaleOf(view, zoomed, frame) > frame.height)
-              ? ' gallery__zoom--movable'
-              : '')
-          }
-          aria-label="拡大表示"
-          onPointerDown={(e) => {
-            if (e.button !== 0) return
-            pan.current = { x: e.clientX, y: e.clientY, moved: false }
-            setPanning(true)
-          }}
-          onClickCapture={(e) => {
-            if (!pan.current?.moved) return
-            pan.current = null
-            e.stopPropagation()
-            e.preventDefault()
-          }}
-        >
-          <img
-            className="zoom__image"
-            // 元の画像のパスがわかるまではサムネイルを出す
-            src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
-            alt={zoomed.file_name}
-            draggable={false}
-            style={{
-              aspectRatio: `${zoomed.width} / ${zoomed.height}`,
-              background: zoomed.color,
-              ...(frame
-                ? {
-                    // 枠の中央から view の分ずらし、倍率の大きさで描く。transform の拡大ではぼけるので幅で描く
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    width: zoomed.width * scaleOf(view, zoomed, frame),
-                    transform: `translate(calc(-50% + ${view.x}px), calc(-50% + ${view.y}px))`,
-                  }
-                : // 枠を測るまでは、小さい画像も枠いっぱいに広げ、縦横比を保ったまま収める
-                  { width: `min(100cqw, calc(100cqh * ${zoomed.width / zoomed.height}))` }),
-            }}
-          />
-          {at > 0 && (
-            <button type="button" className="zoom__nav zoom__nav--prev" aria-label="前の画像" onClick={() => step(-1)}>
-              <span className="zoom__arrow">
-                <Chevron d="M15 6l-6 6 6 6" />
-              </span>
-            </button>
-          )}
-          {at < order.length - 1 && (
-            <button type="button" className="zoom__nav zoom__nav--next" aria-label="次の画像" onClick={() => step(1)}>
-              <span className="zoom__arrow">
-                <Chevron d="M9 6l6 6-6 6" />
-              </span>
-            </button>
-          )}
-          <button type="button" className="button zoom__close" onClick={() => setZoom(false)}>
-            閉じる
-          </button>
-        </section>
+        <ZoomPanel
+          zoom={zoomView}
+          image={zoomed}
+          // 元の画像のパスがわかるまではサムネイルを出す
+          src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
+          onPrev={at > 0 ? () => step(-1) : undefined}
+          onNext={at < order.length - 1 ? () => step(1) : undefined}
+          onClose={() => setZoom(false)}
+        />
       )}
 
       {/* 閉じる動きの間は、フォーカスもクリックも受けない */}
@@ -1041,22 +856,6 @@ const Spinner = () => (
     aria-hidden="true"
   >
     <path d="M12 3a9 9 0 1 1-9 9" />
-  </svg>
-)
-
-const Chevron = ({ d }: { d: string }) => (
-  <svg
-    width="15"
-    height="15"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d={d} />
   </svg>
 )
 
