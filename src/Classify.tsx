@@ -4,6 +4,7 @@ import { Icon, ICONS } from './icons'
 import Status from './Status'
 import { candidates, categoryCandidates, categoryOptions, moveActive, recentCandidates } from './choices'
 import type { Category, CountedTag, Image, Tag } from './galleryTypes'
+import './Classify.css'
 
 // キーボードで選んでいる候補が、一覧のスクロールの外に出ないようにする
 function useKeepActiveVisible(listId: string, active: number) {

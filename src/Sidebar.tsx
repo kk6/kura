@@ -14,6 +14,7 @@ import type { countImages, Filter } from './filter'
 import type { Category, Gallery } from './galleryTypes'
 import { Icon, ICONS } from './icons'
 import { select } from './selection'
+import './Sidebar.css'
 
 type Props = {
   gallery: Gallery

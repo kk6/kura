@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ConfirmDialog from './ConfirmDialog'
 import { Icon, ICONS } from './icons'
+import './Detail.css'
 
 // 見つからない画像（FR-104）を開いている間に、詳細パネルの場所に出す
 export default function MissingPanel({

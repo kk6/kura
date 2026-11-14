@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ConfirmDialog from './ConfirmDialog'
 import { Icon, ICONS } from './icons'
+import './Detail.css'
 
 // ゴミ箱を開いている間に、詳細パネルの場所に出す（FR-511）
 export default function TrashPanel({

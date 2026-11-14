@@ -1,0 +1,124 @@
+.tag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 0 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: var(--color-input);
+}
+
+.tag__count {
+  color: var(--color-text-faint);
+}
+
+.tag__remove {
+  display: flex;
+  padding: 0 var(--space-1);
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+.tag-input__field {
+  width: 100%;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-input);
+}
+
+.tag-input__field--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}
+
+/* 候補は入力欄のすぐ下に重ねる。影は使わず、枠線で地と分ける */
+.tag-input {
+  position: relative;
+}
+
+/* カテゴリの入力欄の右端の山形。押すと入力欄に届くよう、ポインターを受けない */
+.tag-input__chevron {
+  position: absolute;
+  top: 0;
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  height: var(--size-control-sm);
+  color: var(--color-text-sub);
+  pointer-events: none;
+}
+
+.tag-input:has(.tag-input__chevron) .tag-input__field {
+  padding-right: calc(var(--space-3) * 2 + var(--size-icon));
+}
+
+.tag-input__list {
+  position: absolute;
+  z-index: 1;
+  top: 100%;
+  right: 0;
+  left: 0;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1) 0;
+  border: var(--border);
+  border-radius: var(--radius-md);
+  list-style: none;
+  background: var(--color-surface);
+  /* 何も入れずに押すとタグやカテゴリを全部出すので、長いときはこの中でスクロールする */
+  max-height: var(--size-choices);
+  overflow-y: auto;
+}
+
+.tag-input__option {
+  padding: 0 var(--space-3);
+  cursor: pointer;
+}
+
+.tag-input__option:hover {
+  background: var(--color-raise);
+}
+
+.tag-input__option[aria-selected='true'] {
+  font-weight: var(--font-weight-bold);
+  background: var(--color-selected);
+}
+
+/* 最近使ったタグ。付いているタグ（.tag）と見分けるため、地を塗らずに ＋ を付ける */
+.tag-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tag-recent__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-sub);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease-out,
+    transform var(--duration-fast) ease-out;
+}
+
+.tag-recent__item:hover {
+  background: var(--color-raise);
+  color: var(--color-text);
+}
+
+.tag-recent__item:active {
+  transform: scale(var(--motion-press));
+}

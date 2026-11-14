@@ -5,6 +5,7 @@ import { useFlush } from './flush'
 import { Icon, ICONS } from './icons'
 import Status from './Status'
 import type { Category, Detail as DetailData, Image, Tag } from './galleryTypes'
+import './Detail.css'
 
 type Props = {
   root: string

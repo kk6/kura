@@ -2,6 +2,8 @@ import { useId, useState, type KeyboardEvent } from 'react'
 import { filterCandidates, type FilterCandidate, moveActive } from './choices'
 import type { Filter } from './filter'
 import type { Category, Tag } from './galleryTypes'
+import './Classify.css'
+import './SearchBox.css'
 
 const KIND = { category: 'カテゴリ', tag: 'タグ' }
 

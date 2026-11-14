@@ -1,0 +1,48 @@
+.gallery__list {
+  grid-area: list;
+  overflow-y: auto;
+  background: var(--color-bg);
+}
+
+.list__canvas {
+  position: relative;
+  /* Shift を押して選ぶときに文字の範囲選択が起きないようにする */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.list__thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius-sm);
+}
+
+.list__empty {
+  margin: 0;
+  padding: var(--space-5);
+  color: var(--color-text-sub);
+}
+
+/* 画像が暗くても明るくても見分けられるよう、黒い枠の内側に地の色の線を入れる（docs/design.md） */
+.list__thumb--selected {
+  border: var(--select-inner);
+  outline: var(--select-outline);
+}
+
+/* 選んだ画像の左上の印（docs/design.md「選択中の画像」）。表示だけなので、押しても下の画像に届く */
+.list__check {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-check);
+  height: var(--size-check);
+  margin: var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-text);
+  background: var(--color-text);
+  pointer-events: none;
+}
