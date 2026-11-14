@@ -4,10 +4,10 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { subtree } from './categoryTree'
 import { rememberTag } from './choices'
 import { useContextMenu } from './contextMenu'
 import { flushAll } from './flush'
+import { addTag, dropTag, editImages, named, removeImages, swapTag } from './galleryData'
 import { Icon, ICONS } from './icons'
 import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
@@ -18,31 +18,20 @@ import SettingsDialog from './SettingsDialog'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
-import StatusbarResult, { type Failed, type Result } from './StatusbarResult'
+import StatusbarResult, { type Result } from './StatusbarResult'
 import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
-import type {
-  Assigned,
-  Deleted,
-  Detail as DetailData,
-  Done,
-  Gallery as GalleryData,
-  Image,
-  Restored,
-  Settings,
-  Tag,
-} from './galleryTypes'
+import type { Detail as DetailData, Done, Restored, Settings } from './galleryTypes'
 import type { Backfill, BackfillCounts, ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { SORTS, type SortKey, sortImages } from './sort'
+import { useLibrary } from './useLibrary'
 import { actualSize, FIT, panView, scaleOf, type Size, type View, zoomRange, zoomViewAt } from './zoomView'
 import './Gallery.css'
 
 // 追加先のダイアログはボードの画面の一部なので、ボードを使わない起動では読み込まない（FR-711）
 const AddDialog = lazy(() => import('./board/AddDialog'))
-
-const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
 
 // サムネイルの列の幅の目安。上限はサムネイルの幅（320）
 const THUMB_MIN = 100
@@ -67,14 +56,14 @@ type Props = {
 }
 
 export default function Gallery({ root, recent, settings, onSettings, onSwitch }: Props) {
-  const [data, setData] = useState(EMPTY)
   const [sort, setSort] = useState<SortKey>('imported')
   // 詳細パネルの最近使ったタグ。起動の間だけ覚える（ライブラリを開き直すと Gallery ごと作り直すので空に戻る）
   const [recentTags, setRecentTags] = useState<number[]>([])
   const [filter, setFilter] = useState(NO_FILTER)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
+  const lib = useLibrary(setResult)
+  const { data, trash, missing, loadError, reload, reloadTrash, reloadMissing } = lib
   const [showSkipped, setShowSkipped] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
@@ -102,10 +91,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   // 読み込んだ詳細。id は、別の画像に移った直後に前の画像の詳細を使わないため
   const [detail, setDetail] = useState<{ id: number; detail?: DetailData; error?: string } | null>(null)
   const busy = useRef(false)
-  // ゴミ箱の画像と、ゴミ箱を開いているか（FR-511）
-  const [trash, setTrash] = useState<Image[]>([])
-  // 見つからない画像（FR-104）
-  const [missing, setMissing] = useState<Image[]>([])
   // 一覧の場所に出しているもの。null はギャラリー
   const [aside, setAside] = useState<'trash' | 'missing' | null>(null)
   const inTrash = aside === 'trash'
@@ -120,39 +105,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const thumbWidth = Math.min(THUMB_MAX, Math.max(THUMB_MIN, settings.thumb_width))
   function changeSettings(next: Partial<Settings>) {
     onSettings({ ...settings, ...next }).catch((e) => setResult({ kind: 'error', message: String(e) }))
-  }
-
-  // 読み直した画像を返す。読めなければ空
-  async function reload() {
-    try {
-      const g = await invoke<GalleryData>('load_gallery')
-      setData(g)
-      setLoadError(null)
-      return g.images
-    } catch (e) {
-      setLoadError(String(e))
-      return []
-    }
-  }
-  async function reloadTrash() {
-    try {
-      const t = await invoke<Image[]>('load_trash')
-      setTrash(t)
-      return t
-    } catch (e) {
-      setLoadError(String(e))
-      return []
-    }
-  }
-  async function reloadMissing() {
-    try {
-      const m = await invoke<Image[]>('load_missing')
-      setMissing(m)
-      return m
-    } catch (e) {
-      setLoadError(String(e))
-      return []
-    }
   }
 
   // 差分検出（FR-104）。ライブラリを開いた後と、サイドバーのボタンで行う
@@ -176,7 +128,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   // 差分検出の前に、今の DB の一覧を先に出す。差分検出は時間がかかることがあるため
   useEffect(() => {
     Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => scanRef.current())
-  }, [])
+  }, [reload, reloadTrash, reloadMissing])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
   const images = useMemo(
@@ -195,11 +147,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     }
   }
 
-  // タグの付け外しとメモを手元の値に反映する。絞り込みと件数は手元の値で数えるため
-  const editImages = (ids: number[], edit: (i: Image) => Image) => {
-    const targets = new Set(ids)
-    setData((d) => ({ ...d, images: d.images.map((i) => (targets.has(i.id) ? edit(i) : i)) }))
-  }
   // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
   const listed = inTrash ? trash : inMissing ? missing : images
   // 一覧のスクロールを先頭に戻す契機。画像の中身（タグ・メモなど）の変化では戻さない
@@ -534,19 +481,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     if (paths) start(paths)
   }
 
-  const named = (failed: Assigned['failed'], list: Image[]): Failed =>
-    failed.map((f) => ({ file_name: list.find((i) => i.id === f.id)?.file_name ?? String(f.id), message: f.message }))
-
-  // 移した画像のカテゴリとファイル名を手元の値に反映し、移せなかった画像をファイル名で返す
-  function applyMoved(r: Assigned, category: number | null) {
-    const names = new Map(r.moved.map((m) => [m.id, m.file_name]))
-    setData((d) => ({
-      ...d,
-      images: d.images.map((i) => (names.has(i.id) ? { ...i, category_id: category, file_name: names.get(i.id)! } : i)),
-    }))
-    return named(r.failed, data.images)
-  }
-
   // ゴミ箱（FR-511）。移した画像は手元の一覧から外し、ゴミ箱は読み直す
   async function trashImages(targets: number[]) {
     let r: Done
@@ -557,7 +491,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       return
     }
     const gone = new Set(r.done)
-    setData((d) => ({ ...d, images: d.images.filter((i) => !gone.has(i.id)) }))
+    lib.update((d) => removeImages(d, gone))
     setSelection((s) => ({ ids: new Set([...s.ids].filter((id) => !gone.has(id))), anchor: null }))
     setResult({ kind: 'trashed', count: r.done.length, failed: named(r.failed, data.images) })
     reloadTrash()
@@ -619,97 +553,20 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     reloadTrash()
   }
 
-  async function assign(targets: number[], category: number | null) {
-    const r = await invoke<Assigned>('set_category', { ids: targets, category })
-    setResult({ kind: 'assigned', moved: r.moved.length, failed: applyMoved(r, category) })
-  }
-
-  async function renameImage(id: number, stem: string) {
-    const file_name = await invoke<string>('rename_image', { id, stem })
-    setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, file_name } : i)) }))
-  }
-
-  // 変わるのはカテゴリの行だけなので、一覧を読み直さずに手元の値を変える
-  async function renameCategory(id: number, name: string) {
-    await invoke('rename_category', { id, name })
-    const nfc = name.normalize('NFC')
-    setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, name: nfc } : c)) }))
-  }
-
-  async function createCategory(parent: number | null, name: string) {
-    const id = await invoke<number>('create_category', { parent, name })
-    setData((d) => ({
-      ...d,
-      categories: [...d.categories, { id, name: name.normalize('NFC'), parent_id: parent, collapsed: false }],
-    }))
-  }
-
-  async function moveCategory(id: number, parent: number | null) {
-    try {
-      await invoke('move_category', { id, parent })
-      setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, parent_id: parent } : c)) }))
-    } catch (e) {
-      setResult({ kind: 'error', message: `カテゴリを移せません（${e}）` })
-    }
-  }
-
-  async function collapseCategories(ids: number[], collapsed: boolean) {
-    const set = new Set(ids)
-    setData((d) => ({ ...d, categories: d.categories.map((c) => (set.has(c.id) ? { ...c, collapsed } : c)) }))
-    // 開閉を覚えられなくても操作は続けられるので、知らせるだけにする
-    await invoke('set_categories_collapsed', { ids, collapsed }).catch((e) =>
-      setResult({ kind: 'error', message: `カテゴリの開閉を保存できません（${e}）` }),
-    )
-  }
-
-  async function deleteCategory(id: number) {
-    const name = data.categories.find((c) => c.id === id)?.name ?? ''
-    let r: Deleted
-    try {
-      r = await invoke<Deleted>('delete_category', { id })
-    } catch (e) {
-      setResult({ kind: 'error', message: `カテゴリを削除できません（${e}）` })
-      return
-    }
-    const failed = applyMoved(r, null)
-    if (r.error !== null) {
-      setResult({ kind: 'error', message: `「${name}」を削除できません（${r.error}）`, failed })
-      return
-    }
-    setData((d) => {
-      const gone = subtree(d.categories, id)
-      return { ...d, categories: d.categories.filter((c) => !gone.has(c.id)) }
-    })
-    setResult({ kind: 'deleted', name, moved: r.moved.length })
-  }
-
-  const addTag = (tag: Tag) =>
-    setData((d) => (d.tags.some((t) => t.id === tag.id) ? d : { ...d, tags: sortTags([...d.tags, tag]) }))
-
   // タグ管理（FR-408）。変わるのはタグの行と画像のタグだけなので、一覧を読み直さずに手元の値を変える
   const [managingTags, setManagingTags] = useState(false)
-  async function renameTag(id: number, name: string) {
-    const tag = await invoke<Tag>('rename_tag', { id, name })
-    setData((d) => ({ ...d, tags: sortTags(d.tags.map((t) => (t.id === id ? tag : t))) }))
-  }
   // from のタグを画像と絞り込みの条件から外す。into があれば代わりに付ける
-  function dropTag(from: number, into: number | null) {
-    const swap = (tags: number[]) =>
-      tags.includes(from) ? [...new Set(tags.flatMap((t) => (t === from ? (into === null ? [] : [into]) : [t])))] : tags
-    setData((d) => ({
-      ...d,
-      tags: d.tags.filter((t) => t.id !== from),
-      images: d.images.map((i) => (i.tags.includes(from) ? { ...i, tags: swap(i.tags) } : i)),
-    }))
-    setFilter((f) => ({ ...f, tags: swap(f.tags) }))
+  function forgetTag(from: number, into: number | null) {
+    lib.update((d) => dropTag(d, from, into))
+    setFilter((f) => ({ ...f, tags: swapTag(f.tags, from, into) }))
   }
   async function mergeTag(from: number, into: number) {
     await invoke('merge_tag', { from, into })
-    dropTag(from, into)
+    forgetTag(from, into)
   }
   async function deleteTag(id: number) {
     await invoke('delete_tag', { id })
-    dropTag(id, null)
+    forgetTag(id, null)
   }
 
   const reveal = (id?: number) =>
@@ -807,11 +664,11 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         counts={counts}
         onFilter={changeFilter}
         onManageTags={() => setManagingTags(true)}
-        onRename={renameCategory}
-        onCreate={createCategory}
-        onMove={moveCategory}
-        onDelete={deleteCategory}
-        onCollapse={collapseCategories}
+        onRename={lib.renameCategory}
+        onCreate={lib.createCategory}
+        onMove={lib.moveCategory}
+        onDelete={lib.deleteCategory}
+        onCollapse={lib.collapseCategories}
         confirmMove={settings.confirm_category_move}
         onSkipConfirm={() => changeSettings({ confirm_category_move: false })}
         trashCount={trash.length}
@@ -1052,20 +909,21 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             image={selectedImage}
             detail={shown?.detail ?? null}
             error={shown?.error ?? null}
-            onRate={async (id, rating) => {
-              await invoke('set_rating', { id, rating })
-              setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
-            }}
-            onAssign={assign}
-            onRename={renameImage}
-            onTagCreated={addTag}
+            onRate={lib.rate}
+            onAssign={lib.assign}
+            onRename={lib.renameImage}
+            onTagCreated={(tag) => lib.update((d) => addTag(d, tag))}
             recentTags={recentTags}
             onTagged={(tag, ids) => {
               setRecentTags((r) => rememberTag(r, tag))
-              editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))
+              lib.update((d) =>
+                editImages(d, ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] })),
+              )
             }}
-            onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
-            onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
+            onUntagged={(tag, ids) =>
+              lib.update((d) => editImages(d, ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) })))
+            }
+            onMemo={(id, memo) => lib.update((d) => editImages(d, [id], (i) => ({ ...i, memo })))}
             onTrash={trashImages}
             onReveal={reveal}
             // ゴミ箱と見つからない画像を開いている間は、この詳細パネルを出さない
@@ -1128,7 +986,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         <TagDialog
           tags={data.tags}
           counts={counts.tags}
-          onRename={renameTag}
+          onRename={lib.renameTag}
           onMerge={mergeTag}
           onDelete={deleteTag}
           onClose={() => setManagingTags(false)}
@@ -1168,8 +1026,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
 }
 
 const baseName = (path: string) => path.split('/').filter(Boolean).pop() ?? path
-
-const sortTags = (tags: Tag[]) => tags.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
 
 // 処理中を示す、回る円弧のアイコン
 const Spinner = () => (
