@@ -42,7 +42,8 @@ for (const file of ['CLAUDE.md', 'README.md']) {
 const rust = new Set(
   read('src-tauri/src/main.rs')
     .match(/generate_handler!\[([^\]]*)\]/)[1]
-    .match(/\w+/g),
+    // windows::show_board_window のようにモジュールの下にあるコマンドは、最後の名前だけを取る
+    .match(/\w+(?=\s*(,|$))/g),
 )
 const mock = new Set(
   [

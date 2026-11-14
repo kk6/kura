@@ -1,0 +1,56 @@
+/* ⌘F の案内。入力した後は消すボタンと重なるので出さない */
+.search__key {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  transform: translateY(-50%);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+  pointer-events: none;
+}
+
+.search {
+  position: relative;
+  display: flex;
+  flex: 1;
+}
+
+.gallery__search {
+  flex: 1;
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-input);
+}
+
+/* --color-text-faint は --color-selected の上で 4.5:1 に届かないので、一段濃くする（docs/design.md「色」） */
+.tag-input__option[aria-selected='true'] .search__kind {
+  color: var(--color-text-sub);
+}
+
+/* WebKit の初期の消すボタンは塗りつぶしの丸なので、線の × に替える。動きは初期のまま */
+.gallery__search::-webkit-search-cancel-button {
+  width: var(--size-icon);
+  height: var(--size-icon);
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--color-text-sub);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E") center / contain no-repeat;
+  cursor: pointer;
+}
+
+.search__option {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* 候補がカテゴリかタグか。名前の前に小さく出す */
+.search__kind {
+  flex: none;
+  width: calc(var(--space-5) * 4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+}

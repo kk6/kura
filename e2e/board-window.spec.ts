@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
 import { boardWith } from './board-helpers'
 
 // 最前面と不透明度がウィンドウに効くことは、モックでは確かめられない（実アプリで確かめる）。
@@ -76,6 +76,8 @@ test('いちばん狭いウィンドウ（幅480）でも、上部の操作は�
   await boardWith(page, 1)
   await page.setViewportSize({ width: 480, height: 320 })
   const toolbar = page.locator('.board__toolbar')
+  // キャンバスは ResizeObserver で大きさを測り直してから配置を描く。その前に撮ると、前の大きさの位置に配置が写る
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
   await page.screenshot({ path: 'test-results/board-toolbar-narrow.png' })
 
   // 管理メニューの中の項目（閉じている間は見えない）は数えない。スクロールせずに、どれも画面の中にある
@@ -90,7 +92,7 @@ test('いちばん狭いウィンドウ（幅480）でも、上部の操作は�
   await page.getByRole('button', { name: '100%に戻す' }).click()
   await expect(page.getByRole('slider', { name: '不透明度' })).toHaveValue('100')
 
-  // 初めの大きさ（幅1040。main.rs の show_board_window）では1段に収まる
+  // 初めの大きさ（幅1040。windows.rs の show_board_window）では1段に収まる
   await page.setViewportSize({ width: 1040, height: 640 })
   await expect(page.getByRole('status')).toBeInViewport()
   expect((await toolbar.boundingBox())!.height).toBeLessThan(48)

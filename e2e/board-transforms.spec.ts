@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
 import { boardWith, box, center, drag, selectedIds, stored } from './board-helpers'
 
 // ボードの反転・回転・グレースケール・トリミング（FR-706、FR-708、FR-704）

@@ -26,6 +26,7 @@ __pycache__/
 
 # Playwright の出力
 /test-results/
+/test-results-baseline/
 /playwright-report/
 
 # Claude Code の作業用ファイル

@@ -3,6 +3,7 @@ import { convertFileSrc } from '@tauri-apps/api/core'
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { Image } from './galleryTypes'
 import { type Arrow, layout, neighbor, visible } from './layout'
+import './Masonry.css'
 
 type Props = {
   root: string

@@ -1,5 +1,6 @@
 import Status from './Status'
 import type { BackfillCounts, ImportProgress, Report, ScanReport, Skipped, SourceNote } from './importTypes'
+import './StatusbarResult.css'
 
 // ステータスバーに出す一括操作の結果
 export type Failed = { file_name: string; message: string }[]

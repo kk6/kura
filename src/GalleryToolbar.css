@@ -1,0 +1,66 @@
+.gallery__toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: 0 var(--space-5);
+  border-bottom: var(--border);
+  background: var(--color-surface);
+}
+
+.toolbar__title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar__count {
+  flex: none;
+  color: var(--color-text-faint);
+}
+
+.toolbar__spacer {
+  flex: 1;
+}
+
+/* サムネイルの大きさのスライダーと、左右の1段ずつ変えるアイコン */
+.toolbar__size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar__step {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+  transition: transform var(--duration-fast) ease-out;
+}
+
+.toolbar__step:enabled:hover {
+  color: var(--color-text);
+}
+
+.toolbar__step:enabled:active {
+  transform: scale(var(--motion-press));
+}
+
+.toolbar__step:disabled {
+  color: var(--color-line);
+  cursor: default;
+}
+
+.gallery__sort {
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}

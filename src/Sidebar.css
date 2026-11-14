@@ -1,0 +1,374 @@
+.gallery__sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border-right: var(--border);
+  background: var(--color-surface);
+}
+
+.sidebar__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--size-sidebar-item);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar__list .sidebar__list {
+  margin: 0;
+}
+
+/* カテゴリツリーの入れ子の深さ（--depth）の分だけ字下げする */
+.sidebar__item--category {
+  justify-content: flex-start;
+  gap: var(--space-1);
+  user-select: none;
+  padding-left: calc(var(--space-3) + var(--space-4) * var(--depth));
+  cursor: grab;
+}
+
+body.is-dragging * {
+  cursor: grabbing;
+}
+
+/* 掴んでいるカテゴリ */
+.sidebar__item--dragging {
+  background: var(--color-raise);
+  cursor: grabbing;
+}
+
+/* ドラッグ中にカーソルの横に出す、何をどこへ移すかの説明。影は使わず枠線で地と分ける */
+.sidebar__drag {
+  position: fixed;
+  z-index: 2;
+  padding: var(--space-1) var(--space-3);
+  transform: translate(var(--space-4), var(--space-4));
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ドラッグしたカテゴリを落とせる先。選択中のカテゴリ（背景）と見分けるため枠で示す */
+.sidebar__item--drop,
+.sidebar__heading--drop {
+  outline: var(--focus-ring);
+}
+
+/* アイコンだけのボタン。カテゴリの行のものは、マウスを乗せたときとキーボードで選んだときだけ出す */
+.sidebar__add {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+/* visibility: hidden だとキーボードで選べなくなるので、透明にして隠す */
+.sidebar__add--hover {
+  opacity: 0;
+}
+
+.sidebar__item--category:hover .sidebar__add--hover,
+.sidebar__add--hover:focus-visible {
+  opacity: 1;
+}
+
+.sidebar__edit {
+  /* 入力欄を名前の位置（開閉ボタンの右）にそろえる */
+  padding: 0 0 var(--space-1) calc(var(--space-3) + var(--space-4) * var(--depth) + var(--space-5) + var(--space-1));
+}
+
+.sidebar__name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 見出しの開閉ボタン（タグ）。見出しの文字のまま押せるようにする */
+.sidebar__section {
+  display: inline-flex;
+  align-items: center;
+  /* 開閉の印は文字の右に置き、文字の位置をほかの見出しとそろえる */
+  padding: 0;
+  border: none;
+  font: inherit;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+}
+
+/* 開閉ボタン。子のないカテゴリにも同じ幅の空きを置いて、名前の位置をそろえる */
+.sidebar__toggle {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: var(--space-5);
+  padding: 0;
+  border: none;
+  color: var(--color-text-sub);
+  background: none;
+  cursor: pointer;
+}
+
+/* 階層の線。親の開閉ボタンの中央から、子の並びの終わりまで引く */
+.sidebar__list--nested {
+  position: relative;
+}
+
+.sidebar__list--nested::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--space-3) + var(--space-4) * var(--depth) + var(--space-5) / 2);
+  border-left: var(--border);
+  content: '';
+}
+
+.sidebar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.sidebar__input {
+  width: 100%;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-input);
+}
+
+.sidebar__input--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}
+
+.sidebar__item--selected {
+  background: var(--color-selected);
+  font-weight: var(--font-weight-bold);
+}
+
+.sidebar__folder {
+  display: inline-flex;
+  margin-right: var(--space-1);
+  color: var(--color-text-sub);
+}
+
+/* ライブラリの場所。サイドバーの下端に置き、押すと Finder で開く */
+.sidebar__location {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding: var(--space-4) var(--space-3);
+  border: none;
+  border-top: var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-sub);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) ease-out;
+}
+
+.sidebar__location:hover {
+  background: var(--color-raise);
+}
+
+.sidebar__location:active {
+  background: var(--color-selected);
+}
+
+.sidebar__location-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar__location-label {
+  color: var(--color-text-faint);
+}
+
+.sidebar__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar__count {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-faint);
+}
+
+/* --color-text-faint は --color-selected の上で 4.5:1 に届かないので、一段濃くする（docs/design.md「色」） */
+.sidebar__item--selected .sidebar__count {
+  color: var(--color-text-sub);
+}
+
+.sidebar__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 見出しの右に AND/OR のボタンがあってもなくても、同じ高さにする */
+  min-height: var(--size-control-sm);
+  margin: var(--space-4) 0 var(--space-1);
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+}
+
+/* 先頭の「ライブラリ」の見出しは、上の余白をサイドバーの内側の余白だけにする */
+.gallery__sidebar > .sidebar__heading:first-child {
+  margin-top: 0;
+}
+
+/* 押して絞り込む行（すべての画像、未分類、タグ） */
+.sidebar__button {
+  width: 100%;
+  gap: var(--space-3);
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar__button.sidebar__item--selected {
+  background: var(--color-selected);
+}
+
+/* 押せる行とボタンの手応え（docs/design.md「動き」）。行は幅いっぱいなので縮めず、背景だけ変える */
+.sidebar__button,
+.sidebar__item--category,
+.sidebar__tag,
+.sidebar__add {
+  transition:
+    background-color var(--duration-fast) ease-out,
+    transform var(--duration-fast) ease-out;
+}
+
+.sidebar__button:not(.sidebar__item--selected):hover,
+.sidebar__item--category:not(.sidebar__item--selected, .sidebar__item--dragging):hover,
+.sidebar__tag:not(.sidebar__tag--selected):hover {
+  background: var(--color-raise);
+}
+
+.sidebar__button:active,
+.sidebar__item--category:active {
+  background: var(--color-selected);
+}
+
+.sidebar__switch:active,
+.sidebar__tag:active,
+.sidebar__add:enabled:active {
+  transform: scale(var(--motion-press));
+}
+
+/* タグの AND と OR の切り替え。2つの文字の下を、黒いつまみが選んだ側へ滑る。四角いタグと見分けられるよう両端を丸くする */
+.sidebar__switch {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  height: var(--size-control-sm);
+  border: var(--border);
+  border-radius: var(--radius-full);
+  background: var(--color-input);
+  transition: transform var(--duration-fast) ease-out;
+}
+
+.sidebar__switch::before {
+  position: absolute;
+  inset: 0 50% 0 0;
+  border-radius: var(--radius-full);
+  background: var(--color-text);
+  transition: transform var(--duration-base) ease-out;
+  content: '';
+}
+
+.sidebar__switch--or::before {
+  transform: translateX(100%);
+}
+
+.sidebar__mode {
+  position: relative;
+  padding: 0 var(--space-3);
+  border: none;
+  background: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-sub);
+  cursor: pointer;
+  transition: color var(--duration-base) ease-out;
+}
+
+.sidebar__mode:not(.sidebar__mode--on):hover {
+  color: var(--color-text);
+}
+
+.sidebar__mode--on {
+  font-weight: var(--font-weight-bold);
+  color: var(--color-on-text);
+}
+
+/* タグの一覧。詳細パネルのタグと同じ四角を、折り返して並べる。選んでいるタグは黒く塗る */
+.sidebar__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  /* 見出しの行（AND と OR のスイッチ）とタグがくっついて見えないよう、カテゴリの行と同じくらい離す */
+  margin: var(--space-3) 0 0;
+  padding: 0 var(--space-3);
+  list-style: none;
+}
+
+.sidebar__tags > li {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sidebar__tag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  height: var(--size-control-sm);
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--color-input);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.sidebar__tag--selected {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-on-text);
+}
+
+.sidebar__tag--selected .sidebar__count {
+  color: var(--color-on-text);
+}

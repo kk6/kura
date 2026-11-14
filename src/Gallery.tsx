@@ -4,56 +4,36 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { subtree } from './categoryTree'
 import { rememberTag } from './choices'
 import { useContextMenu } from './contextMenu'
 import { flushAll } from './flush'
-import { Icon, ICONS } from './icons'
+import GalleryHeader from './GalleryHeader'
+import GalleryToolbar, { THUMB_MAX, THUMB_MIN, ThumbSlider } from './GalleryToolbar'
+import { addTag, dropTag, editImages, named, removeImages, swapTag } from './galleryData'
 import Detail from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
-import SearchBox from './SearchBox'
 import SettingsDialog from './SettingsDialog'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
-import StatusbarResult, { type Failed, type Result } from './StatusbarResult'
+import StatusbarResult, { type Result } from './StatusbarResult'
 import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
-import type {
-  Assigned,
-  Deleted,
-  Detail as DetailData,
-  Done,
-  Gallery as GalleryData,
-  Image,
-  Restored,
-  Settings,
-  Tag,
-} from './galleryTypes'
+import type { Detail as DetailData, Done, Restored, Settings } from './galleryTypes'
 import type { Backfill, BackfillCounts, ImportProgress, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
-import { SORTS, type SortKey, sortImages } from './sort'
-import { actualSize, FIT, panView, scaleOf, type Size, type View, zoomRange, zoomViewAt } from './zoomView'
+import { type SortKey, sortImages } from './sort'
+import { useLibrary } from './useLibrary'
+import { useZoom, ZOOM_STEP } from './useZoom'
+import { actualSize, FIT } from './zoomView'
+import ZoomPanel, { ZoomSlider } from './ZoomPanel'
 import './Gallery.css'
 
 // 追加先のダイアログはボードの画面の一部なので、ボードを使わない起動では読み込まない（FR-711）
 const AddDialog = lazy(() => import('./board/AddDialog'))
-
-const EMPTY: GalleryData = { images: [], categories: [], tags: [] }
-
-// サムネイルの列の幅の目安。上限はサムネイルの幅（320）
-const THUMB_MIN = 100
-const THUMB_MAX = 320
-const THUMB_STEP = 10
-// 拡大表示の ⌘＋、⌘−、虫眼鏡のボタンで変える倍率
-const ZOOM_STEP = 1.25
-// ホイールのピンチ（ctrlKey 付き）の deltaY 1あたりの倍率の変わり方
-const PINCH_ZOOM = 0.01
-// 押してからドラッグとみなす動きの距離（px）。< > のボタンのクリックと区別する
-const PAN_START = 4
 
 type Props = {
   root: string
@@ -67,23 +47,18 @@ type Props = {
 }
 
 export default function Gallery({ root, recent, settings, onSettings, onSwitch }: Props) {
-  const [data, setData] = useState(EMPTY)
   const [sort, setSort] = useState<SortKey>('imported')
   // 詳細パネルの最近使ったタグ。起動の間だけ覚える（ライブラリを開き直すと Gallery ごと作り直すので空に戻る）
   const [recentTags, setRecentTags] = useState<number[]>([])
   const [filter, setFilter] = useState(NO_FILTER)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
+  const lib = useLibrary(setResult)
+  const { data, trash, missing, loadError, reload, reloadTrash, reloadMissing } = lib
   const [showSkipped, setShowSkipped] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
-  // 拡大表示の中の倍率と位置。画像の id ごとに持ち、前後の画像へ移ると枠に合わせた大きさ（FIT）に戻る
-  const [zoomView, setZoomView] = useState<{ id: number; view: View } | null>(null)
-  // 拡大表示の枠（余白を除いた大きさ）。測るまでは null で、CSS だけで枠に合わせる
-  const [frame, setFrame] = useState<Size | null>(null)
-  const zoomRef = useRef<HTMLElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   // 詳細パネルを開いているか。保存せず、起動すると開いた状態に戻る
   const [detailOpen, setDetailOpen] = useState(true)
@@ -102,10 +77,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   // 読み込んだ詳細。id は、別の画像に移った直後に前の画像の詳細を使わないため
   const [detail, setDetail] = useState<{ id: number; detail?: DetailData; error?: string } | null>(null)
   const busy = useRef(false)
-  // ゴミ箱の画像と、ゴミ箱を開いているか（FR-511）
-  const [trash, setTrash] = useState<Image[]>([])
-  // 見つからない画像（FR-104）
-  const [missing, setMissing] = useState<Image[]>([])
   // 一覧の場所に出しているもの。null はギャラリー
   const [aside, setAside] = useState<'trash' | 'missing' | null>(null)
   const inTrash = aside === 'trash'
@@ -120,39 +91,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const thumbWidth = Math.min(THUMB_MAX, Math.max(THUMB_MIN, settings.thumb_width))
   function changeSettings(next: Partial<Settings>) {
     onSettings({ ...settings, ...next }).catch((e) => setResult({ kind: 'error', message: String(e) }))
-  }
-
-  // 読み直した画像を返す。読めなければ空
-  async function reload() {
-    try {
-      const g = await invoke<GalleryData>('load_gallery')
-      setData(g)
-      setLoadError(null)
-      return g.images
-    } catch (e) {
-      setLoadError(String(e))
-      return []
-    }
-  }
-  async function reloadTrash() {
-    try {
-      const t = await invoke<Image[]>('load_trash')
-      setTrash(t)
-      return t
-    } catch (e) {
-      setLoadError(String(e))
-      return []
-    }
-  }
-  async function reloadMissing() {
-    try {
-      const m = await invoke<Image[]>('load_missing')
-      setMissing(m)
-      return m
-    } catch (e) {
-      setLoadError(String(e))
-      return []
-    }
   }
 
   // 差分検出（FR-104）。ライブラリを開いた後と、サイドバーのボタンで行う
@@ -171,12 +109,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     await Promise.all([reload(), reloadTrash(), reloadMissing()])
   }
 
-  const scanRef = useRef(scan)
-  scanRef.current = scan
   // 差分検出の前に、今の DB の一覧を先に出す。差分検出は時間がかかることがあるため
   useEffect(() => {
-    Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => scanRef.current())
-  }, [])
+    Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => latest.current.scan())
+  }, [reload, reloadTrash, reloadMissing])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
   const images = useMemo(
@@ -195,11 +131,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     }
   }
 
-  // タグの付け外しとメモを手元の値に反映する。絞り込みと件数は手元の値で数えるため
-  const editImages = (ids: number[], edit: (i: Image) => Image) => {
-    const targets = new Set(ids)
-    setData((d) => ({ ...d, images: d.images.map((i) => (targets.has(i.id) ? edit(i) : i)) }))
-  }
   // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
   const listed = inTrash ? trash : inMissing ? missing : images
   // 一覧のスクロールを先頭に戻す契機。画像の中身（タグ・メモなど）の変化では戻さない
@@ -233,89 +164,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const zoomed = zoom ? selectedImage : null
   const at = zoomed ? order.indexOf(zoomed.id) : -1
   const moveTo = useCallback((id: number) => setSelection({ ids: new Set([id]), anchor: id }), [])
-  const view = zoomed && zoomView?.id === zoomed.id ? zoomView.view : FIT
-  // 倍率と位置を変える。イベントのリスナーから呼んでも古い値を使わないよう、前の値から計算する
-  const changeView = (edit: (v: View, image: Size, frame: Size) => View) => {
-    if (!zoomed || !frame) return
-    const { id, width, height } = zoomed
-    setZoomView((z) => ({ id, view: edit(z?.id === id ? z.view : FIT, { width, height }, frame) }))
-  }
-  const zoomBy = (factor: number) => changeView((v, i, f) => zoomViewAt(v, i, f, { x: 0, y: 0 }, factor))
-  const changeViewRef = useRef(changeView)
-  changeViewRef.current = changeView
-
-  // 枠の大きさを測る。ウィンドウや詳細パネルの開閉で変わる
-  const zoomOpen = zoomed !== null
-  useEffect(() => {
-    const el = zoomRef.current
-    if (!el) return setFrame(null)
-    const observer = new ResizeObserver(([entry]) =>
-      setFrame({ width: entry.contentRect.width, height: entry.contentRect.height }),
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [zoomOpen])
-
-  // ピンチ（Safari の gesture と、ctrlKey 付きのホイール）はポインターの位置を中心に拡大・縮小し、
-  // 2本指のスクロールは表示を動かす（プレビューと同じ）。React の onWheel は preventDefault できないので自分で登録する
-  useEffect(() => {
-    const el = zoomRef.current
-    if (!el) return
-    const fromCenter = (x: number, y: number) => {
-      const r = el.getBoundingClientRect()
-      return { x: x - (r.left + r.width / 2), y: y - (r.top + r.height / 2) }
-    }
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const at = fromCenter(e.clientX, e.clientY)
-      if (e.ctrlKey) changeViewRef.current((v, i, f) => zoomViewAt(v, i, f, at, Math.exp(-e.deltaY * PINCH_ZOOM)))
-      else changeViewRef.current((v, i, f) => panView(v, i, f, -e.deltaX, -e.deltaY))
-    }
-    // scale はピンチを始めてからの倍率なので、前の値との比を使う
-    let last = 1
-    const pinch = (e: Event) => {
-      e.preventDefault()
-      const g = e as Event & { scale: number; clientX: number; clientY: number }
-      if (e.type === 'gesturestart') last = 1
-      const at = fromCenter(g.clientX, g.clientY)
-      const factor = g.scale / last
-      last = g.scale
-      changeViewRef.current((v, i, f) => zoomViewAt(v, i, f, at, factor))
-    }
-    el.addEventListener('wheel', wheel, { passive: false })
-    el.addEventListener('gesturestart', pinch)
-    el.addEventListener('gesturechange', pinch)
-    return () => {
-      el.removeEventListener('wheel', wheel)
-      el.removeEventListener('gesturestart', pinch)
-      el.removeEventListener('gesturechange', pinch)
-    }
-  }, [zoomOpen])
-
-  // ドラッグで表示を動かす。PAN_START 以上動いたらドラッグとみなし、離した後のクリックを止める
-  // （< > のボタンの上から始めても、前後の画像へ移らないように）
-  const pan = useRef<{ x: number; y: number; moved: boolean } | null>(null)
-  const [panning, setPanning] = useState(false)
-  useEffect(() => {
-    if (!panning) return
-    const move = (e: PointerEvent) => {
-      const p = pan.current!
-      const dx = e.clientX - p.x
-      const dy = e.clientY - p.y
-      if (!p.moved && Math.hypot(dx, dy) < PAN_START) return
-      p.moved = true
-      p.x = e.clientX
-      p.y = e.clientY
-      changeViewRef.current((v, i, f) => panView(v, i, f, dx, dy))
-    }
-    const up = () => setPanning(false)
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    return () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
-  }, [panning])
+  const zoomView = useZoom(zoomed)
+  const { changeView, zoomBy } = zoomView
   const step = (by: number) => {
     const id = order[at + by]
     if (id !== undefined) moveTo(id)
@@ -377,10 +227,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       document.getElementById('detail-tag')?.focus()
     }
   }
-  const keyRef = useRef(onKey)
-  keyRef.current = onKey
   useEffect(() => {
-    const listener = (e: KeyboardEvent) => keyRef.current(e)
+    const listener = (e: KeyboardEvent) => latest.current.onKey(e)
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
   }, [])
@@ -399,8 +247,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setProgress(null)
     reload()
   }
-  const startRef = useRef(start)
-  startRef.current = start
 
   // 補完の間、取り込み・差分検出・ファイルを動かす操作・ライブラリ切り替えは Rust 側で補完の終了か中断を待つ
   async function startBackfill() {
@@ -443,16 +289,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         (e) => setResult({ kind: 'error', message: String(e) }),
       )
   }
-  const leaveRef = useRef(leave)
-  leaveRef.current = leave
 
   // 画像を選んでいても追加はせず、専用ウィンドウを開くだけにする（FR-701）
   function openBoard() {
     if (!settings.board_enabled) return
     invoke('show_board_window').catch((e) => setResult({ kind: 'error', message: String(e) }))
   }
-  const openBoardRef = useRef(openBoard)
-  openBoardRef.current = openBoard
 
   // 「ボードに追加」の追加先ダイアログに渡す画像（FR-701）。ゴミ箱と見つからない画像は追加できない
   const [adding, setAdding] = useState<number[] | null>(null)
@@ -463,8 +305,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setMenuAt(null)
     setAdding(ids)
   }
-  const addRef = useRef(addToBoard)
-  addRef.current = addToBoard
   // Rust に知らせ、メニューの「ボードに追加…」の有効・無効と、ダイアログの間にボードの最前面の固定を
   // 外すのに使う。固定したボードの後ろにダイアログが隠れないように（FR-701、FR-705）
   const dialogOpen = useDialogOpen()
@@ -504,12 +344,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setSelection({ ids: new Set([id]), anchor: id })
     setRevealed({ id })
   }
-  const revealRef = useRef(revealImage)
-  revealRef.current = revealImage
+  // リスナーは一度だけ登録する。呼ばれたときに今の描画の関数を使うよう、ref を通す
+  const handlers = { scan, onKey, start, leave, openBoard, addToBoard, revealImage }
+  const latest = useRef(handlers)
+  latest.current = handlers
   useEffect(() => {
     const unlisten = [
       // このウィンドウ宛てのイベントは、ウィンドウの listen で受ける
-      getCurrentWindow().listen<number>('gallery-reveal', (e) => revealRef.current(e.payload)),
+      getCurrentWindow().listen<number>('gallery-reveal', (e) => latest.current.revealImage(e.payload)),
       // 終わった後に届いた進み具合で、結果を戻さない
       getCurrentWindow().listen<BackfillCounts>('backfill-progress', (e) =>
         setBackfill((b) => (b?.running ? { ...b, counts: e.payload } : b)),
@@ -517,12 +359,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
       listen<ImportProgress>('scan-progress', (e) => setScanning((s) => s && e.payload)),
-      listen('switch-library', () => leaveRef.current()),
-      listen('open-board', () => openBoardRef.current()),
+      listen('switch-library', () => latest.current.leave()),
+      listen('open-board', () => latest.current.openBoard()),
       // 操作の対象は手前のウィンドウ。ボードのウィンドウが手前なら追加しない
-      listen('add-to-board', () => document.hasFocus() && addRef.current()),
+      listen('add-to-board', () => document.hasFocus() && latest.current.addToBoard()),
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type === 'drop') startRef.current(e.payload.paths)
+        if (e.payload.type === 'drop') latest.current.start(e.payload.paths)
       }),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
@@ -532,19 +374,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     const title = directory ? '取り込むフォルダを選ぶ' : '取り込む画像を選ぶ'
     const paths = await open({ multiple: true, directory, title })
     if (paths) start(paths)
-  }
-
-  const named = (failed: Assigned['failed'], list: Image[]): Failed =>
-    failed.map((f) => ({ file_name: list.find((i) => i.id === f.id)?.file_name ?? String(f.id), message: f.message }))
-
-  // 移した画像のカテゴリとファイル名を手元の値に反映し、移せなかった画像をファイル名で返す
-  function applyMoved(r: Assigned, category: number | null) {
-    const names = new Map(r.moved.map((m) => [m.id, m.file_name]))
-    setData((d) => ({
-      ...d,
-      images: d.images.map((i) => (names.has(i.id) ? { ...i, category_id: category, file_name: names.get(i.id)! } : i)),
-    }))
-    return named(r.failed, data.images)
   }
 
   // ゴミ箱（FR-511）。移した画像は手元の一覧から外し、ゴミ箱は読み直す
@@ -557,7 +386,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       return
     }
     const gone = new Set(r.done)
-    setData((d) => ({ ...d, images: d.images.filter((i) => !gone.has(i.id)) }))
+    lib.update((d) => removeImages(d, gone))
     setSelection((s) => ({ ids: new Set([...s.ids].filter((id) => !gone.has(id))), anchor: null }))
     setResult({ kind: 'trashed', count: r.done.length, failed: named(r.failed, data.images) })
     reloadTrash()
@@ -619,97 +448,20 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     reloadTrash()
   }
 
-  async function assign(targets: number[], category: number | null) {
-    const r = await invoke<Assigned>('set_category', { ids: targets, category })
-    setResult({ kind: 'assigned', moved: r.moved.length, failed: applyMoved(r, category) })
-  }
-
-  async function renameImage(id: number, stem: string) {
-    const file_name = await invoke<string>('rename_image', { id, stem })
-    setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, file_name } : i)) }))
-  }
-
-  // 変わるのはカテゴリの行だけなので、一覧を読み直さずに手元の値を変える
-  async function renameCategory(id: number, name: string) {
-    await invoke('rename_category', { id, name })
-    const nfc = name.normalize('NFC')
-    setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, name: nfc } : c)) }))
-  }
-
-  async function createCategory(parent: number | null, name: string) {
-    const id = await invoke<number>('create_category', { parent, name })
-    setData((d) => ({
-      ...d,
-      categories: [...d.categories, { id, name: name.normalize('NFC'), parent_id: parent, collapsed: false }],
-    }))
-  }
-
-  async function moveCategory(id: number, parent: number | null) {
-    try {
-      await invoke('move_category', { id, parent })
-      setData((d) => ({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, parent_id: parent } : c)) }))
-    } catch (e) {
-      setResult({ kind: 'error', message: `カテゴリを移せません（${e}）` })
-    }
-  }
-
-  async function collapseCategories(ids: number[], collapsed: boolean) {
-    const set = new Set(ids)
-    setData((d) => ({ ...d, categories: d.categories.map((c) => (set.has(c.id) ? { ...c, collapsed } : c)) }))
-    // 開閉を覚えられなくても操作は続けられるので、知らせるだけにする
-    await invoke('set_categories_collapsed', { ids, collapsed }).catch((e) =>
-      setResult({ kind: 'error', message: `カテゴリの開閉を保存できません（${e}）` }),
-    )
-  }
-
-  async function deleteCategory(id: number) {
-    const name = data.categories.find((c) => c.id === id)?.name ?? ''
-    let r: Deleted
-    try {
-      r = await invoke<Deleted>('delete_category', { id })
-    } catch (e) {
-      setResult({ kind: 'error', message: `カテゴリを削除できません（${e}）` })
-      return
-    }
-    const failed = applyMoved(r, null)
-    if (r.error !== null) {
-      setResult({ kind: 'error', message: `「${name}」を削除できません（${r.error}）`, failed })
-      return
-    }
-    setData((d) => {
-      const gone = subtree(d.categories, id)
-      return { ...d, categories: d.categories.filter((c) => !gone.has(c.id)) }
-    })
-    setResult({ kind: 'deleted', name, moved: r.moved.length })
-  }
-
-  const addTag = (tag: Tag) =>
-    setData((d) => (d.tags.some((t) => t.id === tag.id) ? d : { ...d, tags: sortTags([...d.tags, tag]) }))
-
   // タグ管理（FR-408）。変わるのはタグの行と画像のタグだけなので、一覧を読み直さずに手元の値を変える
   const [managingTags, setManagingTags] = useState(false)
-  async function renameTag(id: number, name: string) {
-    const tag = await invoke<Tag>('rename_tag', { id, name })
-    setData((d) => ({ ...d, tags: sortTags(d.tags.map((t) => (t.id === id ? tag : t))) }))
-  }
   // from のタグを画像と絞り込みの条件から外す。into があれば代わりに付ける
-  function dropTag(from: number, into: number | null) {
-    const swap = (tags: number[]) =>
-      tags.includes(from) ? [...new Set(tags.flatMap((t) => (t === from ? (into === null ? [] : [into]) : [t])))] : tags
-    setData((d) => ({
-      ...d,
-      tags: d.tags.filter((t) => t.id !== from),
-      images: d.images.map((i) => (i.tags.includes(from) ? { ...i, tags: swap(i.tags) } : i)),
-    }))
-    setFilter((f) => ({ ...f, tags: swap(f.tags) }))
+  function forgetTag(from: number, into: number | null) {
+    lib.update((d) => dropTag(d, from, into))
+    setFilter((f) => ({ ...f, tags: swapTag(f.tags, from, into) }))
   }
   async function mergeTag(from: number, into: number) {
     await invoke('merge_tag', { from, into })
-    dropTag(from, into)
+    forgetTag(from, into)
   }
   async function deleteTag(id: number) {
     await invoke('delete_tag', { id })
-    dropTag(id, null)
+    forgetTag(id, null)
   }
 
   const reveal = (id?: number) =>
@@ -737,69 +489,19 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         if (e.animationName === 'detail-in' || e.animationName === 'detail-out') setDetailMotion(null)
       }}
     >
-      <header className="gallery__header">
-        <span className="gallery__brand">
-          <span className="gallery__mark">
-            <Icon d={ICONS.kura} size={28} />
-          </span>
-          <span className="gallery__brand-text">
-            <span className="gallery__logo">Kura</span>
-            {/* ネイティブのメニューにすると、今のライブラリに macOS のチェックが付く */}
-            <select
-              className="gallery__library"
-              aria-label="ライブラリ"
-              title={root}
-              value={root}
-              onChange={(e) => leave(e.target.value || undefined)}
-            >
-              <optgroup label="最近使ったライブラリ">
-                {(recent.includes(root) ? recent : [root, ...recent]).map((path) => (
-                  <option key={path} value={path}>
-                    {baseName(path)}
-                  </option>
-                ))}
-              </optgroup>
-              <option value="">ほかのライブラリを開く…</option>
-            </select>
-          </span>
-        </span>
-        <SearchBox filter={filter} categories={data.categories} tags={data.tags} onFilter={changeFilter} />
-        {/* 取り込みと差分検出の間は、押せないボタンを残さず処理中であることを出す。押せない理由がわからないと壊れたと思われるため。
-            ボタンは見えないまま場所を取り、ヘッダーの幅が変わらないようにする */}
-        <span className="gallery__import">
-          <span className="gallery__import-buttons" hidden={!!(scanning || progress)}>
-            <button type="button" className="button" onClick={() => pick(false)}>
-              <Icon d={ICONS.imagePlus} />
-              画像を取り込む
-            </button>
-            <button type="button" className="button" onClick={() => pick(true)}>
-              <Icon d={ICONS.folderPlus} />
-              フォルダを取り込む
-            </button>
-          </span>
-          {(scanning || progress) && (
-            <span className="gallery__busy" role="status">
-              <Spinner />
-              {scanning ? 'Finder での変更を反映中…' : '取り込み中…'}
-            </span>
-          )}
-        </span>
-        {settings.board_enabled && (
-          <button type="button" className="button button--primary" title="アイデアボード（⌘B）" onClick={openBoard}>
-            <Icon d={ICONS.board} />
-            アイデアボード
-          </button>
-        )}
-        <button
-          type="button"
-          className="button button--icon"
-          aria-label="設定"
-          title="設定（⌘,）"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <Icon d={ICONS.settings} />
-        </button>
-      </header>
+      <GalleryHeader
+        root={root}
+        recent={recent}
+        filter={filter}
+        categories={data.categories}
+        tags={data.tags}
+        onFilter={changeFilter}
+        busy={scanning ? 'scan' : progress ? 'import' : null}
+        onPick={pick}
+        onOpenBoard={settings.board_enabled ? openBoard : undefined}
+        onSettings={() => setSettingsOpen(true)}
+        onLeave={leave}
+      />
 
       <Sidebar
         gallery={data}
@@ -807,11 +509,11 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         counts={counts}
         onFilter={changeFilter}
         onManageTags={() => setManagingTags(true)}
-        onRename={renameCategory}
-        onCreate={createCategory}
-        onMove={moveCategory}
-        onDelete={deleteCategory}
-        onCollapse={collapseCategories}
+        onRename={lib.renameCategory}
+        onCreate={lib.createCategory}
+        onMove={lib.moveCategory}
+        onDelete={lib.deleteCategory}
+        onCollapse={lib.collapseCategories}
         confirmMove={settings.confirm_category_move}
         onSkipConfirm={() => changeSettings({ confirm_category_move: false })}
         trashCount={trash.length}
@@ -826,112 +528,21 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
       />
 
-      <div className="gallery__toolbar">
-        <h1 className="toolbar__title">{title}</h1>
-        <span className="toolbar__count">{listed.length}枚</span>
-        <span className="toolbar__spacer" />
-        {!aside && (
-          <select
-            className="gallery__sort"
-            aria-label="並べ替え"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-          >
-            {Object.entries(SORTS).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        )}
+      <GalleryToolbar
+        title={title}
+        count={listed.length}
+        sort={aside ? undefined : sort}
+        onSort={setSort}
+        detailShown={detailShown}
+        onToggleDetail={() => toggleDetail()}
+      >
         {/* 拡大表示の間は、サムネイルの大きさの代わりに画像の倍率を出す。後ろに隠れたサムネイルを変えても見えないため */}
-        {zoomed && frame
-          ? (() => {
-              const image = { width: zoomed.width, height: zoomed.height }
-              const range = zoomRange(image, frame)
-              const scale = scaleOf(view, image, frame)
-              const toScale = (zoom: number) => scaleOf({ ...view, zoom }, image, frame)
-              return (
-                <span className="toolbar__size">
-                  <button
-                    type="button"
-                    className="toolbar__step"
-                    aria-label="縮小"
-                    title="縮小（⌘−）"
-                    disabled={view.zoom <= range.min}
-                    onClick={() => zoomBy(1 / ZOOM_STEP)}
-                  >
-                    <Icon d={ICONS.zoomOut} />
-                  </button>
-                  {/* 倍率は掛け算で変わるので、つまみの位置は倍率の対数にする */}
-                  <input
-                    className="slider"
-                    type="range"
-                    aria-label="画像の倍率"
-                    aria-valuetext={`${Math.round(scale * 100)}%`}
-                    min={Math.log2(toScale(range.min))}
-                    max={Math.log2(toScale(range.max))}
-                    step={0.01}
-                    value={Math.log2(scale)}
-                    onChange={(e) => zoomBy(2 ** Number(e.target.value) / scale)}
-                  />
-                  <button
-                    type="button"
-                    className="toolbar__step"
-                    aria-label="拡大"
-                    title="拡大（⌘＋）"
-                    disabled={view.zoom >= range.max}
-                    onClick={() => zoomBy(ZOOM_STEP)}
-                  >
-                    <Icon d={ICONS.zoomIn} />
-                  </button>
-                  <span className="toolbar__zoom-value">{Math.round(scale * 100)}%</span>
-                </span>
-              )
-            })()
-          : !zoomed && (
-              <span className="toolbar__size">
-                <button
-                  type="button"
-                  className="toolbar__step"
-                  aria-label="サムネイルを小さくする"
-                  disabled={thumbWidth <= THUMB_MIN}
-                  onClick={() => changeSettings({ thumb_width: Math.max(THUMB_MIN, thumbWidth - THUMB_STEP) })}
-                >
-                  <Icon d={ICONS.masonryMany} />
-                </button>
-                <input
-                  className="slider"
-                  type="range"
-                  aria-label="サムネイルの大きさ"
-                  min={THUMB_MIN}
-                  max={THUMB_MAX}
-                  step={THUMB_STEP}
-                  value={thumbWidth}
-                  onChange={(e) => changeSettings({ thumb_width: Number(e.target.value) })}
-                />
-                <button
-                  type="button"
-                  className="toolbar__step"
-                  aria-label="サムネイルを大きくする"
-                  disabled={thumbWidth >= THUMB_MAX}
-                  onClick={() => changeSettings({ thumb_width: Math.min(THUMB_MAX, thumbWidth + THUMB_STEP) })}
-                >
-                  <Icon d={ICONS.masonryFew} />
-                </button>
-              </span>
-            )}
-        <button
-          type="button"
-          className="button button--icon"
-          aria-label={detailShown ? '詳細パネルを閉じる' : '詳細パネルを開く'}
-          aria-pressed={detailShown}
-          title={`詳細パネルを${detailShown ? '閉じる' : '開く'}（⌘I）`}
-          onClick={() => toggleDetail()}
-        >
-          <Icon d={ICONS.panelRight} />
-        </button>
-      </div>
+        {zoomed && zoomView.frame ? (
+          <ZoomSlider zoom={zoomView} image={zoomed} frame={zoomView.frame} />
+        ) : (
+          !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
+        )}
+      </GalleryToolbar>
 
       <Masonry
         root={root}
@@ -959,70 +570,15 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       />
 
       {zoomed && (
-        <section
-          ref={zoomRef}
-          className={
-            'gallery__zoom' +
-            // 枠からはみ出していて動かせるときだけ、つかめる形のカーソルにする
-            (frame &&
-            (zoomed.width * scaleOf(view, zoomed, frame) > frame.width ||
-              zoomed.height * scaleOf(view, zoomed, frame) > frame.height)
-              ? ' gallery__zoom--movable'
-              : '')
-          }
-          aria-label="拡大表示"
-          onPointerDown={(e) => {
-            if (e.button !== 0) return
-            pan.current = { x: e.clientX, y: e.clientY, moved: false }
-            setPanning(true)
-          }}
-          onClickCapture={(e) => {
-            if (!pan.current?.moved) return
-            pan.current = null
-            e.stopPropagation()
-            e.preventDefault()
-          }}
-        >
-          <img
-            className="zoom__image"
-            // 元の画像のパスがわかるまではサムネイルを出す
-            src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
-            alt={zoomed.file_name}
-            draggable={false}
-            style={{
-              aspectRatio: `${zoomed.width} / ${zoomed.height}`,
-              background: zoomed.color,
-              ...(frame
-                ? {
-                    // 枠の中央から view の分ずらし、倍率の大きさで描く。transform の拡大ではぼけるので幅で描く
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    width: zoomed.width * scaleOf(view, zoomed, frame),
-                    transform: `translate(calc(-50% + ${view.x}px), calc(-50% + ${view.y}px))`,
-                  }
-                : // 枠を測るまでは、小さい画像も枠いっぱいに広げ、縦横比を保ったまま収める
-                  { width: `min(100cqw, calc(100cqh * ${zoomed.width / zoomed.height}))` }),
-            }}
-          />
-          {at > 0 && (
-            <button type="button" className="zoom__nav zoom__nav--prev" aria-label="前の画像" onClick={() => step(-1)}>
-              <span className="zoom__arrow">
-                <Chevron d="M15 6l-6 6 6 6" />
-              </span>
-            </button>
-          )}
-          {at < order.length - 1 && (
-            <button type="button" className="zoom__nav zoom__nav--next" aria-label="次の画像" onClick={() => step(1)}>
-              <span className="zoom__arrow">
-                <Chevron d="M9 6l6 6-6 6" />
-              </span>
-            </button>
-          )}
-          <button type="button" className="button zoom__close" onClick={() => setZoom(false)}>
-            閉じる
-          </button>
-        </section>
+        <ZoomPanel
+          zoom={zoomView}
+          image={zoomed}
+          // 元の画像のパスがわかるまではサムネイルを出す
+          src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
+          onPrev={at > 0 ? () => step(-1) : undefined}
+          onNext={at < order.length - 1 ? () => step(1) : undefined}
+          onClose={() => setZoom(false)}
+        />
       )}
 
       {/* 閉じる動きの間は、フォーカスもクリックも受けない */}
@@ -1052,20 +608,21 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             image={selectedImage}
             detail={shown?.detail ?? null}
             error={shown?.error ?? null}
-            onRate={async (id, rating) => {
-              await invoke('set_rating', { id, rating })
-              setData((d) => ({ ...d, images: d.images.map((i) => (i.id === id ? { ...i, rating } : i)) }))
-            }}
-            onAssign={assign}
-            onRename={renameImage}
-            onTagCreated={addTag}
+            onRate={lib.rate}
+            onAssign={lib.assign}
+            onRename={lib.renameImage}
+            onTagCreated={(tag) => lib.update((d) => addTag(d, tag))}
             recentTags={recentTags}
             onTagged={(tag, ids) => {
               setRecentTags((r) => rememberTag(r, tag))
-              editImages(ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] }))
+              lib.update((d) =>
+                editImages(d, ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] })),
+              )
             }}
-            onUntagged={(tag, ids) => editImages(ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) }))}
-            onMemo={(id, memo) => editImages([id], (i) => ({ ...i, memo }))}
+            onUntagged={(tag, ids) =>
+              lib.update((d) => editImages(d, ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) })))
+            }
+            onMemo={(id, memo) => lib.update((d) => editImages(d, [id], (i) => ({ ...i, memo })))}
             onTrash={trashImages}
             onReveal={reveal}
             // ゴミ箱と見つからない画像を開いている間は、この詳細パネルを出さない
@@ -1128,7 +685,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         <TagDialog
           tags={data.tags}
           counts={counts.tags}
-          onRename={renameTag}
+          onRename={lib.renameTag}
           onMerge={mergeTag}
           onDelete={deleteTag}
           onClose={() => setManagingTags(false)}
@@ -1166,43 +723,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     </div>
   )
 }
-
-const baseName = (path: string) => path.split('/').filter(Boolean).pop() ?? path
-
-const sortTags = (tags: Tag[]) => tags.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))
-
-// 処理中を示す、回る円弧のアイコン
-const Spinner = () => (
-  <svg
-    className="spinner"
-    width="15"
-    height="15"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    aria-hidden="true"
-  >
-    <path d="M12 3a9 9 0 1 1-9 9" />
-  </svg>
-)
-
-const Chevron = ({ d }: { d: string }) => (
-  <svg
-    width="15"
-    height="15"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d={d} />
-  </svg>
-)
 
 // このウィンドウで dialog 要素を開いているか
 function useDialogOpen() {

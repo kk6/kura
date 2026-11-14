@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test'
+import { expect, test, type Locator } from './fixtures'
 import { boardWith, box, center, drag, emit, selectedIds, stored, type Geometry } from './board-helpers'
 
 // ボードのキャンバスの操作（FR-702、FR-703、FR-704）。選択、移動、拡大・縮小、配置を外す、パン、ズーム、表示の保存
