@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+  <meta charset="utf-8" />
+  <title>類似度のスパイク</title>
+  <style>
+    body { font: 13px -apple-system, sans-serif; margin: 16px; color: #222; background: #f4f4f4; }
+    h2 { font-size: 14px; margin: 24px 0 8px; }
+    .bar { position: sticky; top: 0; background: #f4f4f4; padding: 12px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #ccc; z-index: 1; }
+    .row { display: flex; gap: 4px; align-items: flex-start; margin-bottom: 8px; }
+    .row > b { width: 96px; flex: none; padding-top: 4px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 4px; }
+    figure { margin: 0; cursor: pointer; }
+    figure img { height: 120px; display: block; }
+    .grid.big img { height: 150px; }
+    figcaption { font-size: 10px; color: #666; }
+    .query img { outline: 3px solid #222; }
+    input[type="range"] { width: 120px; vertical-align: middle; }
+  </style>
+  <div class="bar">
+    <span>画像を押すと基準が入れ替わる</span>
+    <label>内容 <select id="content"></select></label>
+    <label>重み <input id="wc" type="range" min="0" max="100" value="50" /> <span id="wcv"></span></label>
+    <label>構図 <select id="comp"></select></label>
+    <label>重み <input id="wp" type="range" min="0" max="100" value="50" /> <span id="wpv"></span></label>
+    <label>幅のそろえ方
+      <select id="norm">
+        <option value="raw">そろえない（コサイン類似度のまま）</option>
+        <option value="minmax">最小〜最大を 0〜1 に</option>
+        <option value="z" selected>平均0・標準偏差1に</option>
+        <option value="rank">順位に置き換える</option>
+      </select>
+    </label>
+  </div>
+
+  <h2>1. 内容のモデルを並べて比べる（上位12件、サムネイルから計算）</h2>
+  <div id="models"></div>
+  <h2>2. 構図の特徴量を並べて比べる（上位12件）</h2>
+  <div id="comps"></div>
+  <h2>3. 内容と構図を重みで混ぜた並び（全件）</h2>
+  <div id="mixed" class="grid big"></div>
+
+  <script>
+    const D = /*DATA*/;
+    const n = D.names.length;
+    let q = 0;
+    const $ = (id) => document.getElementById(id);
+    for (const [id, keys] of [["content", Object.keys(D.content)], ["comp", Object.keys(D.comp)]])
+      for (const k of keys) $(id).add(new Option(k, k));
+    $("comp").value = "gray+edge";
+
+    // 基準画像に対する類似度（自分自身を除く）を、選んだ方法でそろえる
+    function normalize(row, how) {
+      const idx = [...row.keys()].filter((i) => i !== q);
+      const v = idx.map((i) => row[i]);
+      const out = new Array(n).fill(Infinity);
+      if (how === "raw") idx.forEach((i) => (out[i] = row[i]));
+      if (how === "minmax") {
+        const lo = Math.min(...v), hi = Math.max(...v);
+        idx.forEach((i) => (out[i] = (row[i] - lo) / (hi - lo)));
+      }
+      if (how === "z") {
+        const m = v.reduce((a, b) => a + b) / v.length;
+        const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length);
+        idx.forEach((i) => (out[i] = (row[i] - m) / sd));
+      }
+      if (how === "rank") {
+        const sorted = [...idx].sort((a, b) => row[a] - row[b]);
+        sorted.forEach((i, r) => (out[i] = r / (sorted.length - 1)));
+      }
+      return out;
+    }
+    const order = (score) => [...score.keys()].sort((a, b) => score[b] - score[a]);
+    function fig(i) {
+      const f = document.createElement("figure");
+      if (i === q) f.className = "query";
+      f.innerHTML = `<img loading="lazy" src="thumbs/${String(i).padStart(3, "0")}.jpg"><figcaption>${D.names[i].split("/")[0]}</figcaption>`;
+      f.onclick = () => { q = i; render(); scrollTo(0, 0); };
+      return f;
+    }
+    function rows(el, group) {
+      el.replaceChildren();
+      for (const [k, m] of Object.entries(group)) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.innerHTML = `<b>${k}</b>`;
+        const g = document.createElement("div");
+        g.className = "grid";
+        const score = m[q].map((s, i) => (i === q ? Infinity : s));
+        order(score).slice(0, 13).forEach((i) => g.append(fig(i)));
+        row.append(g);
+        el.append(row);
+      }
+    }
+    function render() {
+      rows($("models"), D.content);
+      rows($("comps"), D.comp);
+      const wc = +$("wc").value, wp = +$("wp").value, how = $("norm").value;
+      $("wcv").textContent = wc; $("wpv").textContent = wp;
+      const a = normalize(D.content[$("content").value][q], how);
+      const b = normalize(D.comp[$("comp").value][q], how);
+      const score = a.map((x, i) => (i === q ? Infinity : wc * x + wp * b[i]));
+      $("mixed").replaceChildren(...order(score).map(fig));
+    }
+    for (const id of ["content", "comp", "norm", "wc", "wp"]) $(id).oninput = render;
+    render();
+  </script>
+</html>

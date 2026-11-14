@@ -1,0 +1,7 @@
+# モデルと、見本の写真を写した結果はコミットしない
+models/
+out/
+.venv/
+build/
+dist/
+*.spec
