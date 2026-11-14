@@ -363,7 +363,7 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')
   await expect(detail.getByRole('img', { name: 'ref_00001.jpg のプレビュー' })).toBeVisible()
   const category = detail.getByRole('combobox', { name: 'カテゴリ' })
-  await expect(category.locator('option:checked')).toHaveText('未分類')
+  await expect(category).toHaveValue('未分類')
   await expect(detail.getByRole('listitem')).toHaveText(['あおり', '座り'])
   await expect(detail).toContainText('元URLhttps://example.com/gallery/pose')
   await expect(detail).toContainText(/JPEG ・ \d+ × \d+ ・ 177 KB/)
@@ -375,7 +375,7 @@ test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => 
   // カテゴリは親からの道筋で出し、タグ・元URL・メモがなければ「なし」と出す
   await thumb(page, 2).click()
   await expect(detail.getByRole('heading')).toHaveText('ref_00002.jpg')
-  await expect(category.locator('option:checked')).toHaveText('ポーズ / 座り')
+  await expect(category).toHaveValue('ポーズ / 座り')
   await expect(detail).toContainText('タグなし元URLなし')
   expect(errors).toEqual([])
 })
@@ -653,7 +653,7 @@ test('Escape で選択を外す。拡大表示中は先に拡大表示を閉じ�
   expect(await selectedNames(page)).toEqual(['ref_00002.jpg'])
 })
 
-test('選んだ画像のカテゴリとタグをまとめて変え、入力中は既存のタグを候補に出す', async ({ page }) => {
+test('選んだ画像のカテゴリとタグをまとめて変え、入力欄を押すと一覧を出し、入力中は名前で絞り込む', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await openGallery(page)
@@ -668,12 +668,17 @@ test('選んだ画像のカテゴリとタグをまとめて変え、入力中�
   await thumb(page, 2).click()
   await thumb(page, 4).click({ modifiers: ['Shift'] })
   await expect(detail.getByRole('heading')).toHaveText('3枚を選んでいます')
-  await expect(category.locator('option:checked')).toHaveText('複数のカテゴリ')
+  await expect(category).toHaveValue('')
+  await expect(category).toHaveAttribute('placeholder', '複数のカテゴリ')
   await expect(detail).toContainText('タグなし')
+
+  // 何も入れずに入力欄を押すと、すべてのタグを名前の順に出す
+  await tagInput.click()
+  const options = detail.getByRole('listbox', { name: '既存のタグ' }).getByRole('option')
+  await expect(options).toHaveText(['あおり', '座り', '振り返り'])
 
   // 大文字・小文字や正規化に関係なく、入力した文字を含む既存のタグを候補に出す
   await tagInput.fill('あお')
-  const options = detail.getByRole('listbox', { name: '既存のタグ' }).getByRole('option')
   await expect(options).toHaveText(['あおり'])
   await page.screenshot({ path: 'test-results/tag-candidates.png' })
   await tagInput.press('ArrowDown')
@@ -699,21 +704,37 @@ test('選んだ画像のカテゴリとタグをまとめて変え、入力中�
   await detail.getByRole('button', { name: '立ち を外す' }).click()
   await expect(chips).toHaveText(['あおり', '座り1/4'])
 
-  await category.selectOption({ label: '服飾 / 制服' })
+  // カテゴリは、押すと未分類とツリーの順のすべてを出し、文字を入れると道筋で絞り込む
+  await category.click()
+  const categoryOptions = detail.getByRole('listbox', { name: 'カテゴリ' }).getByRole('option')
+  await expect(categoryOptions).toHaveText([
+    '未分類',
+    'ポーズ',
+    'ポーズ / 座り',
+    'ポーズ / 振り返り',
+    '服飾',
+    '服飾 / 制服',
+    '背景',
+  ])
+  await page.screenshot({ path: 'test-results/category-candidates.png' })
+  await category.fill('制服')
+  await expect(categoryOptions).toHaveText(['服飾 / 制服'])
+  await category.press('Enter')
   await expect(status).toContainText('完了：カテゴリを変更 4枚')
-  await expect(category.locator('option:checked')).toHaveText('服飾 / 制服')
+  await expect(category).toHaveValue('服飾 / 制服')
   await page.screenshot({ path: 'test-results/bulk-classify.png' })
 
   // 付けていない入力中のタグは、選び直すと消える
   await tagInput.fill('付けないタグ')
   await thumb(page, 3).click()
-  await expect(category.locator('option:checked')).toHaveText('服飾 / 制服')
+  await expect(category).toHaveValue('服飾 / 制服')
   await expect(chips).toHaveText(['あおり'])
   await expect(tagInput).toHaveValue('')
 
   // 移せなかった画像はステータスバーに件数を出し、押すと一覧を開く（モックでは ref_00007 を移せない）
   await thumb(page, 7).click({ modifiers: ['Meta'] })
-  await category.selectOption({ label: '背景' })
+  await category.click()
+  await categoryOptions.filter({ hasText: /^背景$/ }).click()
   await expect(status).toContainText('完了：カテゴリを変更 1枚')
   await status.getByRole('button', { name: /移せない 1枚/ }).click()
   const dialog = page.getByRole('dialog', { name: '移せなかった画像（1枚）' })
