@@ -30,3 +30,10 @@ __pycache__/
 
 # Claude Code の作業用ファイル
 /.claude/tmp/
+
+# Claude Design への同期（/design-sync）の作業用ファイル
+/.ds-sync/
+/ds-bundle/
+/.design-sync/.cache/
+/.design-sync/learnings/
+/.design-sync/node_modules

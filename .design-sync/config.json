@@ -1,0 +1,26 @@
+{
+  "projectId": "13a37f1e-a67b-4511-b508-d923a01f466e",
+  "shape": "package",
+  "pkg": "kura",
+  "globalName": "Kura",
+  "entry": ".design-sync/entry.ts",
+  "tsconfig": "tsconfig.app.json",
+  "componentSrcMap": {
+    "ConfirmDialog": "src/ConfirmDialog.tsx",
+    "Status": "src/Status.tsx",
+    "Icon": "src/icons.tsx"
+  },
+  "guidelinesGlob": ["docs/design.md"],
+  "dtsPropsFor": {
+    "ConfirmDialog": "/** ダイアログの見出し */ title: string; /** 実行するボタンの文言（例：「削除」） */ confirm: string; /** 何が消えるかの説明。件数を書く */ children: React.ReactNode; onConfirm: () => void; onClose: () => void;",
+    "Status": "/** error・warning・success・info。色・アイコンの形・先頭の言葉（「エラー：」など）の3つで示す */ kind: 'error' | 'warning' | 'success' | 'info'; children: React.ReactNode;",
+    "Icon": "/** 線の絵の path。Kura.ICONS から選ぶ（例：ICONS.trash） */ d: string; /** 一辺の px。既定は 14 */ size?: number;"
+  },
+  "overrides": {
+    "ConfirmDialog": {
+      "cardMode": "single",
+      "viewport": "640x320"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
