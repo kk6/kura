@@ -828,6 +828,27 @@ body.is-dragging * {
   background: var(--color-bg);
   /* 画像の幅を枠の大きさ（cqw、cqh）から決めるため */
   container-type: size;
+  /* 拡大した画像は枠の外を切る */
+  overflow: hidden;
+}
+
+/* 拡大して枠からはみ出した画像は、ドラッグで動かせる */
+.gallery__zoom--movable {
+  cursor: grab;
+}
+
+.gallery__zoom--movable:active,
+.gallery__zoom--movable:active .zoom__nav {
+  cursor: grabbing;
+}
+
+/* 倍率の数字。桁が変わってもスライダーが動かないよう、幅をそろえて右に寄せる */
+.toolbar__zoom-value {
+  min-width: 4ch;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--color-text-sub);
 }
 
 
