@@ -9,3 +9,4 @@ package-lock.json
 *.css
 *.md
 *.html
+.impeccable/
