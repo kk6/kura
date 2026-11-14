@@ -1104,7 +1104,7 @@ test('サイドバーのカテゴリとタグを押し、検索バーに入れ�
   expect(errors).toEqual([])
 })
 
-test('サイドバーのタグは一覧の画像と同じく、押すとそれだけ、⌘で足し、Shift で範囲を選び、Escape・⌘A・余白はタグに効く', async ({
+test('サイドバーのタグは押すたびに選ぶ・外すが切り替わり、Shift で範囲を選び、Escape・⌘A・余白はタグに効く', async ({
   page,
 }) => {
   await openGallery(page)
@@ -1123,23 +1123,25 @@ test('サイドバーのタグは一覧の画像と同じく、押すとそれ�
           .map((b) => b.querySelector('.sidebar__name')?.textContent),
       )
 
-  // 並びは あおり、座り、振り返り
+  // 並びは あおり、座り、振り返り。修飾キーなしで押すたびに選ぶ・外すが切り替わり、ほかのタグの選択は残す
   await tag('あおり').click()
   await tag('振り返り').click()
-  expect(await pressed()).toEqual(['振り返り'])
+  expect(await pressed()).toEqual(['あおり', '振り返り'])
   // 選んでいるタグは先頭へ寄せ、残りは元の並びのまま
-  await expect(tags.locator('.sidebar__name')).toHaveText(['振り返り', 'あおり', '座り'])
+  await expect(tags.locator('.sidebar__name')).toHaveText(['あおり', '振り返り', '座り'])
+  await tag('あおり').click()
+  expect(await pressed()).toEqual(['振り返り'])
+  // ⌘ を押しながら押しても同じ
   await tag('あおり').click({ modifiers: ['Meta'] })
   expect(await pressed()).toEqual(['あおり', '振り返り'])
   await tag('振り返り').click({ modifiers: ['Meta'] })
   expect(await pressed()).toEqual(['あおり'])
   // Shift は最後に修飾キーなしか ⌘ で押したタグ（あおり）から範囲を選び直す
   await tag('あおり').click()
+  expect(await pressed()).toEqual([])
   await tag('振り返り').click({ modifiers: ['Shift'] })
   expect(await pressed()).toEqual(['あおり', '座り', '振り返り'])
-  // 選んでいるタグを修飾キーなしで押すと、そのタグだけを外す。ほかのタグの選択は残す
   await tag('座り').click()
-  expect(await pressed()).toEqual(['あおり', '振り返り'])
   await tag('あおり').click()
   await tag('振り返り').click()
   expect(await pressed()).toEqual([])
