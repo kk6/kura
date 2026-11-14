@@ -967,7 +967,8 @@ body.is-dragging * {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  margin: 0;
+  /* 見出しの行（AND と OR のスイッチ）とタグがくっついて見えないよう、カテゴリの行と同じくらい離す */
+  margin: var(--space-3) 0 0;
   padding: 0 var(--space-3);
   list-style: none;
 }
