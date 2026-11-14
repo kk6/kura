@@ -52,11 +52,11 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 
 `check.sh` の `DRIFT` は、上の関数の本体（空白を詰めたもの）が `coverage.tsv` の指紋と違うことを示す。整形だけの変更でも出る。
 
-**同期したコミット：`d1fe3a5`**（`connect` で `Library` に、接続が壊れたかの印 `broken: false` を足しただけ。開き直し（`library.rs` の `reconnect`）は `open` を通るので、後始末は `connect` の `recover` のまま。移動と後始末の手順は変わらない。モデルは変更せず、TLC と故障モデルの検査後に指紋を同期した。前の同期は `8a0fffe`）
+**同期したコミット：`029e132`**（`d1fe3a5` からの変更は2つ。`18e7564` は `library.rs` の `Access::with` で、入出力のエラーの文言を「ライブラリのドライブを読めません」に置き換えただけ。`broken` を立てる条件と `reconnect` は変わらない。`8f48503` はウィンドウと終了の処理を `main.rs` から `windows.rs` へ移しただけで、ファイルも `pending_ops` も触らない。`transfer` の呼び出し元と `Request.copy` の使い方も変わらない。モデルは変更せず、TLC と故障モデルの検査で確かめた。前の同期は `d1fe3a5`）
 
 ## DRIFT や FAIL が出たとき
 
-1. `git diff cf32120 -- src-tauri/src/fileops.rs src-tauri/src/library.rs` で、変わった関数を読む。
+1. `git diff <上の同期したコミット> -- src-tauri/src/fileops.rs src-tauri/src/library.rs` で、変わった関数を読む。
 2. 変わったのが、下の「モデルとコードの対応」の行のどれかを見る。
    - 対応する行がない（ログの文言、エラーメッセージ、整形）なら、モデルは変えない。`check.sh` を流して `PASS` を確かめ、`check.sh rehash` で指紋を書き直し、上の同期したコミットを今の `HEAD` にする。
    - 手順が変わった（段階の順番、1つのトランザクションに入れるもの、settle の判定）なら、`CrashSafeMove.tla` の該当するアクションを、コードと同じに直してから `check.sh` を流す。
