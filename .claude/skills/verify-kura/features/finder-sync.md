@@ -21,9 +21,9 @@ Preconditions:
 - `$V launch <id>`（見本）。ステータスバーに「Finder での変更はありません」。
 - Finder の操作の代わりに、run のライブラリの中のファイルをシェルで動かす。これは利用者が Finder でする変更の再現で、Kura の外からの変更という点で同じ。
 
-- **足す・移す・消す。** シェルで `runs/<id>/lib` の中を変える：`$V src <id> 31` で作った画像のうち見本にない `ref_00030.*` を `lib/src/手/` へ `cp`、`lib/src/服飾/` の1枚を `lib/src/手/` へ `mv`、`lib/src/背景/室内/` の1枚を `rm`（run のライブラリの中だけ）。
-- **反映する。** サイドバーの「差分を確認」を押す。ステータスバーに反映の結果が出て、`app.log` に `差分を反映しました：登録 1、移動 1、…、見つからない 1、…`。
-- **確かめる。** 「手」の件数が2増え、「服飾」と「室内」が1減る。`$V db <id> "select file_name, category_id, missing_at from images where missing_at is not null"` に消した1枚。見つからない画像の一覧（aria-label「見つからない画像」）に出る。
+- **足す・移す・消す。** シェルで `runs/<id>/lib` の中を変える：`$V src <id> 31` で作った画像のうち見本にない `ref_00030.*`（`find runs/<id>/src -name 'ref_00030*'`。今は `ポーズ/座り/ref_00030.gif`）を `lib/src/手/` へ `cp`、`lib/src/服飾/` の1枚を `lib/src/手/` へ `mv`、`lib/src/背景/室内/` の1枚を run の中のライブラリの外（例：`runs/<id>/outside/`）へ `mv`（Finder でゴミ箱へ入れるのと同じく、ライブラリから消える）。
+- **反映する。** サイドバーの「差分を確認」を押す。ステータスバーに「完了：差分を反映（登録 1枚、移動 1枚）」と、別のリンク「注意：見つからない画像 1枚」。`app.log` に `差分を反映しました：登録 1、移動 1、更新 0、見つからない 1、スキップ 0件`。
+- **確かめる。** 「手」の件数が2増え、「服飾」と「室内」が1減る。`$V db <id> "select file_name, category_id, missing_at from images where missing_at is not null"` に消した1枚。サイドバーに「見つからない 1」が現れる（2026-11-14、run `mvs-a` で確認）。押すと右パネル（aria-label「見つからない画像」、「一覧から外す」）が出て、一覧にその1枚が出る。
 
 ## Gotchas
 
