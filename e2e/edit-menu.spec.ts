@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { boardWith, box, center, drag, emit, selectedIds, stored } from './board-helpers'
 
 // メニューの「編集」の取り消す・やり直す・すべてを選択を、手前のウィンドウに効かせる（FR-702、NFR-12）。

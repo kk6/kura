@@ -42,6 +42,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - テスト（Rust、別のファイルシステム）：`hdiutil create -size 64m -fs ExFAT -volname KURAEX <名前>.dmg` で作ったイメージを `hdiutil attach -nobrowse` でマウントし、`KURA_TEST_DIR=<マウント先> cargo test fileops` で同じテストを流す（HFS+ や大文字・小文字を区別する APFS も同じ）
 - テスト（画面の単体テスト）：`npm test`（Vitest。`src/**/*.test.ts` を流す）
 - テスト（画面）：`npm run test:e2e`（モックの開発サーバーを Playwright の WebKit で開き、`test-results/` にスクリーンショット（`gallery.png` など）を保存する）
+- 見た目が変わっていないことの確認：変更の前のコードで `npm run test:e2e` と `npm run screenshots:save` を流して基準（`test-results-baseline/`）を作り、変更の後に `npm run test:e2e` と `npm run screenshots:compare` を流す。1バイトでも違う画像、増えた画像、減った画像を出す。e2e のスペックは `e2e/fixtures.ts` の `test` を使う。動きを止めて撮るので、同じ画面は同じ画像になる
 - ドキュメントのスクリーンショット：`KURA_DOCS_PHOTOS=<見本の写真のフォルダ> npm run docs:screenshots`（モックの開発サーバーに見本の写真を読ませ、Playwright の WebKit で開いて `docs/images/` に JPEG で撮り直す。`e2e/docs-screenshots.ts`。CI では流さない）
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
 - テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`

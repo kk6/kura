@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 type TauriWindow = { __TAURI_INTERNALS__: { invoke(cmd: string, args?: unknown): Promise<unknown> } }
 
@@ -862,6 +862,8 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   // 離すと確認する。キャンセルすれば移さない
   await expect(dialog).toContainText('「振り返り」を「服飾」の下へ移します')
   await expect(dialog.getByRole('button', { name: '移す' })).toBeFocused()
+  // 離した場所の行にマウスが乗った見た目が残るかは、ダイアログが開くタイミングで変わる。ダイアログの上へ動かして揃える
+  await dialog.hover()
   await page.screenshot({ path: 'test-results/category-move-confirm.png' })
   await dialog.getByRole('button', { name: 'キャンセル' }).click()
   await expect(dialog).toHaveCount(0)

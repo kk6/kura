@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
 import { boardWith } from './board-helpers'
 
 // 最前面と不透明度がウィンドウに効くことは、モックでは確かめられない（実アプリで確かめる）。

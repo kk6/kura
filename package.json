@@ -9,6 +9,8 @@
     "build": "tsc -b && vite build",
     "lint": "tsc -b && eslint . && prettier --check . && node scripts/check-tokens.mjs && node scripts/check-docs.mjs",
     "test:e2e": "playwright test",
+    "screenshots:save": "node scripts/compare-screenshots.mjs save",
+    "screenshots:compare": "node scripts/compare-screenshots.mjs",
     "tauri": "tauri",
     "dev-library": "uv run scripts/gen_dev_library.py",
     "test": "vitest run",

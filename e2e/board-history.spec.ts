@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from './fixtures'
 import { boardWith, box, center, drag, emit, selectedIds, stored, type TauriWindow } from './board-helpers'
 
 // ボードの重なり順と、取り消し・やり直し（FR-702、FR-704、NFR-12）

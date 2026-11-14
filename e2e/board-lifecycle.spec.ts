@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page } from './fixtures'
 import { boardWith, box, center, drag, emit, stored } from './board-helpers'
 
 // 元画像の状態をボードの枠に出し、ギャラリーの画像へ移る（FR-104、FR-511、FR-701、FR-704）
