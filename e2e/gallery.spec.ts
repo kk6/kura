@@ -611,6 +611,73 @@ test('詳細パネルで入力したメモと評価を保存する', async ({ pa
   expect(errors).toEqual([])
 })
 
+test('拡大表示の中で拡大・縮小し、ドラッグと2本指で動かし、前後の画像へ移ると枠に合わせた大きさに戻る', async ({
+  page,
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const zoom = page.getByRole('region', { name: '拡大表示' })
+  const image = zoom.getByRole('img')
+  const percent = page.locator('.toolbar__zoom-value')
+  await thumb(page, 2).dblclick()
+
+  // 帯には、サムネイルの大きさではなく画像の倍率のスライダーと、虫眼鏡の − ＋ を出す
+  await expect(page.getByRole('slider', { name: 'サムネイルの大きさ' })).toHaveCount(0)
+  await expect(page.getByRole('slider', { name: '画像の倍率' })).toBeVisible()
+  const fitted = await percent.textContent()
+  const fitBox = (await image.boundingBox())!
+  await page.screenshot({ path: 'test-results/zoom-fit.png' })
+
+  // ⌘0 で原寸、⌘9 で枠に合わせた大きさ
+  await page.keyboard.press('Meta+0')
+  await expect(percent).toHaveText('100%')
+  await page.keyboard.press('Meta+9')
+  await expect(percent).toHaveText(fitted!)
+
+  // ＋ と ⌘＋ で大きくする。中央を保ったまま大きくなる
+  await page.getByRole('button', { name: '拡大' }).click()
+  await page.keyboard.press('Meta+=')
+  await expect.poll(async () => (await image.boundingBox())!.width).toBeCloseTo(fitBox.width * 1.25 * 1.25, 0)
+  await page.screenshot({ path: 'test-results/zoom-in.png' })
+
+  // ドラッグで動かす。< > のボタンの上から始めても、前後の画像へは移らない
+  const before = (await image.boundingBox())!
+  const area = (await zoom.boundingBox())!
+  const start = { x: area.x + area.width - 20, y: area.y + area.height / 2 }
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(start.x - 30, start.y - 20, { steps: 3 })
+  await page.mouse.up()
+  await expect(image).toHaveAccessibleName('ref_00002.jpg')
+  const dragged = (await image.boundingBox())!
+  expect(dragged.x).toBeCloseTo(before.x - 30, 0)
+
+  // 2本指のスクロールでも動かす
+  await page.mouse.move(area.x + area.width / 2, area.y + area.height / 2)
+  await page.mouse.wheel(0, 15)
+  await expect.poll(async () => (await image.boundingBox())!.y).toBeCloseTo(dragged.y - 15, 0)
+
+  // − と ⌘− で小さくする
+  await page.keyboard.press('Meta+-')
+  await page.getByRole('button', { name: '縮小' }).click()
+  await expect(percent).toHaveText(fitted!)
+
+  // 前後の画像へ移ると、枠に合わせた大きさに戻る
+  await page.keyboard.press('Meta+=')
+  await page.keyboard.press('ArrowRight')
+  await expect(image).toHaveAccessibleName('ref_00003.jpg')
+  const next = await percent.textContent()
+  await page.keyboard.press('Meta+9')
+  await expect(percent).toHaveText(next!)
+
+  // 閉じると、サムネイルの大きさのスライダーに戻る
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('slider', { name: 'サムネイルの大きさ' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test('拡大表示の左右の端にマウスを乗せると < > を出し、押すと前後の画像に移る', async ({ page }) => {
   await openGallery(page)
   await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
