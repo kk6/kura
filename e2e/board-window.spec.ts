@@ -76,6 +76,8 @@ test('いちばん狭いウィンドウ（幅480）でも、上部の操作は�
   await boardWith(page, 1)
   await page.setViewportSize({ width: 480, height: 320 })
   const toolbar = page.locator('.board__toolbar')
+  // キャンバスは ResizeObserver で大きさを測り直してから配置を描く。その前に撮ると、前の大きさの位置に配置が写る
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
   await page.screenshot({ path: 'test-results/board-toolbar-narrow.png' })
 
   // 管理メニューの中の項目（閉じている間は見えない）は数えない。スクロールせずに、どれも画面の中にある
