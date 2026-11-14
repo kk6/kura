@@ -21,7 +21,7 @@ unsafe extern "C-unwind" fn should_terminate(
         return NSApplicationTerminateReply::TerminateNow;
     };
     log::info!("macOS から終了を求められました");
-    crate::quit_then(app, |app, ok| {
+    crate::windows::quit_then(app, |app, ok| {
         let reply = move || {
             let mtm = MainThreadMarker::new().expect("メインスレッドで答える");
             NSApplication::sharedApplication(mtm).replyToApplicationShouldTerminate(ok);

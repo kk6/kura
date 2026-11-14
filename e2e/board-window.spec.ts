@@ -92,7 +92,7 @@ test('いちばん狭いウィンドウ（幅480）でも、上部の操作は�
   await page.getByRole('button', { name: '100%に戻す' }).click()
   await expect(page.getByRole('slider', { name: '不透明度' })).toHaveValue('100')
 
-  // 初めの大きさ（幅1040。main.rs の show_board_window）では1段に収まる
+  // 初めの大きさ（幅1040。windows.rs の show_board_window）では1段に収まる
   await page.setViewportSize({ width: 1040, height: 640 })
   await expect(page.getByRole('status')).toBeInViewport()
   expect((await toolbar.boundingBox())!.height).toBeLessThan(48)
