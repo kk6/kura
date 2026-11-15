@@ -396,7 +396,10 @@ fn apply(
                                 file_size = ?5, file_mtime = ?6, missing_at = NULL WHERE id = ?7",
                         params![hash, r.width, r.height, r.color, f.size, f.mtime, id],
                     )
-                    .map_err(err)
+                    .map_err(err)?;
+                // 同じロックの中で消す。forget_features は Result を返さないので、差分の確認の結果を変えない
+                l.forget_features(&old);
+                Ok(())
             })?;
             library::remove_thumb(root, &old);
             report.updated += 1;
@@ -522,7 +525,10 @@ pub fn forget(lib: &mut Library, ids: &[i64]) -> Result<Done, String> {
             .map_err(err)?;
         let result = match hash {
             None => Err(format!("見つからない画像ではありません（{id}）")),
-            Some(hash) => trash::forget(lib, id).map(|_| library::remove_thumb(&lib.root, &hash)),
+            Some(hash) => trash::forget(lib, id).map(|_| {
+                library::remove_thumb(&lib.root, &hash);
+                lib.forget_features(&hash);
+            }),
         };
         match result {
             Ok(()) => out.done.push(id),
@@ -1202,6 +1208,44 @@ mod tests {
                 Some("https://example.com/first".into()),
                 None
             )]
+        );
+    }
+
+    #[test]
+    fn 一覧から外すとその画像の特徴量が消える() {
+        let (_d, mut lib) = setup();
+        png(&lib, "_未分類/a.png", 10);
+        png(&lib, "_未分類/b.png", 20);
+        scan(&mut lib).unwrap();
+        let a = id_of(&lib, "a.png");
+        let (ha, hb) = (hash(&lib, a), hash(&lib, id_of(&lib, "b.png")));
+        crate::features::tests::seed(&mut lib, &[&ha, &hb]);
+        fs::remove_file(lib.root.join("_未分類/a.png")).unwrap();
+        scan(&mut lib).unwrap();
+
+        forget(&mut lib, &[a]).unwrap();
+
+        assert_eq!(crate::features::tests::stored(&mut lib), [hb].into());
+    }
+
+    #[test]
+    fn 同じ場所で中身が変わった画像の古い中身の特徴量が消える() {
+        let (_d, mut lib) = setup();
+        png(&lib, "_未分類/a.png", 10);
+        scan(&mut lib).unwrap();
+        let a = id_of(&lib, "a.png");
+        let old = hash(&lib, a);
+        crate::features::tests::seed(&mut lib, &[&old, "ほかの画像"]);
+        RgbImage::from_pixel(8, 2, Rgb([0, 0, 255]))
+            .save_with_format(lib.root.join("_未分類/a.png"), image::ImageFormat::Png)
+            .unwrap();
+
+        scan(&mut lib).unwrap();
+
+        assert_ne!(hash(&lib, a), old);
+        assert_eq!(
+            crate::features::tests::stored(&mut lib),
+            ["ほかの画像".to_string()].into()
         );
     }
 }
