@@ -17,6 +17,7 @@ mod tag;
 mod terminate;
 mod trash;
 mod windows;
+mod worker;
 
 use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
@@ -42,6 +43,48 @@ fn app_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
         dir
     };
     Ok(dir.join(name))
+}
+
+/// `ml/model.json` の場所。リリース版は `.app` に同梱した写し
+// タスク5で main.rs の .setup が起動時に読む
+#[allow(dead_code)]
+fn manifest_file(app: &AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        return Ok(concat!(env!("CARGO_MANIFEST_DIR"), "/../ml/model.json").into());
+    }
+    let dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join("worker/model.json"))
+}
+
+/// ワーカーの起動の仕方。開発版は ml/.venv の Python、リリース版は `.app` に同梱した実行ファイル
+// タスク5の calc が使う
+#[allow(dead_code)]
+fn worker_spec(app: &AppHandle) -> Result<worker::Spec, String> {
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    let program = if cfg!(debug_assertions) {
+        let python = PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../ml/.venv/bin/python"
+        ));
+        if !python.exists() {
+            return Err(format!(
+                "ワーカーの Python がありません（{}）。ml/ で uv sync を実行してください",
+                python.display()
+            ));
+        }
+        args.extend(["-m".into(), "kura_worker".into()]);
+        python
+    } else {
+        let dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+        dir.join("worker/kura-worker")
+    };
+    args.extend([
+        "--manifest".into(),
+        manifest_file(app)?.into(),
+        "--model-dir".into(),
+        app_file(app, "models")?.into(),
+    ]);
+    Ok(worker::Spec { program, args })
 }
 
 fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
