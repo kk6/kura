@@ -9,8 +9,6 @@ pub struct Manifest {
     // タスク5の calc がワーカーに渡す
     #[allow(dead_code)]
     pub threads: u32,
-    // タスク5の calc が使う
-    #[allow(dead_code)]
     pub aspects: Vec<Aspect>,
 }
 
@@ -20,30 +18,18 @@ pub struct Aspect {
     pub aspect: String,
     pub model: String,
     pub dim: usize,
-    // タスク3のダウンロードが使う
-    #[allow(dead_code)]
     pub file: Option<ModelFile>,
 }
 
 /// ダウンロードするモデルのファイル。学習済みモデルを使わない観点にはない
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ModelFile {
-    // タスク3のダウンロードが使う
-    #[allow(dead_code)]
     pub name: String,
-    // タスク3のダウンロードが使う
-    #[allow(dead_code)]
     pub url: String,
-    // タスク3のダウンロードが使う
-    #[allow(dead_code)]
     pub sha256: String,
-    // タスク3のダウンロードが使う
-    #[allow(dead_code)]
     pub size: u64,
 }
 
-// タスク5で main.rs の .setup が起動時に読む
-#[allow(dead_code)]
 pub fn read(path: &Path) -> Result<Manifest, String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("{} を読めません（{e}）", path.display()))?;
