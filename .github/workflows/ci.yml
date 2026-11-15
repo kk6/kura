@@ -67,7 +67,7 @@ jobs:
               - '!.github/workflows/pages.yml'
             # predicate-quantifier: every はここにもかかるので、どれか1つに当たればよい条件は1つのパターンにまとめる
             python:
-              - '{**/*.py,**/pyproject.toml,**/uv.lock,ruff.toml,.github/workflows/ci.yml}'
+              - '{**/*.py,**/pyproject.toml,**/uv.lock,ruff.toml,.github/workflows/ci.yml,ml/**}'
 
   # lint は docs、CLAUDE.md、main.rs のコマンド名も調べるので、どの変更でも流す
   # OS に左右されない検査なので、macOS の同時実行の枠（5つ）を使わない ubuntu で流す
@@ -141,5 +141,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv run --with pillow --with pytest pytest scripts/
+      - run: uv run pytest
+        working-directory: ml
       - run: uvx ruff@0.17.3 check
       - run: uvx ruff@0.17.3 format --check
