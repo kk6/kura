@@ -19,6 +19,8 @@ node_modules/
 dist/
 src-tauri/target/
 ml/.venv/
+ml/dist/
+ml/build/
 __pycache__/
 
 # macOS

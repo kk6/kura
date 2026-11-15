@@ -85,6 +85,15 @@ Claude は `docs/design.md` を読み、モックの画面のスクリーンシ�
 - 実アプリの確認の手順：「/pstack:maintain-verification-skill で verify-kura を今のアプリに合わせてください」
 - モデル検査：「/pstack:maintain-formal-verification-skill で verify-crash-safe-move を今のコードに合わせてください」
 
+## 特徴量のワーカー（ml/）
+
+類似画像検索の特徴量は、Python のワーカー（`ml/`）が計算します。アプリはワーカーを別のプロセスとして起動し、標準入力と標準出力でやりとりします（`docs/tasks/phase3-design.md` の1章）。
+
+- 開発版の準備：初回に `uv sync --project ml` を実行します。開発版のアプリ（`npm run tauri dev`）は `ml/.venv/bin/python -m kura_worker` でワーカーを起動します。`.venv` がないと、計算を始めるときにエラーになります
+- リリース用のビルド：`npm run worker:build` が、PyInstaller でワーカーを `ml/dist/kura-worker/` にまとめます。`npm run tauri build` の前にも自動で流れ、`.app` の `Contents/Resources/worker/` に入ります。uv が要ります。`.app` の中のワーカーは Python も uv も使いません
+- `npm run tauri dev` と `cargo test` はワーカーをビルドしません。`ml/dist/` がなくても通ります
+- `.app` の中のワーカーが動くかは、CLAUDE.md の「テスト（同梱したワーカー）」の手順で確かめます。モデルのファイルはリポジトリに入れません
+
 ## 頼むときに伝えるとよいこと
 
 - 対象の ID（FR-xxx、NFR-xx）か、タスクの番号
