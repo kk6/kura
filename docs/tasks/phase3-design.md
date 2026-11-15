@@ -195,7 +195,7 @@ impl Drop for Worker { /* kill してから wait する。読むスレッドは 
 
 偽のワーカーの書き方：
 
-- 黙るワーカーは `exec cat >/dev/null` と書く。`sleep` を使うと、kill されるのは `sh` だけで、`sleep` が標準出力のパイプを持ったまま残る
+- 黙るワーカーは `exec cat 3>&1 >/dev/null` と書く。`sleep` を使うと、kill されるのは `sh` だけで、`sleep` が標準出力のパイプを持ったまま残る。`exec cat >/dev/null` では標準出力のパイプが閉じ、Rust には「終わった」と見えて待ち切れの試験にならない（まとまり C で分かった）。`3>&1` で `cat` がパイプを開いたまま持つ
 - pid は、偽のワーカーが最初に `echo $$ > <一時ファイル>` で残し、テストが読んで `kill -0` で確かめる（`start` が `Err` のときは `Worker` がないため）
 - 返事の `id` は、`n=$((n+1))` で数えて `printf` で入れる
 
