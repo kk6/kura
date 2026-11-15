@@ -76,14 +76,33 @@ pub fn fetch(
 // HTTP のクレートを足さないため、macOS に入っている curl を使う
 const CURL: &str = "/usr/bin/curl";
 
+// 止まった通信でエラーと「再試行」を出すため。30秒つながらないか、毎秒1KB未満が60秒続いたら失敗にする。
+// 全体の時間（--max-time）では打ち切らない。遅い回線でも進んでいる間は止めない
+const STALL: [&str; 6] = [
+    "--connect-timeout",
+    "30",
+    "--speed-limit",
+    "1024",
+    "--speed-time",
+    "60",
+];
+
+/// url を part に書く curl のコマンド
+fn curl(url: &str, part: &Path) -> Command {
+    let mut c = Command::new(CURL);
+    c.args(["-f", "-L", "-sS"])
+        .args(STALL)
+        .arg("--output")
+        .arg(part)
+        .arg(url);
+    c
+}
+
 /// curl で url を part に書く。動いている間、part の大きさを progress に渡す
 fn download(url: &str, part: &Path, mut progress: impl FnMut(u64)) -> Result<(), String> {
     // 通信したことを後から確かめられるよう、通信の前に必ず残す（NFR-08）
     log::info!("モデルをダウンロードします：{url}");
-    let mut child = Command::new(CURL)
-        .args(["-f", "-L", "-sS", "--output"])
-        .arg(part)
-        .arg(url)
+    let mut child = curl(url, part)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -215,6 +234,19 @@ mod tests {
         prepare(&dir, &[&file], |_, _| {}).unwrap();
 
         assert_eq!(fs::read(dir.join("vision.onnx")).unwrap(), BODY);
+    }
+
+    #[test]
+    fn 止まった通信を待ち切れにするオプションを渡す() {
+        let c = curl("https://example.test/m.onnx", Path::new("/tmp/m.onnx.part"));
+        let args: Vec<_> = c.get_args().map(|a| a.to_string_lossy()).collect();
+        let pair = |k: &str, v: &str| args.windows(2).any(|w| w[0] == k && w[1] == v);
+
+        assert!(pair("--connect-timeout", "30"));
+        assert!(pair("--speed-limit", "1024"));
+        assert!(pair("--speed-time", "60"));
+        // 遅い回線でも進んでいる間は止めない
+        assert!(!args.iter().any(|a| a == "--max-time"));
     }
 
     #[test]
