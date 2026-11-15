@@ -4,7 +4,7 @@
 
 `docs/requirements.md` の「9. 開発フェーズと優先度」のフェーズ3を、作業の単位に分けた一覧です。上から順に進めます。各タスクは、前のタスクが終わっていることを前提にしています。仕様は要件定義書の5.6、画面の決まりは [design.md](../design.md) を正本とします。
 
-進み具合：タスク0が完了（2026-11-15。結果は `spikes/similarity/README.md` と要件定義書の4章）。タスク1以降は未着手。セッションの分け方と開始ブリーフは [phase3-sessions.md](phase3-sessions.md)、タスク2・4・5の作り方は [phase3-design.md](phase3-design.md) にある（2026-11-15）。
+進み具合：タスク0が完了（2026-11-15。結果は `spikes/similarity/README.md` と要件定義書の4章）。タスク1が完了（2026-11-15。まとまり A を `feat/phase3-similarity` に統合）。タスク2以降は未着手。セッションの分け方と開始ブリーフは [phase3-sessions.md](phase3-sessions.md)、タスク2・4・5の作り方は [phase3-design.md](phase3-design.md) にある（2026-11-15）。
 
 完了条件：重みを変えると、結果の並びが期待どおりに変わる。利用者が [phase3-check.md](phase3-check.md) をリリース用ビルドで通しで確認する。
 
