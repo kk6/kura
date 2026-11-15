@@ -52,7 +52,7 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 
 `check.sh` の `DRIFT` は、上の関数の本体（空白を詰めたもの）が `coverage.tsv` の指紋と違うことを示す。整形だけの変更でも出る。
 
-**同期したコミット：`029e132`**（`d1fe3a5` からの変更は2つ。`18e7564` は `library.rs` の `Access::with` で、入出力のエラーの文言を「ライブラリのドライブを読めません」に置き換えただけ。`broken` を立てる条件と `reconnect` は変わらない。`8f48503` はウィンドウと終了の処理を `main.rs` から `windows.rs` へ移しただけで、ファイルも `pending_ops` も触らない。`transfer` の呼び出し元と `Request.copy` の使い方も変わらない。モデルは変更せず、TLC と故障モデルの検査で確かめた。前の同期は `d1fe3a5`）
+**同期したコミット：`dce2922`**（`029e132` からの変更は1つ。`dce2922` は `library.rs` の `connect` で、`Library { … }` に特徴量の接続の初期値（`features: None`、`features_suspect: false`）を足しただけ。`features.db` は初めて使うときに開き、`connect` も `apply_op` も `pending_ops` も触らない。モデルは変更せず、TLC と故障モデルの検査で確かめた。前の同期は `029e132`）
 
 ## DRIFT や FAIL が出たとき
 
