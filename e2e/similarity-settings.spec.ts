@@ -89,3 +89,62 @@ test('OFF に戻してもう一度 ON にすると、ダウンロードし直さ
   await expect(check).toBeChecked()
   await expect(settings.getByRole('status')).toHaveCount(0)
 })
+
+test('ON にすると特徴量の計算がステータスバーに進み、設定に済み・残り・計算できなかった枚数を出す', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.evaluate(() => sessionStorage.setItem('mock.modelReady', '1'))
+  const settings = await openSettings(page)
+  await expect(settings).not.toContainText('計算済み')
+  await settings.getByRole('checkbox', { name: '類似画像検索を使う' }).click()
+  await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
+
+  const bar = page.getByRole('contentinfo')
+  await expect(bar).toContainText(/特徴量を計算中 \d+ \/ \d+枚/)
+  await expect(bar.getByRole('progressbar', { name: '特徴量を計算する進み具合' })).toBeVisible()
+  await expect(settings).toContainText('（計算中）')
+
+  await expect(bar).not.toContainText('特徴量を計算中')
+  await expect(settings).toContainText(/計算済み \d+枚、残り 0枚、計算できなかった 0枚/)
+  await expect(settings).not.toContainText('（計算中）')
+})
+
+test('計算が止まるとエラーを出し、「再計算」で残りを計算する', async ({ page }) => {
+  await page.goto('/')
+  await page.evaluate(() => {
+    sessionStorage.setItem('mock.modelReady', '1')
+    sessionStorage.setItem('mock.stopFeatures', '1')
+  })
+  const settings = await openSettings(page)
+  await settings.getByRole('checkbox', { name: '類似画像検索を使う' }).click()
+  await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
+
+  const stopped = 'エラー：特徴量の計算が止まりました'
+  await expect(page.getByRole('contentinfo')).toContainText(stopped)
+  await expect(settings).toContainText(stopped)
+  await expect(settings).toContainText(/残り 1枚、計算できなかった 1枚/)
+  await settings.screenshot({ path: 'test-results/similarity-features-stopped.png' })
+
+  await settings.getByRole('button', { name: '再計算' }).click()
+
+  await expect(settings).toContainText(/残り 0枚、計算できなかった 0枚/)
+  await expect(settings).not.toContainText(stopped)
+  await expect(page.getByRole('contentinfo')).not.toContainText(stopped)
+  await settings.screenshot({ path: 'test-results/similarity-features.png' })
+})
+
+test('OFF に戻すと計算の状況を出さない', async ({ page }) => {
+  await page.goto('/')
+  await page.evaluate(() => sessionStorage.setItem('mock.modelReady', '1'))
+  const settings = await openSettings(page)
+  const check = settings.getByRole('checkbox', { name: '類似画像検索を使う' })
+  await check.click()
+  await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
+  await expect(settings).toContainText('計算済み')
+
+  await check.click()
+
+  await expect(settings).not.toContainText('計算済み')
+  await expect(page.getByRole('contentinfo')).not.toContainText('特徴量を計算中')
+})

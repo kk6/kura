@@ -18,12 +18,20 @@ import SettingsDialog from './SettingsDialog'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
-import StatusbarResult, { type Result } from './StatusbarResult'
+import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResult'
 import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
 import type { Detail as DetailData, Done, Restored, Settings } from './galleryTypes'
-import type { Backfill, BackfillCounts, ImportProgress, ModelFetch, Report, ScanReport } from './importTypes'
+import type {
+  Backfill,
+  BackfillCounts,
+  FeaturesStatus,
+  ImportProgress,
+  ModelFetch,
+  Report,
+  ScanReport,
+} from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { type SortKey, sortImages } from './sort'
 import { useLibrary } from './useLibrary'
@@ -45,6 +53,8 @@ type Props = {
   // path のライブラリへ切り替える。path がなければライブラリ選択画面へ戻る（FR-105）
   onSwitch: (path?: string) => void
 }
+
+const FEATURES_IDLE: FeaturesStatus = { running: false, done: 0, total: 0, failed: 0, error: null }
 
 export default function Gallery({ root, recent, settings, onSettings, onSwitch }: Props) {
   const [sort, setSort] = useState<SortKey>('imported')
@@ -89,6 +99,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const [backfilled, setBackfilled] = useState(0)
   // 類似画像検索のモデルのダウンロード。補完と同じく、設定を閉じても続き、開き直すと進み具合を出す
   const [modelFetch, setModelFetch] = useState<ModelFetch | null>(null)
+  // 特徴量の計算の状況（FR-604）。計算は Rust のきっかけで始まるので、画面は見せるだけにする
+  const [features, setFeatures] = useState<FeaturesStatus>(FEATURES_IDLE)
+  // 画面を開いたときと設定を開いたときに読み、その後は features-progress で受け取る
+  useEffect(() => {
+    invoke<FeaturesStatus>('features_status')
+      .then(setFeatures)
+      .catch((e) => console.error(e))
+  }, [settingsOpen])
 
   const thumbWidth = Math.min(THUMB_MAX, Math.max(THUMB_MIN, settings.thumb_width))
   function changeSettings(next: Partial<Settings>) {
@@ -372,6 +390,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       getCurrentWindow().listen<BackfillCounts>('backfill-progress', (e) =>
         setBackfill((b) => (b?.running ? { ...b, counts: e.payload } : b)),
       ),
+      getCurrentWindow().listen<FeaturesStatus>('features-progress', (e) => setFeatures(e.payload)),
       getCurrentWindow().listen<ImportProgress>('model-progress', (e) =>
         setModelFetch((m) => (m?.running ? { ...m, progress: e.payload } : m)),
       ),
@@ -673,6 +692,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           onShowMissing={() => openAside('missing')}
           onShowNotes={() => setShowNotes(true)}
         />
+        <FeaturesProgress status={features} />
       </footer>
 
       {menuAt && (
@@ -698,6 +718,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           onBackfill={startBackfill}
           onCancelBackfill={() => invoke('cancel_backfill')}
           modelFetch={modelFetch}
+          features={features}
           onFetchModels={fetchModels}
           onClose={() => setSettingsOpen(false)}
         />

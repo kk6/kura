@@ -3,7 +3,7 @@ import { save } from '@tauri-apps/plugin-dialog'
 import { useEffect, useRef, useState } from 'react'
 import type { Settings } from './galleryTypes'
 import ConfirmDialog from './ConfirmDialog'
-import type { Backfill, BackfillCounts, ModelFetch } from './importTypes'
+import type { Backfill, BackfillCounts, FeaturesStatus, ModelFetch } from './importTypes'
 import Status from './Status'
 import { Progress } from './StatusbarResult'
 import './SkipDialog.css'
@@ -25,6 +25,7 @@ export default function SettingsDialog({
   onCancelBackfill,
   modelFetch,
   onFetchModels,
+  features,
   onClose,
 }: {
   root: string
@@ -39,6 +40,8 @@ export default function SettingsDialog({
   // 類似画像検索のモデルのダウンロード（NFR-08）。終わると Gallery が similarity_enabled を保存する
   modelFetch: ModelFetch | null
   onFetchModels: () => void
+  // 特徴量の計算の状況（FR-604）
+  features: FeaturesStatus
   onClose: () => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -127,6 +130,27 @@ export default function SettingsDialog({
           </>
         )}
         {sizeError && <Status kind="error">{sizeError}</Status>}
+        {settings.similarity_enabled && (
+          <>
+            <p>
+              計算済み {features.done}枚、残り {features.total - features.done - features.failed}枚、計算できなかった{' '}
+              {features.failed}枚{features.running && '（計算中）'}
+            </p>
+            {features.error && <Status kind="error">{features.error}</Status>}
+            <p>
+              「再計算」を押すと、計算できなかった画像と残りの画像をもう一度計算します。計算済みの結果は消えません。
+            </p>
+            <div>
+              <button
+                type="button"
+                className="button"
+                onClick={() => invoke('retry_features').catch((e) => console.error(e))}
+              >
+                再計算
+              </button>
+            </div>
+          </>
+        )}
         <h3 className="dialog__section">元URL</h3>
         <p>
           元URLがまだない画像について、ブラウザが残したダウンロード元の記録を読み、元URLとして登録します。読むのはライブラリの中のファイルだけです。登録済みの元URLは変えません。

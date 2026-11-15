@@ -1,5 +1,13 @@
 import Status from './Status'
-import type { BackfillCounts, ImportProgress, Report, ScanReport, Skipped, SourceNote } from './importTypes'
+import type {
+  BackfillCounts,
+  FeaturesStatus,
+  ImportProgress,
+  Report,
+  ScanReport,
+  Skipped,
+  SourceNote,
+} from './importTypes'
 import './StatusbarResult.css'
 
 // ステータスバーに出す一括操作の結果
@@ -196,3 +204,19 @@ export const Progress = ({ label, value }: { label: string; value: ImportProgres
     <span className="progress__done" style={{ width: `${value.total ? (value.done / value.total) * 100 : 0}%` }} />
   </span>
 )
+
+// 特徴量の計算（FR-604）。取り込みなどの結果と並べて出す。OFF の間とライブラリを開いていない間は何も出ない
+export function FeaturesProgress({ status }: { status: FeaturesStatus }) {
+  if (!status.running && !status.error) return null
+  return (
+    <span className="statusbar__import" role="status">
+      {status.running && (
+        <>
+          特徴量を計算中 {status.done} / {status.total}枚
+          <Progress label="特徴量を計算する進み具合" value={status} />
+        </>
+      )}
+      {status.error && <Status kind="error">{status.error}</Status>}
+    </span>
+  )
+}
