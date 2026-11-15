@@ -1,5 +1,6 @@
 mod backfill;
 pub mod board;
+mod calc;
 mod category;
 mod features;
 mod fileops;
@@ -21,7 +22,7 @@ mod windows;
 mod worker;
 
 use std::path::PathBuf;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use library::{Access, Library};
 use serde::Serialize;
@@ -30,9 +31,18 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State, WindowEvent};
 /// アイデアボードの専用ウィンドウのラベル。同時に開くのは1つだけ（FR-701）
 const BOARD: &str = "board";
 
-// 開いているライブラリ。後のタスクのコマンドはここから DB を使う
+// 開いているライブラリ。後のタスクのコマンドはここから DB を使う。特徴量の計算のスレッドも同じものを持つ
 #[derive(Default)]
-struct Current(Mutex<Option<Library>>);
+struct Current(Arc<Mutex<Option<Library>>>);
+
+/// 起動時に1回読んだ `ml/model.json`。読めなければその理由を持ち、類似画像検索を使えなくする
+struct Models(Result<manifest::Manifest, String>);
+
+impl Models {
+    fn manifest(&self) -> Result<&manifest::Manifest, String> {
+        self.0.as_ref().map_err(Clone::clone)
+    }
+}
 
 fn app_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -56,8 +66,6 @@ fn manifest_file(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// ワーカーの起動の仕方。開発版は ml/.venv の Python、リリース版は `.app` に同梱した実行ファイル
-// タスク5の calc が使う
-#[allow(dead_code)]
 fn worker_spec(app: &AppHandle) -> Result<worker::Spec, String> {
     let mut args: Vec<std::ffi::OsString> = Vec::new();
     let program = if cfg!(debug_assertions) {
@@ -131,6 +139,7 @@ fn activate(
     // ボードは開いたライブラリの中にあるので、前のライブラリのボードを出したままにしない
     windows::close_board(app);
     log::info!("ライブラリを開きました：{}", root.display());
+    app.state::<calc::Calc>().wake();
     Ok(root)
 }
 
@@ -174,7 +183,9 @@ async fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(
     } else {
         Some(windows::settle(&app, &[BOARD]).await?)
     };
+    let mut similarity = None;
     settings::save_and_apply(&settings_file(&app)?, &settings, |before, after| {
+        similarity = Some((before.similarity_enabled, after.similarity_enabled));
         if after.board_enabled == before.board_enabled {
             return Ok(());
         }
@@ -186,13 +197,20 @@ async fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(
             windows::close_board(&app);
         }
         Ok(())
-    })
+    })?;
+    // 設定を前の値に戻したときに合図だけが届かないよう、保存できてから知らせる
+    match similarity {
+        Some((false, true)) => app.state::<calc::Calc>().wake(),
+        Some((true, false)) => app.state::<calc::Calc>().halt(),
+        _ => {}
+    }
+    Ok(())
 }
 
 /// 類似画像検索を ON にする前の確認で見せる、モデルの大きさ（バイト）
 #[tauri::command]
-fn model_size(app: AppHandle) -> Result<u64, String> {
-    Ok(model::size(&manifest::read(&manifest_file(&app)?)?))
+fn model_size(models: State<Models>) -> Result<u64, String> {
+    Ok(model::size(models.manifest()?))
 }
 
 /// 類似画像検索のモデルを app_file(app, "models") にそろえ、進み具合を model-progress で知らせる。
@@ -201,7 +219,7 @@ fn model_size(app: AppHandle) -> Result<u64, String> {
 #[tauri::command]
 async fn prepare_models(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let manifest = manifest::read(&manifest_file(&app)?)?;
+        let manifest = app.state::<Models>().manifest()?.clone();
         let dir = app_file(&app, "models")?;
         model::prepare(&dir, &model::files(&manifest), |done, total| {
             let p = ImportProgress {
@@ -217,6 +235,52 @@ async fn prepare_models(app: AppHandle) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// 特徴量の計算の状況。画面を開いたときと、設定を開いたときに呼ぶ
+#[tauri::command]
+fn features_status(calc: State<calc::Calc>) -> calc::Status {
+    calc.status()
+}
+
+/// 設定の「再計算」。計算できなかった画像と未計算の画像をもう一度計算する。計算済みは消さない
+#[tauri::command]
+fn retry_features(calc: State<calc::Calc>) {
+    calc.retry();
+}
+
+/// 特徴量の計算が使うもの。ワーカーは計算する画像があるときだけ、回ごとに起動する
+fn calc_env(app: &AppHandle, manifest: Option<manifest::Manifest>) -> calc::Env {
+    let aspects = manifest
+        .as_ref()
+        .map(|m| m.aspects.clone())
+        .unwrap_or_default();
+    let (a, b, c) = (app.clone(), app.clone(), app.clone());
+    let expected = aspects.clone();
+    calc::Env {
+        enabled: Box::new(move || {
+            // model.json を読めなければ、設定によらず使えない
+            let Some(m) = &manifest else { return false };
+            let on = settings_file(&a).is_ok_and(|f| settings::load(&f).similarity_enabled);
+            on && app_file(&a, "models")
+                .is_ok_and(|dir| model::files(m).iter().all(|f| dir.join(&f.name).is_file()))
+        }),
+        aspects,
+        start: Box::new(move || {
+            let spec = worker_spec(&b)?;
+            let timeouts = worker::Timeouts {
+                ready: std::time::Duration::from_secs(60),
+                reply: std::time::Duration::from_secs(30),
+            };
+            let w = worker::Worker::start(&spec, &expected, timeouts)?;
+            Ok(Box::new(w) as Box<dyn calc::Compute>)
+        }),
+        notify: Box::new(move |s| {
+            if let Err(e) = c.emit_to("main", "features-progress", s) {
+                log::warn!("特徴量の計算の進み具合を送れません：{e}");
+            }
+        }),
+    }
 }
 
 /// ボードの一覧と、以後のボードの操作に添えるライブラリのトークン
@@ -381,21 +445,29 @@ fn location_warning(path: PathBuf) -> Option<String> {
 fn create_library(
     app: AppHandle,
     current: State<Current>,
+    calc: State<calc::Calc>,
     path: PathBuf,
 ) -> Result<PathBuf, String> {
-    release(&current);
+    release(&current, &calc);
     activate(&app, &current, library::create(&path))
 }
 
 #[tauri::command]
-fn open_library(app: AppHandle, current: State<Current>, path: PathBuf) -> Result<PathBuf, String> {
-    release(&current);
+fn open_library(
+    app: AppHandle,
+    current: State<Current>,
+    calc: State<calc::Calc>,
+    path: PathBuf,
+) -> Result<PathBuf, String> {
+    release(&current, &calc);
     activate(&app, &current, library::open(&path))
 }
 
 /// 開いているライブラリを閉じ、DB の排他ロックを外す。同じライブラリを選び直しても開けるように、
 /// 次のライブラリを開く前に閉じる。選択画面には前のライブラリへ戻る操作がないので、残しておく必要はない
-fn release(current: &Current) {
+fn release(current: &Current, calc: &calc::Calc) {
+    // 前のライブラリの計算を止める。計算のスレッドは書く直前に止められたことに気づき、書かずに抜ける
+    calc.halt();
     current
         .0
         .lock()
@@ -579,11 +651,14 @@ async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let _wait = app.state::<backfill::Gate>().inner().wait();
         let current = app.state::<Current>();
-        let r = sync::scan(&current.0, |done, total| {
+        let r = sync::scan(&*current.0, |done, total| {
             if let Err(e) = app.emit("scan-progress", ImportProgress { done, total }) {
                 log::warn!("差分検出の進み具合を送れません：{e}");
             }
-        })?;
+        });
+        // 一部だけ登録した失敗もあるので、結果によらず計算を起こす
+        app.state::<calc::Calc>().wake();
+        let r = r?;
         log::info!(
             "差分を反映しました：登録 {}、移動 {}、更新 {}、見つからない {}、スキップ {}件",
             r.added,
@@ -624,7 +699,7 @@ async fn backfill_sources(app: AppHandle) -> Result<backfill::Counts, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let c = app
             .state::<backfill::Gate>()
-            .run(&app.state::<Current>().0, |c| {
+            .run(&*app.state::<Current>().0, |c| {
                 if let Err(e) = app.emit_to("main", "backfill-progress", c) {
                     log::warn!("元URLの補完の進み具合を送れません：{e}");
                 }
@@ -656,6 +731,8 @@ async fn with_library<T: Send + 'static>(
     .map_err(|e| e.to_string())?;
     // ファイルを動かす操作はここを通る。一部だけ成功した失敗もあるので、結果によらず知らせる
     notify_board(&handle);
+    // ゴミ箱から戻した画像を計算し、ゴミ箱・完全削除・「一覧から外す」の後の数を合わせ直す
+    handle.state::<calc::Calc>().wake();
     result
 }
 
@@ -675,11 +752,13 @@ async fn import_paths(
     tauri::async_runtime::spawn_blocking(move || {
         let _wait = app.state::<backfill::Gate>().inner().wait();
         let current = app.state::<Current>();
-        let report = import::import_paths(&current.0, &paths, category, |done, total| {
+        let report = import::import_paths(&*current.0, &paths, category, |done, total| {
             if let Err(e) = app.emit("import-progress", ImportProgress { done, total }) {
                 log::warn!("取り込みの進み具合を送れません：{e}");
             }
-        })?;
+        });
+        app.state::<calc::Calc>().wake();
+        let report = report?;
         log::info!(
             "取り込みました：{}枚、スキップ {}件",
             report.added,
@@ -701,6 +780,14 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             terminate::install(app.handle());
+            let models = manifest_file(app.handle()).and_then(|f| manifest::read(&f));
+            if let Err(e) = &models {
+                log::error!("model.json を読めないため、類似画像検索を使えません：{e}");
+            }
+            let env = calc_env(app.handle(), models.clone().ok());
+            let lib = app.state::<Current>().0.clone();
+            app.manage(calc::Calc::spawn(env, lib));
+            app.manage(Models(models));
             Ok(())
         })
         .menu(|app| {
@@ -778,6 +865,8 @@ fn main() {
             save_settings,
             model_size,
             prepare_models,
+            features_status,
+            retry_features,
             windows::report_gallery,
             location_warning,
             create_library,

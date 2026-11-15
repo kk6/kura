@@ -117,8 +117,6 @@ impl Store {
     }
 
     /// 1枚分を1つのトランザクションで書く。同じキーの行は置き換える。長さが dim と違うベクトルは、何も書かずに Err
-    // タスク5の calc が使う
-    #[allow(dead_code)]
     pub fn put(
         &mut self,
         hash: &str,
@@ -145,8 +143,6 @@ impl Store {
     }
 
     /// aspects のすべてについて、今のモデル名の行がある画像のハッシュ
-    // タスク5の calc が使う
-    #[allow(dead_code)]
     pub fn computed(&self, aspects: &[Aspect]) -> Result<HashSet<String>, String> {
         // 2万件のハッシュを IN に並べると変数の上限に近づくので、全部を読んで突き合わせる
         let mut stmt = self
@@ -207,8 +203,6 @@ impl Store {
     }
 
     /// keep にないハッシュの行と、aspects にない（観点, モデル名）の行を消す。消した行の数を返す
-    // タスク5の calc が使う
-    #[allow(dead_code)]
     pub fn sweep(&mut self, keep: &HashSet<String>, aspects: &[Aspect]) -> Result<usize, String> {
         let gone = {
             let mut stmt = self

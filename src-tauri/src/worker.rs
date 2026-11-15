@@ -11,24 +11,18 @@ use serde::Deserialize;
 use crate::manifest::Aspect;
 
 /// 何を起動するか。テストでは偽のワーカーを指す
-// タスク5の calc が main.rs の worker_spec で作り、Worker::start に渡す
-#[allow(dead_code)]
 pub struct Spec {
     pub program: PathBuf,
     pub args: Vec<OsString>,
 }
 
 /// 本体は ready 60秒、reply 30秒
-// タスク5の calc が使う
-#[allow(dead_code)]
 pub struct Timeouts {
     pub ready: Duration,
     pub reply: Duration,
 }
 
 #[derive(Debug)]
-// タスク5の calc が使う
-#[allow(dead_code)]
 pub enum Failure {
     /// その画像だけ計算できなかった。ワーカーは生きている
     Image(String),
@@ -36,8 +30,6 @@ pub enum Failure {
     Dead(String),
 }
 
-// タスク5の calc が使う
-#[allow(dead_code)]
 pub struct Worker {
     child: Child,
     stdin: ChildStdin,
@@ -48,8 +40,6 @@ pub struct Worker {
 }
 
 #[derive(Deserialize)]
-// タスク5の calc が使う Worker が読む
-#[allow(dead_code)]
 struct Ready {
     ready: bool,
     protocol: Option<u32>,
@@ -58,8 +48,6 @@ struct Ready {
 }
 
 #[derive(Deserialize)]
-// タスク5の calc が使う Worker が読む
-#[allow(dead_code)]
 struct ReadyAspect {
     aspect: String,
     model: String,
@@ -67,8 +55,6 @@ struct ReadyAspect {
 }
 
 #[derive(Deserialize)]
-// タスク5の calc が使う Worker が読む
-#[allow(dead_code)]
 struct Reply {
     id: u64,
     ok: bool,
@@ -76,8 +62,6 @@ struct Reply {
     error: Option<String>,
 }
 
-// タスク5の calc が使う
-#[allow(dead_code)]
 impl Worker {
     /// 起動して ready を待ち、aspects が expected と同じことを確かめる
     pub fn start(spec: &Spec, expected: &[Aspect], timeouts: Timeouts) -> Result<Worker, String> {

@@ -12,6 +12,13 @@ use crate::fileops::{self, PendingOp};
 
 pub const KURA_DIR: &str = ".kura";
 
+/// ライブラリを開いていないときのエラー。計算のスレッドは、これをエラーとして出さずに見分ける
+pub const NOT_OPEN: &str = "ライブラリを開いていません";
+
+/// ライブラリのドライブが外れたときのエラー。計算のスレッドは、これをそのまま画面に出す
+pub const DRIVE_UNREADABLE: &str =
+    "ライブラリのドライブを読めません。ドライブをつなぎ直してから、もう一度試してください";
+
 /// サムネイルを置くフォルダ。サムネイルの名前は `<ハッシュ>.jpg`
 pub fn thumbs_dir(root: &Path) -> PathBuf {
     root.join(KURA_DIR).join("thumbs")
@@ -404,7 +411,7 @@ impl Access for Mutex<Option<Library>> {
         // 途中で panic しても DB はトランザクションで、ファイルの移動は pending_ops で整合が保たれるので、
         // poison を理由に以後のコマンドをすべて止めずに使い続ける
         let mut guard = self.lock().unwrap_or_else(PoisonError::into_inner);
-        let lib = guard.as_mut().ok_or("ライブラリを開いていません")?;
+        let lib = guard.as_mut().ok_or(NOT_OPEN)?;
         if lib.broken {
             reconnect(lib)?;
         }
@@ -415,8 +422,7 @@ impl Access for Mutex<Option<Library>> {
             lib.broken = true;
             // SQLite の「database disk image is malformed」などは DB が壊れたように読めるので、画面には出さない
             log::warn!("ライブラリの DB を読み書きできません：{e}");
-            "ライブラリのドライブを読めません。ドライブをつなぎ直してから、もう一度試してください"
-                .into()
+            DRIVE_UNREADABLE.into()
         })
     }
 }
