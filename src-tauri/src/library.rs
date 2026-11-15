@@ -7,6 +7,7 @@ use std::sync::{Mutex, PoisonError};
 
 use rusqlite::{Connection, Transaction};
 
+use crate::features;
 use crate::fileops::{self, PendingOp};
 
 pub const KURA_DIR: &str = ".kura";
@@ -173,6 +174,46 @@ pub struct Library {
     /// 接続がディスクの I/O エラーで使えなくなったか。外付けドライブが外れると、つなぎ直しても
     /// 開いていた接続は戻らないので、次に使う前に開き直す
     broken: bool,
+    /// .kura/features.db の接続。類似画像検索を使ったことのないライブラリに作らないよう、初めて使うときに開く
+    features: Option<features::Store>,
+    /// features.db をエラーで閉じた。次に開くときに中身を確かめる
+    features_suspect: bool,
+}
+
+impl Library {
+    /// 初めて使うときに開く。エラーで閉じた後は、check を付けて開き直す。呼ぶのは with_features だけ
+    pub fn features(&mut self) -> Result<&mut features::Store, String> {
+        if self.features.is_none() {
+            self.features = Some(features::Store::open(&self.root, self.features_suspect)?);
+            self.features_suspect = false;
+        }
+        Ok(self.features.as_mut().expect("直前に開いた"))
+    }
+
+    /// f が Err を返したら、接続を捨てて features_suspect を立ててから Err を返す。
+    /// 使っている途中のエラーではファイルを消さない。外付けドライブが外れたときも DB が壊れたように見えるため
+    pub fn with_features<T>(
+        &mut self,
+        f: impl FnOnce(&mut features::Store) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let result = f(self.features()?);
+        if result.is_err() {
+            self.features = None;
+            self.features_suspect = true;
+        }
+        result
+    }
+
+    /// 画像の行を消した後に呼ぶ。features.db のファイルがなければ何もしない。
+    /// 残った行は次の sweep が消すので、失敗してもログに残すだけにして画像の操作は成功のままにする
+    pub fn forget_features(&mut self, hash: &str) {
+        if !features::path(&self.root).exists() {
+            return;
+        }
+        if let Err(e) = self.with_features(|s| s.remove(hash)) {
+            log::warn!("特徴量を消せません（{hash}、{e}）");
+        }
+    }
 }
 
 pub(crate) fn err(e: impl Display) -> String {
@@ -241,6 +282,8 @@ fn connect(root: &Path, migrations: &[&str]) -> Result<Library, String> {
         conn,
         board_session: crate::board::Session::new(),
         broken: false,
+        features: None,
+        features_suspect: false,
     };
     for op in fileops::recover(&mut lib, &apply_op)? {
         // shortcut: ログに残すだけで画面には出さない。不整合を画面に出す差分検出（FR-104）で利用者に知らせる
@@ -394,6 +437,10 @@ fn io_failure(message: &str) -> bool {
 /// 同じライブラリの DB を開き直す。ボードの編集（セッションと編集トークン、保存済みの revision）はそのまま残し、
 /// 外れていた間の編集を続けて保存できるようにする。DB の中身が変わっていれば、保存の revision の確かめで断られる
 fn reconnect(lib: &mut Library) -> Result<(), String> {
+    // features.db も同じドライブにあるので、開いていた接続を捨て、次に使うときに中身を確かめる。
+    // kura.db を開き直せなくても捨てる
+    lib.features = None;
+    lib.features_suspect = true;
     // 排他ロックを外すため、開く前に古い接続を閉じる。開けなければ壊れたままにし、次の操作で開き直す
     lib.conn = Connection::open_in_memory().map_err(err)?;
     lib.conn = open(&lib.root)?.conn;
@@ -806,6 +853,117 @@ mod tests {
 
         assert!(err.contains("新しい版"), "{err}");
         assert_eq!(user_version(&conn), 99);
+    }
+
+    fn tables(file: &Path) -> Vec<String> {
+        let conn = Connection::open(file).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+            .unwrap();
+        let names = stmt
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<Vec<String>, _>>()
+            .unwrap();
+        names
+    }
+
+    #[test]
+    fn ライブラリを開いただけや取り込んだだけではfeatures_dbを作らない() {
+        let (d, mut lib) = crate::category::tests::setup();
+        let src = out_dir();
+        let png = src.path().join("a.png");
+        image::RgbImage::from_pixel(4, 4, image::Rgb([10, 0, 0]))
+            .save_with_format(&png, image::ImageFormat::Png)
+            .unwrap();
+
+        crate::import::import(&mut lib, &png, None).unwrap();
+        drop(lib);
+        drop(open(d.path()).unwrap());
+
+        assert!(!features::path(d.path()).exists());
+    }
+
+    #[test]
+    fn 特徴量をエラーで閉じた後は中身を確かめて開き直し壊れていれば作り直す() {
+        let (d, mut lib) = crate::category::tests::setup();
+        let big = lib
+            .with_features(|s| Ok(features::tests::fill(s, 40)))
+            .unwrap();
+        let e = lib.with_features(|_| -> Result<(), String> { Err("途中で失敗".into()) });
+        assert!(e.is_err());
+        features::tests::corrupt(&features::path(d.path()));
+
+        let rows = lib.with_features(|s| s.load(&big)).unwrap();
+
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn エラーで閉じていなければ特徴量を開き直しても中身を確かめない() {
+        let (d, mut lib) = crate::category::tests::setup();
+        lib.with_features(|s| Ok(features::tests::fill(s, 40)))
+            .unwrap();
+        // ライブラリを切り替えたときと同じく、エラーなしで接続を閉じる
+        lib.features = None;
+        let broken = features::tests::corrupt(&features::path(d.path()));
+
+        lib.with_features(|_| Ok(())).unwrap();
+
+        assert_eq!(fs::read(features::path(d.path())).unwrap(), broken);
+    }
+
+    #[test]
+    fn 書き出したdbに特徴量は入らず大きさも版も変わらない() {
+        let (_d, mut lib) = crate::category::tests::setup();
+        crate::category::tests::put(&lib, None, "a.jpg", "A");
+        let out = out_dir();
+        let before = out.path().join("before.db");
+        backup(&lib, &before).unwrap();
+
+        lib.with_features(|s| Ok(features::tests::fill(s, 40)))
+            .unwrap();
+        let after = out.path().join("after.db");
+        backup(&lib, &after).unwrap();
+
+        assert!(!tables(&after).contains(&"embeddings".to_string()));
+        assert_eq!(
+            fs::metadata(&after).unwrap().len(),
+            fs::metadata(&before).unwrap().len()
+        );
+        assert_eq!(user_version(&lib.conn), MIGRATIONS.len() as i64);
+    }
+
+    #[test]
+    fn 古いkura_dbに戻しても掃除で写しにない画像の特徴量だけが消える() {
+        let (d, mut lib) = crate::category::tests::setup();
+        crate::category::tests::put(&lib, None, "a.jpg", "A");
+        let out = out_dir();
+        let copy = out.path().join("old.db");
+        backup(&lib, &copy).unwrap();
+        crate::category::tests::put(&lib, None, "b.jpg", "B");
+        features::tests::seed(&mut lib, &["A", "B"]);
+        drop(lib);
+        for name in ["kura.db", "kura.db-wal", "kura.db-shm"] {
+            let _ = fs::remove_file(d.path().join(KURA_DIR).join(name));
+        }
+        fs::copy(&copy, d.path().join(KURA_DIR).join("kura.db")).unwrap();
+        let mut lib = open(d.path()).unwrap();
+        let keep: std::collections::HashSet<String> = {
+            let mut stmt = lib.conn.prepare("SELECT hash FROM images").unwrap();
+            let hashes = stmt
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            hashes
+        };
+        let aspects = [features::tests::aspect("content", "m1", 4)];
+
+        let n = lib.with_features(|s| s.sweep(&keep, &aspects)).unwrap();
+
+        assert_eq!(n, 1);
+        assert_eq!(features::tests::stored(&mut lib), ["A".to_string()].into());
     }
 
     #[test]

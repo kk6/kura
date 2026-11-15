@@ -195,6 +195,7 @@ fn purge_one(lib: &mut Library, id: i64) -> Result<(), String> {
         _ => forget(lib, id)?,
     }
     library::remove_thumb(&lib.root, &hash);
+    lib.forget_features(&hash);
     Ok(())
 }
 
@@ -217,7 +218,9 @@ mod tests {
     use super::*;
     use crate::category::tests::{files, lock, pending, put, read, row, setup, unlock};
     use crate::category::{create, delete};
-    use crate::{gallery, library};
+    use std::os::unix::fs::PermissionsExt;
+
+    use crate::{features, gallery, library};
 
     fn deleted_at(lib: &Library, id: i64) -> Option<i64> {
         lib.conn
@@ -561,5 +564,60 @@ mod tests {
         assert!(exists(&lib, b) && exists(&lib, alive));
         assert_eq!(files(&lib, TRASH_DIR), [format!("{b}.jpg")]);
         assert_eq!(read(&lib, "_未分類/c.jpg"), "C");
+    }
+
+    #[test]
+    fn 完全に削除するとその画像の特徴量だけが消える() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+        put(&lib, None, "b.jpg", "B");
+        features::tests::seed(&mut lib, &["A", "B"]);
+        trash(&mut lib, &[a]).unwrap();
+
+        purge(&mut lib, &[a]).unwrap();
+
+        assert_eq!(features::tests::stored(&mut lib), ["B".to_string()].into());
+    }
+
+    #[test]
+    fn ゴミ箱へ移して元に戻しても特徴量は残る() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+        features::tests::seed(&mut lib, &["A"]);
+
+        trash(&mut lib, &[a]).unwrap();
+        restore(&mut lib, &[a]).unwrap();
+
+        assert_eq!(features::tests::stored(&mut lib), ["A".to_string()].into());
+    }
+
+    #[test]
+    fn features_dbを読めなくても完全に削除できる() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+        features::tests::seed(&mut lib, &["A"]);
+        trash(&mut lib, &[a]).unwrap();
+        // 開いている接続を捨て、次に開くときに読めないようにする
+        lib.with_features(|_| -> Result<(), String> { Err("閉じる".into()) })
+            .unwrap_err();
+        let file = features::path(&lib.root);
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let r = purge(&mut lib, &[a]);
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert_eq!(r.unwrap().done, [a]);
+        assert!(!exists(&lib, a));
+    }
+
+    #[test]
+    fn features_dbのないライブラリで完全に削除してもfeatures_dbを作らない() {
+        let (_d, mut lib) = setup();
+        let a = put(&lib, None, "a.jpg", "A");
+        trash(&mut lib, &[a]).unwrap();
+
+        purge(&mut lib, &[a]).unwrap();
+
+        assert!(!features::path(&lib.root).exists());
     }
 }
