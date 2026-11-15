@@ -25,6 +25,9 @@ export type BackfillCounts = {
 // 元URLの補完の状態。running の間の counts は進み具合で、始めた直後（対象を数える前）は null
 export type Backfill = { running: boolean; counts: BackfillCounts | null; error: string | null }
 
+// 類似画像検索のモデルのダウンロード（prepare_models コマンド、NFR-08）。progress は model-progress イベントのバイト数
+export type ModelFetch = { running: boolean; progress: ImportProgress | null; error: string | null }
+
 // src-tauri/src/sync.rs の Report（scan_library コマンドの返り値。差分検出 FR-104）
 export type ScanReport = {
   added: number

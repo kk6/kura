@@ -8,6 +8,7 @@ mod import;
 mod library;
 mod manifest;
 mod menu;
+mod model;
 mod recent;
 mod settings;
 mod settle;
@@ -46,8 +47,6 @@ fn app_file(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
 }
 
 /// `ml/model.json` の場所。リリース版は `.app` に同梱した写し
-// タスク5で main.rs の .setup が起動時に読む
-#[allow(dead_code)]
 fn manifest_file(app: &AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
         return Ok(concat!(env!("CARGO_MANIFEST_DIR"), "/../ml/model.json").into());
@@ -188,6 +187,36 @@ async fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(
         }
         Ok(())
     })
+}
+
+/// 類似画像検索を ON にする前の確認で見せる、モデルの大きさ（バイト）
+#[tauri::command]
+fn model_size(app: AppHandle) -> Result<u64, String> {
+    Ok(model::size(&manifest::read(&manifest_file(&app)?)?))
+}
+
+/// 類似画像検索のモデルを app_file(app, "models") にそろえ、進み具合を model-progress で知らせる。
+/// similarity_enabled は、これが Ok を返した後に画面が save_settings で true にする。
+/// モデルがそろう前に ON を保存すると、計算を始める側がモデルのない状態を見るため
+#[tauri::command]
+async fn prepare_models(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let manifest = manifest::read(&manifest_file(&app)?)?;
+        let dir = app_file(&app, "models")?;
+        model::prepare(&dir, &model::files(&manifest), |done, total| {
+            let p = ImportProgress {
+                done: done as usize,
+                total: total as usize,
+            };
+            if let Err(e) = app.emit_to("main", "model-progress", p) {
+                log::warn!("モデルのダウンロードの進み具合を送れません：{e}");
+            }
+        })?;
+        log::info!("モデルをそろえました：{}", dir.display());
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// ボードの一覧と、以後のボードの操作に添えるライブラリのトークン
@@ -747,6 +776,8 @@ fn main() {
             forget_recent_library,
             load_settings,
             save_settings,
+            model_size,
+            prepare_models,
             windows::report_gallery,
             location_warning,
             create_library,

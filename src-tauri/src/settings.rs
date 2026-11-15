@@ -18,6 +18,9 @@ pub struct Settings {
     pub tags_collapsed: bool,
     /// アイデアボードを使う（FR-711）。前の版の設定ファイルにはないので、更新した人も ON で始まる
     pub board_enabled: bool,
+    /// 類似画像検索を使う（5.6）。true にするのは、モデルのファイルをそろえた後の画面だけ。
+    /// OFF に戻してもモデルと特徴量は消さない
+    pub similarity_enabled: bool,
     /// ボードの専用ウィンドウの表示（FR-705、FR-707）。board_enabled を切っても消さない（FR-711）
     pub board_window: BoardWindow,
 }
@@ -115,6 +118,7 @@ impl Default for Settings {
             thumb_width: 200,
             tags_collapsed: false,
             board_enabled: true,
+            similarity_enabled: false,
             board_window: BoardWindow::default(),
         }
     }
@@ -196,6 +200,7 @@ mod tests {
         assert!(s.confirm_category_move);
         assert_eq!(s.thumb_width, 200);
         assert!(s.board_enabled);
+        assert!(!s.similarity_enabled);
     }
 
     #[test]
@@ -207,6 +212,7 @@ mod tests {
             thumb_width: 140,
             tags_collapsed: true,
             board_enabled: false,
+            similarity_enabled: true,
             board_window: BoardWindow {
                 always_on_top: true,
                 opacity: 45,
@@ -242,6 +248,8 @@ mod tests {
         assert!(!s.board_window.always_on_top);
         assert_eq!(s.board_window.opacity, 100);
         assert_eq!(s.board_window.frame, None);
+        // 類似画像検索はフェーズ3で足した。更新した人も OFF で始め、押すまでモデルを取りに行かない（NFR-08）
+        assert!(!s.similarity_enabled);
     }
 
     #[test]
@@ -311,6 +319,7 @@ mod tests {
             thumb_width: 120,
             tags_collapsed: false,
             board_enabled: true,
+            similarity_enabled: false,
             board_window: BoardWindow::default(),
         };
         save(&file, &before).unwrap();
