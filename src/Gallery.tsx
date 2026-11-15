@@ -23,7 +23,7 @@ import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
 import type { Detail as DetailData, Done, Restored, Settings } from './galleryTypes'
-import type { Backfill, BackfillCounts, ImportProgress, Report, ScanReport } from './importTypes'
+import type { Backfill, BackfillCounts, ImportProgress, ModelFetch, Report, ScanReport } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { type SortKey, sortImages } from './sort'
 import { useLibrary } from './useLibrary'
@@ -87,6 +87,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const [backfill, setBackfill] = useState<Backfill | null>(null)
   // 補完を終えた回数。補完した元URLを詳細パネルに出すため、詳細を読み直す
   const [backfilled, setBackfilled] = useState(0)
+  // 類似画像検索のモデルのダウンロード。補完と同じく、設定を閉じても続き、開き直すと進み具合を出す
+  const [modelFetch, setModelFetch] = useState<ModelFetch | null>(null)
 
   const thumbWidth = Math.min(THUMB_MAX, Math.max(THUMB_MIN, settings.thumb_width))
   function changeSettings(next: Partial<Settings>) {
@@ -260,6 +262,20 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setBackfilled((n) => n + 1)
   }
 
+  // モデルがそろってから ON を保存する。失敗したら OFF のままにし、エラーと「再試行」を出す
+  async function fetchModels() {
+    setModelFetch({ running: true, progress: null, error: null })
+    try {
+      await invoke('prepare_models')
+    } catch (e) {
+      setModelFetch({ running: false, progress: null, error: String(e) })
+      return
+    }
+    setModelFetch(null)
+    // ダウンロードの間に変えたほかの設定を、始めたときの値で上書きしないよう、今の描画の関数を使う
+    latest.current.changeSettings({ similarity_enabled: true })
+  }
+
   // 取り込みと差分検出の途中では戻らない。どちらも開いているライブラリを1枚ずつ読み書きするため
   function leave(path?: string) {
     // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
@@ -345,7 +361,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setRevealed({ id })
   }
   // リスナーは一度だけ登録する。呼ばれたときに今の描画の関数を使うよう、ref を通す
-  const handlers = { scan, onKey, start, leave, openBoard, addToBoard, revealImage }
+  const handlers = { scan, onKey, start, leave, openBoard, addToBoard, revealImage, changeSettings }
   const latest = useRef(handlers)
   latest.current = handlers
   useEffect(() => {
@@ -355,6 +371,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       // 終わった後に届いた進み具合で、結果を戻さない
       getCurrentWindow().listen<BackfillCounts>('backfill-progress', (e) =>
         setBackfill((b) => (b?.running ? { ...b, counts: e.payload } : b)),
+      ),
+      getCurrentWindow().listen<ImportProgress>('model-progress', (e) =>
+        setModelFetch((m) => (m?.running ? { ...m, progress: e.payload } : m)),
       ),
       listen<ImportProgress>('import-progress', (e) => setProgress(e.payload)),
       // 終わった後に届いた進み具合で、表示を戻さない
@@ -678,6 +697,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           busy={!!(scanning || progress)}
           onBackfill={startBackfill}
           onCancelBackfill={() => invoke('cancel_backfill')}
+          modelFetch={modelFetch}
+          onFetchModels={fetchModels}
           onClose={() => setSettingsOpen(false)}
         />
       )}

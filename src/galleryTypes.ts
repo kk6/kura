@@ -54,6 +54,8 @@ export type Settings = {
   tags_collapsed: boolean
   // アイデアボードを使う（FR-711）
   board_enabled: boolean
+  // 類似画像検索を使う（5.6）。true にするのは prepare_models でモデルをそろえた後だけ
+  similarity_enabled: boolean
   // ボードの専用ウィンドウの表示（FR-705、FR-707）。変えるのはボードの画面の set_board_display だけで、
   // save_settings で送った値は Rust が捨てる
   board_window: BoardDisplay & { frame: { x: number; y: number; width: number; height: number } | null }

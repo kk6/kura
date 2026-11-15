@@ -436,7 +436,23 @@ const DEFAULT_SETTINGS: Settings = {
   thumb_width: 200,
   tags_collapsed: false,
   board_enabled: true,
+  similarity_enabled: false,
   board_window: { always_on_top: false, opacity: 100, frame: null },
+}
+
+// 類似画像検索のモデル（NFR-08）。本物と同じく、そろっていれば進み具合を送らずに終わる。
+// e2e で失敗の表示を確かめるため、mock.failModel があればダウンロードに失敗する
+const MODEL_SIZE = 371807752
+const prepareModels: Handler = async () => {
+  if (sessionStorage.getItem('mock.modelReady')) return
+  await emit('model-progress', { done: 0, total: MODEL_SIZE })
+  await new Promise((r) => setTimeout(r, 300))
+  await emit('model-progress', { done: MODEL_SIZE / 2, total: MODEL_SIZE })
+  await new Promise((r) => setTimeout(r, 300))
+  if (sessionStorage.getItem('mock.failModel'))
+    throw 'モデルをダウンロードできません（curl: (6) Could not resolve host: github.com）'
+  await emit('model-progress', { done: MODEL_SIZE, total: MODEL_SIZE })
+  sessionStorage.setItem('mock.modelReady', '1')
 }
 
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
@@ -650,6 +666,8 @@ const handlers: Record<string, Handler> = {
     RECENT.splice(RECENT.indexOf(String(args?.path)), 1)
     return [...RECENT]
   },
+  model_size: () => MODEL_SIZE,
+  prepare_models: prepareModels,
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
   // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない
   // 本物と同じく、ボードのウィンドウの表示はギャラリーから送られた値で上書きしない

@@ -78,6 +78,8 @@ const CURL: &str = "/usr/bin/curl";
 
 /// curl で url を part に書く。動いている間、part の大きさを progress に渡す
 fn download(url: &str, part: &Path, mut progress: impl FnMut(u64)) -> Result<(), String> {
+    // 通信したことを後から確かめられるよう、通信の前に必ず残す（NFR-08）
+    log::info!("モデルをダウンロードします：{url}");
     let mut child = Command::new(CURL)
         .args(["-f", "-L", "-sS", "--output"])
         .arg(part)
