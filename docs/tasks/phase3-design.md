@@ -291,7 +291,8 @@ impl Library {
 - `main.rs` の `allow_assets` で、`kura.db` と同じく `features.db`、`features.db-wal`、`features.db-shm` を画面から読めないようにする
 - 接続は `Library` と一緒に閉じる。ライブラリを切り替えると `Current` の中身が入れ替わるので、前のライブラリの `features.db` には書けなくなる
 - 類似画像検索を使ったことのないライブラリには、`features.db` を作らない。`forget_features` はファイルがあるときだけ開く
-- `reconnect`（`kura.db` の開き直し）では、`features` を `None` にし、`features_suspect` を立てる。同じドライブにあるため
+- `reconnect`（`kura.db` の開き直し）では、`kura.db` を開き直す前に `features` を `None` にし、`features_suspect` を立てる。同じドライブにあるため。開き直しに失敗しても古い接続を残さない
+- `forget_features` がファイルの有無を確かめるため、`features::path(root)`（`.kura/features.db` の場所）を置く
 - `connect` の `Library { … }` に2つの項目の初期値（`None`、`false`）を足す。`connect` を変えるので、`.claude/skills/verify-crash-safe-move/check.sh` を流す
 
 ### 作り直す場合と、作り直さない場合
@@ -377,6 +378,8 @@ impl Library {
 - 画面から `features.db` を読めない（`main.rs` の既存のテスト「…dbとゴミ箱とライブラリの外は読めない」に足す）
 
 実アプリ（タスク4の確認）：2万件の特徴量（乱数）を入れた `features.db` で、`PRAGMA quick_check` にかかる時間を測って報告する。`quick_check` は `Current` のロックの中で流れ、その間は一覧の読み込みなどが待つ。1秒を超えたら、作りを変えずにメインセッションに相談する
+
+実測（2026-11-15、まとまり B）：2万件（乱数）で features.db は169MB（上の「約127MB」より大きい。1行約4.6KBが4KBのページからあふれるためと推定し、ページ数は数えていない）。内蔵 SSD で、`check` 付きで開くのに約45ms、`computed` に約31ms（キャッシュが温まった状態、リリース用ビルド）。外付けの HDD では測っていない
 
 ### 決めたことと退けた案
 
