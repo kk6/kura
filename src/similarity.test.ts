@@ -1,0 +1,77 @@
+import { describe, expect, test } from 'vitest'
+import { changeWeight, DEFAULT_WEIGHT, fillWeights, rankSimilar, type Similar } from './similarity'
+
+const similar = (base: number, rows: [number, number, number][]): Similar & { base: number } => ({
+  base,
+  aspects: ['content', 'composition'],
+  ids: rows.map((r) => r[0]),
+  scores: [rows.map((r) => r[1]), rows.map((r) => r[2])],
+  uncomputed: 0,
+})
+
+describe('rankSimilar', () => {
+  // 1 が基準。2 は内容だけ、3 は構図だけが似ている
+  const s = similar(1, [
+    [1, 0, 0],
+    [2, 2, -1],
+    [3, -1, 2],
+    [4, 0.8, 0.8],
+  ])
+
+  test('重みを掛けて足した値の大きい順に並べ、基準画像は値によらず先頭に置く', () => {
+    expect(rankSimilar(s, { content: 50, composition: 50 })).toEqual([1, 4, 2, 3])
+  })
+
+  test('構図を0にすると内容だけの並びになる', () => {
+    expect(rankSimilar(s, { content: 50, composition: 0 })).toEqual([1, 2, 4, 3])
+  })
+
+  test('内容を0にすると構図だけの並びになる', () => {
+    expect(rankSimilar(s, { content: 0, composition: 100 })).toEqual([1, 3, 4, 2])
+  })
+
+  test('同じ値なら id の小さい順', () => {
+    expect(
+      rankSimilar(
+        similar(9, [
+          [5, 1, 1],
+          [3, 1, 1],
+          [9, 0, 0],
+        ]),
+        { content: 1, composition: 1 },
+      ),
+    ).toEqual([9, 3, 5])
+  })
+})
+
+describe('fillWeights', () => {
+  test('保存した値がなければ、どの観点も同じ初期値', () => {
+    expect(fillWeights(['content', 'composition'], {})).toEqual({
+      content: DEFAULT_WEIGHT,
+      composition: DEFAULT_WEIGHT,
+    })
+  })
+
+  test('無い観点だけを初期値で埋め、範囲の外の値は端に寄せる', () => {
+    expect(fillWeights(['content', 'composition', 'pose'], { content: 130, composition: 20.4 })).toEqual({
+      content: 100,
+      composition: 20,
+      pose: DEFAULT_WEIGHT,
+    })
+  })
+
+  test('どれも0なら初期値に戻す', () => {
+    const w = fillWeights(['content', 'composition'], { content: 0, composition: 0 })
+    expect(w).toEqual({ content: DEFAULT_WEIGHT, composition: DEFAULT_WEIGHT })
+  })
+})
+
+describe('changeWeight', () => {
+  test('ほかの観点に0でない値があれば0にできる', () => {
+    expect(changeWeight({ content: 30, composition: 40 }, 'content', 0)).toEqual({ content: 0, composition: 40 })
+  })
+
+  test('最後の1つは0にならず、1で止まる', () => {
+    expect(changeWeight({ content: 0, composition: 40 }, 'composition', 0)).toEqual({ content: 0, composition: 1 })
+  })
+})

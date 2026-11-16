@@ -437,6 +437,7 @@ const DEFAULT_SETTINGS: Settings = {
   tags_collapsed: false,
   board_enabled: true,
   similarity_enabled: false,
+  similarity_weights: {},
   board_window: { always_on_top: false, opacity: 100, frame: null },
 }
 
