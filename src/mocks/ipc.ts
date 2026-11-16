@@ -2,7 +2,7 @@ import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
-import type { Report, ScanReport } from '../importTypes'
+import type { FeaturesStatus, Report, ScanReport } from '../importTypes'
 import type { Added, BoardSummary, EditingBoard, Item, Snapshot, Target, Viewport } from '../board/types'
 import photos from 'virtual:docs-photos'
 
@@ -455,6 +455,35 @@ const prepareModels: Handler = async () => {
   sessionStorage.setItem('mock.modelReady', '1')
 }
 
+// 特徴量の計算（FR-604）。本物は Rust のきっかけで計算を始め、features-progress で知らせる。
+// ON にしたときと「再計算」のときに、一覧の画像を数枚ずつ計算したことにする。
+// e2e で止まったときの表示を確かめるため、mock.stopFeatures があれば1枚を失敗にして止まる
+const FEATURES_IDLE: FeaturesStatus = { running: false, done: 0, total: 0, failed: 0, error: null }
+const featuresStatus = (): FeaturesStatus =>
+  stored('mock.settings', DEFAULT_SETTINGS).similarity_enabled
+    ? stored('mock.features', { ...FEATURES_IDLE, done: IMAGES.length, total: IMAGES.length })
+    : FEATURES_IDLE
+async function runFeatures() {
+  const total = IMAGES.length
+  const stop = sessionStorage.getItem('mock.stopFeatures')
+  const end = stop ? total - 2 : total
+  for (let done = 0; done < end; done += Math.ceil(total / 4)) {
+    await emit('features-progress', { ...FEATURES_IDLE, running: true, done, total })
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  const last: FeaturesStatus = stop
+    ? {
+        running: false,
+        done: end,
+        total,
+        failed: 1,
+        error: '特徴量の計算が止まりました。設定の「再計算」でもう一度試せます',
+      }
+    : { ...FEATURES_IDLE, done: total, total }
+  store('mock.features', last)
+  await emit('features-progress', last)
+}
+
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
 // e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない。
 // 「保存できない」という名前のボードは配置を保存できない
@@ -673,8 +702,19 @@ const handlers: Record<string, Handler> = {
   // 本物と同じく、ボードのウィンドウの表示はギャラリーから送られた値で上書きしない
   save_settings: (args) => {
     if (sessionStorage.getItem('mock.failSettings')) throw '設定を保存できません（Permission denied）'
-    const { board_window } = stored('mock.settings', DEFAULT_SETTINGS)
-    store('mock.settings', { ...(args?.settings as Settings), board_window })
+    const before = stored('mock.settings', DEFAULT_SETTINGS)
+    const next = { ...(args?.settings as Settings), board_window: before.board_window }
+    store('mock.settings', next)
+    if (!before.similarity_enabled && next.similarity_enabled) {
+      sessionStorage.removeItem('mock.features')
+      runFeatures()
+    }
+    if (before.similarity_enabled && !next.similarity_enabled) emit('features-progress', FEATURES_IDLE)
+  },
+  features_status: featuresStatus,
+  retry_features: () => {
+    sessionStorage.removeItem('mock.stopFeatures')
+    runFeatures()
   },
   // モックのウィンドウは最前面にも半透明にもならない。保存する値だけを本物に合わせる
   set_board_display: (args) => {

@@ -6,7 +6,7 @@ use serde::Deserialize;
 /// `ml/model.json` の中身。モデルの名前・次元・ダウンロード元・スレッド数を置く1か所（NFR-11）
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Manifest {
-    // タスク5の calc がワーカーに渡す
+    // ワーカーが model.json から自分で読む。Rust は形を確かめるためだけに読む
     #[allow(dead_code)]
     pub threads: u32,
     pub aspects: Vec<Aspect>,
