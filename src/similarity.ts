@@ -31,3 +31,6 @@ export function rankSimilar(s: Similar & { base: number }, weights: Weights): nu
   order.sort((a, b) => total[b] - total[a] || s.ids[a] - s.ids[b])
   return [s.base, ...order.map((i) => s.ids[i])]
 }
+
+// スライダーの名前。知らない観点は名前をそのまま出す
+export const ASPECT_LABELS: Record<string, string> = { content: '内容', composition: '構図', pose: 'ポーズ' }

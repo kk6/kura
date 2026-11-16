@@ -173,3 +173,10 @@
   flex-wrap: wrap;
   gap: var(--space-3);
 }
+
+/* 「似た画像を探す」を押せない理由 */
+.detail__hint {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+}

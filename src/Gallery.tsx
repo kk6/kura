@@ -3,14 +3,15 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { rememberTag } from './choices'
 import { useContextMenu } from './contextMenu'
 import { flushAll } from './flush'
+import { Icon, ICONS } from './icons'
 import GalleryHeader from './GalleryHeader'
-import GalleryToolbar, { THUMB_MAX, THUMB_MIN, ThumbSlider } from './GalleryToolbar'
+import GalleryToolbar, { THUMB_MAX, THUMB_MIN, ThumbSlider, WeightSliders } from './GalleryToolbar'
 import { addTag, dropTag, editImages, named, removeImages, swapTag } from './galleryData'
-import Detail from './Detail'
+import Detail, { NOT_COMPUTED } from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
@@ -22,7 +23,7 @@ import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResul
 import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
-import type { Detail as DetailData, Done, Restored, Settings } from './galleryTypes'
+import type { Detail as DetailData, Done, Image, Restored, Settings } from './galleryTypes'
 import type {
   Backfill,
   BackfillCounts,
@@ -33,6 +34,7 @@ import type {
   ScanReport,
 } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
+import { changeWeight, fillWeights, rankSimilar, type Similar, type Weights } from './similarity'
 import { type SortKey, sortImages } from './sort'
 import { useLibrary } from './useLibrary'
 import { useZoom, ZOOM_STEP } from './useZoom'
@@ -134,13 +136,27 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => latest.current.scan())
   }, [reload, reloadTrash, reloadMissing])
 
+  // 類似画像検索の結果のモード（FR-601）。押したときの1回分を持ち、計算が進んでも読み直さない
+  const [similar, setSimilar] = useState<(Similar & { base: number; image: Image }) | null>(null)
+  // 重み（FR-602）。動かしている間はここだけを変え、手を離したら設定に保存する
+  const [weights, setWeights] = useState<Weights>({})
+  // スライダーの動きを、2万枚の並べ直しで待たせない
+  const ranking = useDeferredValue(weights)
+  const rankedIds = useMemo(() => similar && rankSimilar(similar, ranking), [similar, ranking])
+  const byId = useMemo(() => new Map(data.images.map((i) => [i.id, i])), [data.images])
+  // ゴミ箱へ移した画像などは手元の一覧から消えているので、結果からも外す
+  const ranked = useMemo(() => rankedIds?.flatMap((id) => byId.get(id) ?? []), [rankedIds, byId])
+
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
+  // 結果のモードでも、サイドバーのカテゴリ・タグと検索バーで絞り込む（FR-603）
   const images = useMemo(
-    () => filterImages(sorted, data.categories, data.tags, filter),
-    [sorted, data.categories, data.tags, filter],
+    () => filterImages(ranked ?? sorted, data.categories, data.tags, filter),
+    [ranked, sorted, data.categories, data.tags, filter],
   )
   const counts = useMemo(() => countImages(data.images, data.categories), [data.images, data.categories])
-  const filtered = images.length !== data.images.length
+  // 全体の枚数。結果のモードでは、結果の枚数（特徴量のある画像）
+  const whole = ranked ?? data.images
+  const filtered = images.length !== whole.length
 
   // 絞り込みで見えなくなった画像の選択は、下の effect が外す。見えない画像までまとめて変えないため
   function changeFilter(next: Filter) {
@@ -154,7 +170,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
   const listed = inTrash ? trash : inMissing ? missing : images
   // 一覧のスクロールを先頭に戻す契機。画像の中身（タグ・メモなど）の変化では戻さない
-  const listKey = JSON.stringify([sort, filter, aside])
+  const listKey = JSON.stringify([sort, filter, aside, similar?.base ?? null])
+  // 結果のモードに入る前の一覧のスクロールの位置。閉じたときに Masonry が読み、読んだら捨てる
+  const scrolled = useRef(0)
+  const entryTop = useRef(0)
+  const restoreTop = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    restoreTop.current = undefined
+  }, [listKey])
   const order = useMemo(() => listed.map((i) => i.id), [listed])
   const ids = useMemo(() => [...selection.ids], [selection.ids])
   // 今の一覧にない画像の選択を外す。差分確認で「見つからない」の画像が戻ったときなどに、
@@ -178,7 +201,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     return () => {
       current = false
     }
-  }, [only, place, backfilled])
+    // 計算が進むと「似た画像を探す」の基準にできるようになるので、読み直す
+  }, [only, place, backfilled, features.done])
 
   // 拡大表示（FR-508）。左右キーか左右の端のボタンで、今の並び順の前後の画像に移る
   const zoomed = zoom ? selectedImage : null
@@ -225,7 +249,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     const by = { ArrowLeft: -1, ArrowRight: 1 }[e.key]
     if (e.key === 'Escape') {
       if (zoomed) setZoom(false)
-      else setSelection(EMPTY_SELECTION)
+      else if (selection.ids.size) setSelection(EMPTY_SELECTION)
+      else closeSimilar()
     } else if (by && zoomed) {
       e.preventDefault()
       step(by)
@@ -354,12 +379,40 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
 
   const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
   function openContextMenu(id: number, e: React.MouseEvent) {
-    if (!settings.board_enabled || aside) return
+    if (!(settings.board_enabled || settings.similarity_enabled) || aside) return
     e.preventDefault()
     // 右クリックした画像を選んでいなければ、その画像だけを選ぶ（Finder と同じ）
     if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
     setMenuAt({ x: e.clientX, y: e.clientY })
   }
+  // 「似た画像を探す」（FR-601）。結果の画像から押すと基準が入れ替わる。戻る履歴は作らない
+  const canFindSimilar = settings.similarity_enabled && only !== null && !!shown?.detail?.similar
+  async function findSimilar() {
+    const image = selectedImage
+    if (!image || !canFindSimilar || document.querySelector('dialog[open]')) return
+    setMenuAt(null)
+    let r: Similar
+    try {
+      r = await invoke<Similar>('similar_images', { id: image.id })
+    } catch (e) {
+      setResult({ kind: 'error', message: `似た画像を探せません（${e}）` })
+      return
+    }
+    if (!similar) entryTop.current = scrolled.current
+    setWeights(fillWeights(r.aspects, settings.similarity_weights))
+    setSimilar({ ...r, base: image.id, image })
+    setZoom(false)
+  }
+  function closeSimilar() {
+    if (!similar) return
+    restoreTop.current = entryTop.current
+    setSimilar(null)
+  }
+  // 知らない観点（後の版で足した観点）の保存した値は残す
+  const saveWeights = () => changeSettings({ similarity_weights: { ...settings.similarity_weights, ...weights } })
+  // OFF にしたら結果のモードを閉じる
+  if (similar && !settings.similarity_enabled) setSimilar(null)
+
   // ボードの「ギャラリーで表示」（FR-701）。絞り込みを外して画像を選び、見える所までスクロールする。
   // ゴミ箱と見つからない画像は、その一覧を開いて選ぶ
   const [revealed, setRevealed] = useState<{ id: number } | null>(null)
@@ -373,6 +426,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     }
     setMenuAt(null)
     setZoom(false)
+    setSimilar(null)
     setAside(next)
     if (!next) setFilter(NO_FILTER)
     setSelection({ ids: new Set([id]), anchor: id })
@@ -433,6 +487,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   function openAside(next: 'trash' | 'missing') {
     setAside(next)
     setZoom(false)
+    setSimilar(null)
     setSelection(EMPTY_SELECTION)
     // タグの統合や削除はゴミ箱と見つからない画像にも効くので、開くたびに読み直す
     if (next === 'trash') reloadTrash()
@@ -505,22 +560,27 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const reveal = (id?: number) =>
     invoke('show_in_finder', { id }).catch((e) => setResult({ kind: 'error', message: `Finder で開けません（${e}）` }))
 
-  const title = inTrash
-    ? 'ゴミ箱'
-    : inMissing
-      ? '見つからない'
-      : filter.category === 'all'
-        ? 'すべての画像'
-        : filter.category === 'uncategorized'
-          ? '未分類'
-          : (data.categories.find((c) => c.id === filter.category)?.name ?? '')
+  const title = similar
+    ? '似た画像'
+    : inTrash
+      ? 'ゴミ箱'
+      : inMissing
+        ? '見つからない'
+        : filter.category === 'all'
+          ? 'すべての画像'
+          : filter.category === 'uncategorized'
+            ? '未分類'
+            : (data.categories.find((c) => c.id === filter.category)?.name ?? '')
 
   const skipped = result?.kind === 'report' || result?.kind === 'scan' ? result.report.skipped : []
 
   return (
     <div
       className={
-        'gallery' + (detailOpen ? '' : ' gallery--no-detail') + (detailMotion ? ` gallery--detail-${detailMotion}` : '')
+        'gallery' +
+        (similar ? ' gallery--similar' : '') +
+        (detailOpen ? '' : ' gallery--no-detail') +
+        (detailMotion ? ` gallery--detail-${detailMotion}` : '')
       }
       onAnimationEnd={(e) => {
         if (e.animationName === 'detail-out') setDetailOpen(false)
@@ -569,8 +629,22 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       <GalleryToolbar
         title={title}
         count={listed.length}
-        sort={aside ? undefined : sort}
+        sort={aside || similar ? undefined : sort}
         onSort={setSort}
+        lead={
+          similar && (
+            <img
+              className="toolbar__base"
+              src={convertFileSrc(`${root}/.kura/thumbs/${similar.image.hash}.jpg`)}
+              alt={`基準の画像 ${similar.image.file_name}`}
+              style={{
+                aspectRatio: `${similar.image.width} / ${similar.image.height}`,
+                background: similar.image.color,
+              }}
+            />
+          )
+        }
+        note={similar?.uncomputed ? `未計算 ${similar.uncomputed}枚` : undefined}
         detailShown={detailShown}
         onToggleDetail={() => toggleDetail()}
       >
@@ -580,12 +654,28 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         ) : (
           !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
         )}
+        {similar && (
+          <button type="button" className="button" title="閉じる（esc）" onClick={closeSimilar}>
+            <Icon d={ICONS.x} />
+            閉じる
+          </button>
+        )}
       </GalleryToolbar>
+      {similar && (
+        <WeightSliders
+          aspects={similar.aspects}
+          weights={weights}
+          onChange={(a, v) => setWeights((w) => changeWeight(w, a, v))}
+          onCommit={saveWeights}
+        />
+      )}
 
       <Masonry
         root={root}
         images={listed}
         scrollKey={listKey}
+        scrollTo={restoreTop.current}
+        onScrolled={(top) => (scrolled.current = top)}
         empty={
           !aside && filtered
             ? '条件に合う画像がありません'
@@ -666,6 +756,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             // ゴミ箱と見つからない画像を開いている間は、この詳細パネルを出さない
             onOpen={() => setZoom(true)}
             onAddToBoard={settings.board_enabled ? addToBoard : undefined}
+            onFindSimilar={settings.similarity_enabled ? findSimilar : undefined}
             onClose={() => toggleDetail(false)}
           />
         )}
@@ -678,8 +769,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             : inMissing
               ? `見つからない ${missing.length}枚`
               : filtered
-                ? `${images.length} / ${data.images.length}枚`
-                : `${data.images.length}枚`}
+                ? `${images.length} / ${whole.length}枚`
+                : `${whole.length}枚`}
           {ids.length > 0 && ` ・ ${ids.length}枚を選択`}
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
@@ -697,9 +788,23 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
 
       {menuAt && (
         <div ref={contextMenu} className="menu" role="menu" popover="manual" style={{ top: menuAt.y, left: menuAt.x }}>
-          <button type="button" role="menuitem" className="menu__item" onClick={addToBoard}>
-            ボードに追加…
-          </button>
+          {settings.similarity_enabled && (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu__item"
+              disabled={!canFindSimilar}
+              title={ids.length === 1 && shown?.detail && !canFindSimilar ? NOT_COMPUTED : undefined}
+              onClick={findSimilar}
+            >
+              似た画像を探す
+            </button>
+          )}
+          {settings.board_enabled && (
+            <button type="button" role="menuitem" className="menu__item" onClick={addToBoard}>
+              ボードに追加…
+            </button>
+          )}
         </div>
       )}
       {adding && (
