@@ -316,4 +316,61 @@ mod tests {
         assert!(r.ids.contains(&flat));
         assert!((score(&r, 1, flat) - score(&r, 1, ortho)).abs() < 1e-5);
     }
+
+    /// NFR-03 の計測。`cargo test --release 類似度の2万件の計測 -- --ignored --nocapture` で流す
+    #[test]
+    #[ignore]
+    fn 類似度の2万件の計測() {
+        const N: usize = 20_000;
+        let a = vec![
+            aspect("content", "siglip2-base-patch16-224", 768),
+            aspect("composition", "gray16-edge4x8-v1", 384),
+        ];
+        let (_d, mut lib) = open();
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut random = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 40) as f32 / (1u64 << 24) as f32 - 0.5
+        };
+        let mut unit = |dim: usize| {
+            let v: Vec<f32> = (0..dim).map(|_| random()).collect();
+            let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            v.into_iter().map(|x| x / n).collect::<Vec<f32>>()
+        };
+        let tx = lib.conn.unchecked_transaction().unwrap();
+        for i in 0..N {
+            tx.execute(
+                "INSERT INTO images(file_name, hash, width, height, file_size, file_mtime, color,
+                                    imported_at, registered_at)
+                 VALUES (?1, ?2, 1, 1, 1, 1, '#808080', 1, 1)",
+                params![format!("{i}.jpg"), format!("h{i}")],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+        for i in 0..N {
+            let (c, p) = (unit(768), unit(384));
+            lib.with_features(|s| s.put(&format!("h{i}"), &[(&a[0], &c[..]), (&a[1], &p[..])], 1))
+                .unwrap();
+        }
+        let size = std::fs::metadata(crate::features::path(&lib.root))
+            .unwrap()
+            .len();
+        let mut times = Vec::new();
+        for run in 0..5 {
+            let start = std::time::Instant::now();
+            let r = similar(&mut lib, &a, 1 + run).unwrap();
+            let json = serde_json::to_string(&r).unwrap();
+            times.push(start.elapsed());
+            assert_eq!(r.ids.len(), N);
+            eprintln!(
+                "{run}回目：{:?}（JSON {}バイト）",
+                times[run as usize],
+                json.len()
+            );
+        }
+        eprintln!("features.db：{}バイト", size);
+    }
 }
