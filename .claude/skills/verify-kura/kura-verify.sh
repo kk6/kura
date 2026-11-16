@@ -10,6 +10,8 @@ BUILD="${KURA_BUILD:-debug}"
 APP="$REPO/src-tauri/target/$BUILD/bundle/macos/Kura.app"
 BIN="$APP/Contents/MacOS/kura"
 REAL_DATA="$HOME/Library/Application Support/dev.kk6.kura"
+# net up のプロキシの待ち受け。検証用の Kura は同時に1つだけなので固定にする
+PROXY_PORT=18080
 
 die() { echo "error: $*" >&2; exit 1; }
 # run id は runs/ の直下の1つの名前に限る。stop が run の中を rm -rf するので、../ などで外を指させない
@@ -71,7 +73,8 @@ cmd_launch() {
       [ -d "$BASE/template/.kura" ] || die "見本のライブラリがない。SKILL.md の「見本を作る」を先に行う"
       cp -R "$BASE/template" "$dir/lib"; lib="$dir/lib" ;;
     *)
-      if [ "${KURA_IN_PLACE:-}" = 1 ]; then lib="$src_lib"; else cp -R "$src_lib" "$dir/lib"; lib="$dir/lib"; fi ;;
+      # その場で開くときも、db と ls が run の lib/ で引けるようにリンクを置く。stop はリンクだけを消す
+      if [ "${KURA_IN_PLACE:-}" = 1 ]; then lib="$src_lib"; ln -s "$src_lib" "$dir/lib"; else cp -R "$src_lib" "$dir/lib"; lib="$dir/lib"; fi ;;
   esac
   local also=""
   if [ -n "${KURA_ALSO:-}" ]; then
@@ -79,21 +82,54 @@ cmd_launch() {
     [[ "$also/" == "$(cd "$BASE" && pwd -P)/"* ]] || die "$KURA_ALSO は $BASE の下にない"
     [ -d "$also/.kura" ] || die "$KURA_ALSO はライブラリではない"
   fi
+  [ -n "$lib" ] && restore_dirs "$lib"
   # 起動時、アプリは一覧の先頭のライブラリを自動で開く。空なら選択画面
   python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1:]))' ${lib:+"$lib"} ${also:+"$also"} >"$(data_dir "$id")/recent-libraries.json"
+  start_app "$id" "$lib"
+  ours "$id" || { cat "$dir/app.log"; die "起動直後に終了した"; }
+  echo "pid=$(pid_of "$id") run=$dir lib=${lib:-なし}"
+  cmd_doctor "$id"
+}
+
+# ワークツリーに写した .claude/tmp は空のフォルダを落とすので、見本の _未分類 と空のカテゴリが消えていることがある。
+# _未分類 がないと取り込みが「フォルダを読めません」で失敗するので、DB のカテゴリの道筋からフォルダを作り直す
+restore_dirs() {
+  mkdir -p "$1/_未分類"
+  sqlite3 -readonly "$1/.kura/kura.db" "with recursive p(id, path) as (
+      select id, name from categories where parent_id is null
+      union all select c.id, p.path || '/' || c.name from categories c join p on c.parent_id = p.id)
+    select path from p" | while IFS= read -r d; do mkdir -p "$1/$d"; done
+}
+
+# start_app <id> <lib> : run の HOME で Kura を起動し、ライブラリを開くまで待つ。app.log には書き足す
+start_app() {
+  local id=$1 lib=$2 dir; dir=$(run_dir "$1")
+  local opened; opened=$(grep -c "ライブラリを開きました\|ライブラリが見つかりません" "$dir/app.log" 2>/dev/null || true)
   # HOME を差し替えて、利用者の ~/Library/Application Support/dev.kk6.kura を読まない・書かない
-  HOME="$dir/home" RUST_LOG=info nohup "$BIN" >"$dir/app.log" 2>&1 &
+  # KURA_PROXY=1 なら、curl（モデルのダウンロード）を net up のプロキシに通す。net up の前は通信できない
+  local proxy=()
+  [ "${KURA_PROXY:-}" = 1 ] && proxy=(HTTPS_PROXY="http://127.0.0.1:$PROXY_PORT" HTTP_PROXY="http://127.0.0.1:$PROXY_PORT")
+  env HOME="$dir/home" RUST_LOG=info ${proxy[@]+"${proxy[@]}"} nohup "$BIN" >>"$dir/app.log" 2>&1 &
   local p=$!
   sleep 0.2
   printf '%s\t%s\n' "$p" "$(started "$p")" >"$dir/pid"
   for _ in $(seq 1 40); do
-    grep -q "ライブラリを開きました\|ライブラリが見つかりません" "$dir/app.log" 2>/dev/null && break
+    [ "$(grep -c "ライブラリを開きました\|ライブラリが見つかりません" "$dir/app.log")" -gt "${opened:-0}" ] && break
     [ -z "$lib" ] && sleep 2 && break
     sleep 0.5
   done
-  ours "$id" || { cat "$dir/app.log"; die "起動直後に終了した"; }
-  echo "pid=$(pid_of "$id") run=$dir lib=${lib:-なし}"
-  cmd_doctor "$id"
+}
+
+# relaunch <id> : 同じ run の HOME とライブラリのまま、Kura を起動し直す（再起動の後に設定や計算が残るかの確認）。
+# 動いていれば止めてから起動する。終了の確認なら、先に画面で ⌘Q してから流す
+cmd_relaunch() {
+  local dir; dir=$(run_dir "$1")
+  [ -d "$dir/home" ] || die "$dir は起動していない。先に launch"
+  kill_app "$1"
+  pgrep -f "$BIN" >/dev/null && die "別の検証用 Kura が動いている（pgrep -fl '$BIN'）"
+  start_app "$1" "$([ -e "$dir/lib/.kura" ] && echo "$dir/lib")"
+  ours "$1" || { tail -20 "$dir/app.log"; die "起動直後に終了した"; }
+  cmd_doctor "$1"
 }
 
 cmd_doctor() {
@@ -112,16 +148,16 @@ cmd_doctor() {
   [ $ok = 1 ]
 }
 
-# db <id> <sql> : run の lib/ の DB を読み取り専用で見る
+# db <id> <sql> [features] : run の lib/ の DB（features なら類似画像検索の features.db）を読み取り専用で見る
 # Kura は DB を排他モードで開くので、動いている間はほかのプロセスが開けない。DB と WAL を写して、写しを読む。
 # 書き込みの途中に写すと半端な写しになることがあるので、操作の後に少し待ってから使う
 cmd_db() {
-  local db copy; db="$(run_dir "$1")/lib/.kura/kura.db"
+  local db copy name="${3:-kura}"; db="$(run_dir "$1")/lib/.kura/$name.db"
   [ -f "$db" ] || die "$db がない"
   copy=$(mktemp -d "${TMPDIR:-/tmp}/kura-db.XXXXXX")
-  cp "$db" "$copy/kura.db"
-  [ -f "$db-wal" ] && cp "$db-wal" "$copy/kura.db-wal"
-  sqlite3 -header "$copy/kura.db" "$2"
+  cp "$db" "$copy/$name.db"
+  [ -f "$db-wal" ] && cp "$db-wal" "$copy/$name.db-wal"
+  sqlite3 -header "$copy/$name.db" "$2"
   rm -rf "$copy"
 }
 
@@ -154,6 +190,7 @@ cmd_stop() {
   local id=$1 dir
   dir=$(run_dir "$id")
   kill_app "$id"
+  proxy_down "$id"
   [ -f "$dir/app.log" ] && cp "$dir/app.log" "$dir/evidence/app.log"
   rm -rf "$dir/home" "$dir/lib" "$dir/src" "$dir/pid" "$dir/app.log"
   echo "stopped. evidence: $dir/evidence"
@@ -186,12 +223,58 @@ SWIFT
   rm -f "$f"
 }
 
+# model <id> : 類似画像検索のモデルを、run のアプリのデータフォルダの models/ に置く（ダウンロードの代わり）。
+# 複製元は KURA_MODEL_SRC（既定は本体のリポジトリの spikes/similarity/models/siglip2-b16.onnx。git の管理外）。
+# ml/model.json の名前で置き、SHA-256 が合うことを確かめる。ON にするとアプリは通信せずにこれを使う
+cmd_model() {
+  local dir; dir=$(run_dir "$1")
+  [ -d "$dir/home" ] || die "$dir は起動していない。先に launch"
+  local main; main=$(cd "$(git -C "$REPO" rev-parse --git-common-dir)/.." && pwd)
+  local src="${KURA_MODEL_SRC:-$main/spikes/similarity/models/siglip2-b16.onnx}"
+  [ -f "$src" ] || die "$src がない。KURA_MODEL_SRC にモデルのファイルを渡す"
+  local name sha
+  read -r name sha < <(python3 -I -c 'import json, sys
+for a in json.load(open(sys.argv[1]))["aspects"]:
+    if a["file"]: print(a["file"]["name"], a["file"]["sha256"])' "$REPO/ml/model.json")
+  local models; models="$(data_dir "$1")/models"
+  mkdir -p "$models"
+  # APFS なら複製（cp -c）で、372MB を写さずに済む
+  cp -c "$src" "$models/$name.copy" 2>/dev/null || cp "$src" "$models/$name.copy"
+  [ "$(shasum -a 256 "$models/$name.copy" | cut -d' ' -f1)" = "$sha" ] || { rm -f "$models/$name.copy"; die "$src の SHA-256 が ml/model.json と違う"; }
+  mv "$models/$name.copy" "$models/$name"
+  echo "placed: $models/$name (sha256 ok)"
+}
+
+# net <id> up|down : KURA_PROXY=1 で起動した Kura の通信の口を開ける・閉じる。
+# down はプロキシを止めるので、ダウンロードの途中なら通信が切れる。記録は evidence/proxy.log
+proxy_pid() { cat "$(run_dir "$1")/proxy.pid" 2>/dev/null || true; }
+proxy_down() {
+  local p; p=$(proxy_pid "$1")
+  # pid が使い回されていても、このプロキシでなければ止めない
+  [ -n "$p" ] && [[ "$(ps -o command= -p "$p" 2>/dev/null)" == *verify-kura/proxy.py* ]] && kill "$p"
+  rm -f "$(run_dir "$1")/proxy.pid"
+}
+cmd_net() {
+  local dir; dir=$(run_dir "$1")
+  case "${2:-}" in
+    up)
+      [ -n "$(proxy_pid "$1")" ] && die "もう up している"
+      lsof -nP -iTCP:$PROXY_PORT -sTCP:LISTEN >/dev/null && die "ポート $PROXY_PORT を別のプロセスが使っている"
+      mkdir -p "$dir/evidence"
+      nohup python3 -I "$REPO/.claude/skills/verify-kura/proxy.py" $PROXY_PORT >>"$dir/evidence/proxy.log" 2>&1 &
+      echo $! >"$dir/proxy.pid"
+      sleep 0.3; tail -1 "$dir/evidence/proxy.log" ;;
+    down) proxy_down "$1"; echo "down" ;;
+    *) die "net <id> up|down" ;;
+  esac
+}
+
 case "${1:-}" in
   build) cmd_build ;;
-  launch|doctor|db|stop|src|template|windows)
+  launch|relaunch|doctor|db|stop|src|template|windows|model|net)
     c=$1; shift
     valid_id "${1:-}" || die "run id は英数字と . _ - だけ（'${1:-}'）"
     "cmd_$c" "$@" ;;
   real-data-mtime) stat -f '%m %N' "$REAL_DATA"/* 2>/dev/null || true ;;
-  *) echo "usage: $0 build | launch <id> [empty|template|<lib>] | doctor <id> | src <id> [n] | db <id> <sql> | windows <id> | template <id> | stop <id> | real-data-mtime"; exit 2 ;;
+  *) echo "usage: $0 build | launch <id> [empty|template|<lib>] | relaunch <id> | doctor <id> | src <id> [n] | db <id> <sql> | windows <id> | template <id> | model <id> | net <id> up|down | stop <id> | real-data-mtime"; exit 2 ;;
 esac
