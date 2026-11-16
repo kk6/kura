@@ -49,7 +49,7 @@ $R $V net <id> down     # 閉じる。ダウンロードの途中なら、その
 
 ### 2万枚のライブラリ（性能の確認用）
 
-見本を写し、ダミー画像を2万枚置いて、Kura に差分の確認で登録させる。特徴量は実アプリで計算する（約16分）。一度作ったら、性能の確認のたびに写して使う。
+見本を写し、ダミー画像を2万枚置いて、Kura に差分の確認で登録させる。特徴量は実アプリで計算する（Apple M5 Max のリリース用ビルドで、登録に約2分、計算に16分38秒。2026-11-16）。一度作ったら、性能の確認のたびに写して使う。
 
 ```bash
 B=.claude/tmp/verify-kura
@@ -63,18 +63,20 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin KURA_IN_PLACE=1 $R $V launch build20k $B/lib2
 3. 計算が終わるまで待つ。`$R $V db build20k "select count(*) from images where deleted_at is null and missing_at is null"` と、`$R $V db build20k "select aspect, count(*) from embeddings group by aspect" features` の件数がそろえば終わり。
 4. `$R $V stop build20k`。`KURA_IN_PLACE` なので `lib20k` はそのまま残る（stop は run の `lib` のリンクだけを消す）。
 
-使うときは `$R $V launch <id> $B/lib20k` で写して開く（APFS なので写しは数秒）。計算中の確認には、写した後に `.kura/features.db` を消してから開く（`cp -R $B/lib20k $B/lib20k-nofeat && rm $B/lib20k-nofeat/.kura/features.db*`）。
+使うときは `$R $V launch <id> $B/lib20k` で写して開く（2万のサムネイルも写す）。計算中の確認には、写した後に `.kura/features.db` を消してから開く（`cp -R $B/lib20k $B/lib20k-nofeat && rm $B/lib20k-nofeat/.kura/features.db*`）。
 
 ### 見分けやすい写真のライブラリ
 
-見本の写真（`/Users/kk6/Projects/kura-library`）は読むだけにし、ライブラリとして開かない。中の `.kura/` を除いて写し、写しを取り込む。
+見本の写真（`/Users/kk6/Projects/kura-library`）は読むだけにし、ライブラリとして開かない（それ自体が Kura のライブラリで、`.kura/` を持つ）。`.kura/` を除いて写し、空の `.kura/` を置いて開く。Kura が `kura.db` を作り、差分の確認で写真を登録する（88枚、カテゴリ7件）。
 
 ```bash
 rsync -a --exclude .kura --exclude _未分類 --exclude .DS_Store /Users/kk6/Projects/kura-library/ $B/photos-src/
-$R $V launch photos empty
+mkdir -p $B/photos-lib/.kura $B/photos-lib/_未分類 && cp -R $B/photos-src/* $B/photos-lib/
+PATH=/usr/bin:/bin:/usr/sbin:/sbin KURA_IN_PLACE=1 $R $V launch photos $B/photos-lib
+$R $V model photos     # 設定で ON にすると数秒で計算が終わる
 ```
 
-選択画面で `runs/photos/lib` を「新しいライブラリを作る」で作り、`$B/photos-src` を「フォルダを取り込む」で取り込む（library.md、import.md）。モデルを置いて ON にし、計算が終わったら `$R $V template photos` の代わりに `cp -R runs/photos/lib $B/photos-lib` で残す（アプリを止めてから）。カテゴリ（`photos-src/動物/猫` など）が同じ被写体の組になる。
+`$R $V stop photos` の後も `photos-lib` は残る。カテゴリ（`動物/猫` など）が同じ被写体の組になる。似た構図で内容の違う組は、特徴量から候補を出せる（読むだけ）：`features.db` と `kura.db` を WAL ごと別の場所へ写し、構図のベクトルの内積の1位が別の最上位のカテゴリになる組を挙げる。2026-11-16 の写しでは、内容の上位3件の97%が同じカテゴリだった。構図で互いに1位になる組に、風景と犬、人物と小物、ラッコと風景があった（`runs/photos-1/evidence/pairs.txt`）。並びが納得できるかは利用者が画面で決める。
 
 ### 確かめること（phase3-check との対応）
 

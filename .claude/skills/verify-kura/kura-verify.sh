@@ -95,6 +95,7 @@ cmd_launch() {
 # _未分類 がないと取り込みが「フォルダを読めません」で失敗するので、DB のカテゴリの道筋からフォルダを作り直す
 restore_dirs() {
   mkdir -p "$1/_未分類"
+  [ -f "$1/.kura/kura.db" ] || return 0
   sqlite3 -readonly "$1/.kura/kura.db" "with recursive p(id, path) as (
       select id, name from categories where parent_id is null
       union all select c.id, p.path || '/' || c.name from categories c join p on c.parent_id = p.id)
