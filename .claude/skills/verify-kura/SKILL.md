@@ -128,13 +128,16 @@ $V stop <id>
 | コマンド | 内容 |
 | --- | --- |
 | `build` | `npm run tauri build -- --debug --bundles app`。`KURA_BUILD=release` を付けるとリリース用ビルド。`launch`、`stop` なども同じ変数でリリース用の `.app` と、`debug/` の付かないアプリのデータフォルダを使う（性能の確認用） |
-| `launch <id> [empty\|template\|<lib>]` | 隔離して起動し、doctor を流す。`<lib>` は `.claude/tmp/verify-kura/` の下のライブラリだけを受け付け、run の `lib/` に複製して開く |
+| `launch <id> [empty\|template\|<lib>]` | 隔離して起動し、doctor を流す。見本や `<lib>` の写しには、DB のカテゴリにある空のフォルダと `_未分類` を作り直す（ワークツリーへ写した `.claude/tmp` は空のフォルダを落とす）。`<lib>` は `.claude/tmp/verify-kura/` の下のライブラリだけを受け付け、run の `lib/` に複製して開く |
 | `doctor <id>` | 上の確認 |
 | `src <id> [枚数]` | 取り込み元のダミー画像を `runs/<id>/src/` に作る（`scripts/gen_dev_library.py`） |
-| `db <id> "<SQL>"` | run のライブラリの DB を読み取り専用で引く |
+| `db <id> "<SQL>" [features]` | run のライブラリの DB を読み取り専用で引く。`features` を付けると `.kura/features.db` |
 | `windows <id>` | 自分が起動した Kura のウィンドウごとの層（最前面の固定で 0 以外）、不透明度（alpha）、位置と大きさ。WindowServer の値を読む |
 | `template <id>` | アプリを止め、run の `lib/` を見本として保存する |
-| `stop <id>` | 停止と後片付け。証跡は残す |
+| `relaunch <id>` | 同じ run の HOME とライブラリのまま起動し直す（再起動の後に設定や計算が残るかの確認） |
+| `model <id>` | 類似画像検索のモデルを run のアプリのデータフォルダに置き、SHA-256 を確かめる（features/similarity.md） |
+| `net <id> up\|down` | `KURA_PROXY=1` で起動した Kura の通信の口を開ける・閉じる。つないだ先は `evidence/proxy.log`（features/similarity.md） |
+| `stop <id>` | 停止と後片付け（プロキシも止める）。証跡は残す |
 | `real-data-mtime` | 利用者のアプリデータのファイルの更新日時（中身は読まない） |
 
 機能ごとの手順は `features/README.md` から引く。元URLの記録（拡張属性）を付けたダミー画像は `uv run scripts/gen_source_urls.py <出力先>` で作る（features/source-url.md）。
