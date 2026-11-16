@@ -86,8 +86,20 @@
 
 .toolbar__weight {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: var(--space-3);
   font-size: var(--font-size-sm);
   color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+/* 1行目に名前、2行目に比べるものの説明。2行でも段の高さ（--size-toolbar）に収める */
+.toolbar__weight-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar__weight-label {
+  color: var(--color-text-sub);
 }
