@@ -146,6 +146,7 @@ const imageDetail: Handler = (args) => {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
     source: SOURCES[image.id] ?? null,
+    similar: stored('mock.settings', DEFAULT_SETTINGS).similarity_enabled && computedImages().includes(image),
   }
 }
 
@@ -488,9 +489,10 @@ async function runFeatures() {
 // 類似画像検索（FR-601）。本物は features.db のベクトルの内積を、観点ごとに基準画像を除いた全画像で平均0・標準偏差1にそろえる。
 // モックは一覧の最後の3枚を未計算にし、id から決まる値を返す。基準画像はどちらの観点でも最大になる
 const UNCOMPUTED = 3
+const computedImages = () => IMAGES.slice(0, Math.max(IMAGES.length - UNCOMPUTED, 0))
 const similarImages: Handler = (args) => {
   const base = Number(args?.id)
-  const computed = IMAGES.slice(0, Math.max(IMAGES.length - UNCOMPUTED, 0))
+  const computed = computedImages()
   if (!computed.some((i) => i.id === base)) throw 'この画像の特徴量はまだ計算していません'
   const score = (id: number, k: number) => (id === base ? 3 : Math.sin(id * k + base))
   return {

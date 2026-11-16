@@ -171,6 +171,23 @@ impl Store {
             .collect())
     }
 
+    /// hash の画像に、aspects のすべてについて今のモデル名の行があるか。computed の1枚分
+    pub fn has(&self, hash: &str, aspects: &[Aspect]) -> Result<bool, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM embeddings WHERE hash = ?1 AND aspect = ?2 AND model = ?3 AND length(vector) = ?4")
+            .map_err(err)?;
+        for a in aspects {
+            if !stmt
+                .exists(params![hash, a.aspect, a.model, (a.dim * 4) as i64])
+                .map_err(err)?
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     /// 1つの観点の、今のモデル名の行をすべて読む
     pub fn load(&self, aspect: &Aspect) -> Result<Vec<(String, Vec<f32>)>, String> {
         let mut stmt = self

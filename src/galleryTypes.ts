@@ -27,6 +27,8 @@ export type Detail = {
   file_size: number
   // link はブラウザで開ける URL（有効な掲載ページURLを優先し、なければ画像URL）。どちらも開けない値なら null
   source: { image_url: string | null; page_url: string | null; link: string | null } | null
+  // 「似た画像を探す」の基準にできる（ゴミ箱でも「見つからない」でもなく、特徴量がそろっている）
+  similar: boolean
 }
 
 // src-tauri/src/tag.rs の Counted（image_tags コマンドの返り値）。count は選んだ画像のうちそのタグが付いている枚数
