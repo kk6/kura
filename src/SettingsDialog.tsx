@@ -111,6 +111,7 @@ export default function SettingsDialog({
         <p>
           オンにすると、初回だけモデルをダウンロードします。オフにしても、ダウンロードしたモデルと計算した結果は消えません。
         </p>
+        <p>モデル：SigLIP 2（Google、Apache License 2.0）</p>
         {modelFetch?.running && (
           <p className="dialog__row" role="status">
             {modelFetch.progress

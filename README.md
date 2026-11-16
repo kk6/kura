@@ -108,3 +108,5 @@ KURA_DOCS_PHOTOS=<見本の写真のフォルダ> npm run docs:screenshots
 ## ライセンス
 
 [MIT](LICENSE)
+
+類似画像検索のモデル（SigLIP 2、Google）は Apache License 2.0 です。ライセンスの写しと表示は、モデルと同じ [GitHub Release（models-1）](https://github.com/kk6/kura/releases/tag/models-1) にあります。
