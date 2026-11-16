@@ -501,8 +501,23 @@ fn load_gallery(current: State<Current>) -> Result<gallery::Gallery, String> {
 }
 
 #[tauri::command]
-fn image_detail(current: State<Current>, id: i64) -> Result<gallery::Detail, String> {
-    current.0.with(|lib| gallery::detail(lib, id))
+fn image_detail(
+    current: State<Current>,
+    models: State<Models>,
+    id: i64,
+) -> Result<gallery::Detail, String> {
+    current.0.with(|lib| {
+        let mut detail = gallery::detail(lib, id)?;
+        // 特徴量を読めなくても詳細は出す。基準にできないものとして扱い、理由はログに残す
+        detail.similar = models
+            .manifest()
+            .and_then(|m| similar::ready(lib, &m.aspects, id))
+            .unwrap_or_else(|e| {
+                log::warn!("類似検索できるかを確かめられません（{id}、{e}）");
+                false
+            });
+        Ok(detail)
+    })
 }
 
 /// Finder で画像を選んだ状態で開く。id がなければライブラリのフォルダを開く。

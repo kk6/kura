@@ -22,15 +22,7 @@ const UNCOMPUTED: &str = "この画像の特徴量はまだ計算していませ
 /// 基準画像 id に対する、特徴量がそろった全画像の類似度を観点ごとに返す。
 /// 値は基準画像を除いた全画像で平均0・標準偏差1にそろえる（5.6 の「重み」）
 pub fn similar(lib: &mut Library, aspects: &[Aspect], id: i64) -> Result<Similar, String> {
-    lib.conn
-        .query_row::<String, _, _>(
-            "SELECT hash FROM images WHERE id = ?1 AND deleted_at IS NULL AND missing_at IS NULL",
-            [id],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(err)?
-        .ok_or("ゴミ箱か「見つからない」の画像、または無い画像です")?;
+    hash_of(lib, id)?.ok_or("ゴミ箱か「見つからない」の画像、または無い画像です")?;
     // 類似画像検索を使ったことのないライブラリには features.db を作らない（設計メモ2章）
     if !features::path(&lib.root).exists() {
         return Err(UNCOMPUTED.into());
@@ -79,6 +71,31 @@ pub fn similar(lib: &mut Library, aspects: &[Aspect], id: i64) -> Result<Similar
         scores,
         uncomputed,
     })
+}
+
+/// id を基準に探せるか。ゴミ箱でも「見つからない」でもなく、今のモデルの全観点の特徴量がそろっている。
+/// 画面が押す前に未計算を知るため、詳細パネルを読むたびに呼ぶ（5.6 の「入口と結果」）
+pub fn ready(lib: &mut Library, aspects: &[Aspect], id: i64) -> Result<bool, String> {
+    let Some(hash) = hash_of(lib, id)? else {
+        return Ok(false);
+    };
+    // 類似画像検索を使ったことのないライブラリには features.db を作らない（設計メモ2章）
+    if !features::path(&lib.root).exists() {
+        return Ok(false);
+    }
+    lib.with_features(|s| s.has(&hash, aspects))
+}
+
+/// ゴミ箱でも「見つからない」でもない画像のハッシュ
+fn hash_of(lib: &Library, id: i64) -> Result<Option<String>, String> {
+    lib.conn
+        .query_row(
+            "SELECT hash FROM images WHERE id = ?1 AND deleted_at IS NULL AND missing_at IS NULL",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(err)
 }
 
 fn dot(a: &[f32], b: &[f32]) -> f32 {
@@ -291,6 +308,34 @@ mod tests {
         let (_d, mut lib) = open();
         let id = add(&mut lib, "a", "");
         assert!(similar(&mut lib, &aspects(), id).is_err());
+        assert!(!crate::features::path(&lib.root).exists());
+    }
+
+    #[test]
+    fn 特徴量がそろった画像だけ基準にできる() {
+        let (_d, mut lib) = open();
+        let ok = image(&mut lib, "ok", 0.0);
+        let none = add(&mut lib, "none", "");
+        let half = add(&mut lib, "half", "");
+        let a = aspects();
+        lib.with_features(|s| s.put("half", &[(&a[0], &unit(0.0)[..])], 1))
+            .unwrap();
+        let trash = add(&mut lib, "trash", "trash");
+        put(&mut lib, "trash", 0.0);
+        let missing = add(&mut lib, "missing", "missing");
+        put(&mut lib, "missing", 0.0);
+
+        assert!(ready(&mut lib, &a, ok).unwrap());
+        for id in [none, half, trash, missing, 9999] {
+            assert!(!ready(&mut lib, &a, id).unwrap(), "id {id}");
+        }
+    }
+
+    #[test]
+    fn 特徴量のdbがないライブラリでは作らずに基準にできない() {
+        let (_d, mut lib) = open();
+        let id = add(&mut lib, "a", "");
+        assert!(!ready(&mut lib, &aspects(), id).unwrap());
         assert!(!crate::features::path(&lib.root).exists());
     }
 

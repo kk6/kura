@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::ops::RangeInclusive;
 use std::path::Path;
@@ -21,6 +22,9 @@ pub struct Settings {
     /// 類似画像検索を使う（5.6）。true にするのは、モデルのファイルをそろえた後の画面だけ。
     /// OFF に戻してもモデルと特徴量は消さない
     pub similarity_enabled: bool,
+    /// 類似画像検索の観点ごとの重み（FR-602）。観点の名前（model.json の aspects）→ 0〜100。
+    /// 無い観点を初期値で埋め、範囲に収めるのは画面側。知らない観点の値も残し、観点が増えた版との間で壊さない
+    pub similarity_weights: BTreeMap<String, u32>,
     /// ボードの専用ウィンドウの表示（FR-705、FR-707）。board_enabled を切っても消さない（FR-711）
     pub board_window: BoardWindow,
 }
@@ -119,6 +123,7 @@ impl Default for Settings {
             tags_collapsed: false,
             board_enabled: true,
             similarity_enabled: false,
+            similarity_weights: BTreeMap::new(),
             board_window: BoardWindow::default(),
         }
     }
@@ -213,6 +218,10 @@ mod tests {
             tags_collapsed: true,
             board_enabled: false,
             similarity_enabled: true,
+            similarity_weights: BTreeMap::from([
+                ("content".into(), 30),
+                ("composition".into(), 100),
+            ]),
             board_window: BoardWindow {
                 always_on_top: true,
                 opacity: 45,
@@ -250,6 +259,27 @@ mod tests {
         assert_eq!(s.board_window.frame, None);
         // 類似画像検索はフェーズ3で足した。更新した人も OFF で始め、押すまでモデルを取りに行かない（NFR-08）
         assert!(!s.similarity_enabled);
+        // 重みもフェーズ3で足した。無い観点は画面が初期値で埋める
+        assert!(s.similarity_weights.is_empty());
+    }
+
+    #[test]
+    fn 知らない観点の重みも読み書きで残す() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        // 3b でポーズを足した版の設定を、3a の版で読んで保存し直しても、ポーズの重みを消さない
+        fs::write(
+            &file,
+            r#"{"similarity_weights": {"content": 20, "pose": 80}}"#,
+        )
+        .unwrap();
+
+        save(&file, &load(&file)).unwrap();
+
+        assert_eq!(
+            load(&file).similarity_weights,
+            BTreeMap::from([("content".into(), 20), ("pose".into(), 80)])
+        );
     }
 
     #[test]
@@ -320,6 +350,7 @@ mod tests {
             tags_collapsed: false,
             board_enabled: true,
             similarity_enabled: false,
+            similarity_weights: BTreeMap::new(),
             board_window: BoardWindow::default(),
         };
         save(&file, &before).unwrap();
