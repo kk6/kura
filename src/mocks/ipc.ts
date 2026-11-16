@@ -484,6 +484,22 @@ async function runFeatures() {
   await emit('features-progress', last)
 }
 
+// 類似画像検索（FR-601）。本物は features.db のベクトルの内積を、観点ごとに基準画像を除いた全画像で平均0・標準偏差1にそろえる。
+// モックは一覧の最後の3枚を未計算にし、id から決まる値を返す。基準画像はどちらの観点でも最大になる
+const UNCOMPUTED = 3
+const similarImages: Handler = (args) => {
+  const base = Number(args?.id)
+  const computed = IMAGES.slice(0, Math.max(IMAGES.length - UNCOMPUTED, 0))
+  if (!computed.some((i) => i.id === base)) throw 'この画像の特徴量はまだ計算していません'
+  const score = (id: number, k: number) => (id === base ? 3 : Math.sin(id * k + base))
+  return {
+    aspects: ['content', 'composition'],
+    ids: computed.map((i) => i.id),
+    scores: [computed.map((i) => score(i.id, 0.7)), computed.map((i) => score(i.id, 1.3))],
+    uncomputed: IMAGES.length - computed.length,
+  }
+}
+
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
 // e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない。
 // 「保存できない」という名前のボードは配置を保存できない
@@ -712,6 +728,7 @@ const handlers: Record<string, Handler> = {
     if (before.similarity_enabled && !next.similarity_enabled) emit('features-progress', FEATURES_IDLE)
   },
   features_status: featuresStatus,
+  similar_images: similarImages,
   retry_features: () => {
     sessionStorage.removeItem('mock.stopFeatures')
     runFeatures()

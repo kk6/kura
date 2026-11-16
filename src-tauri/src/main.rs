@@ -13,6 +13,7 @@ mod model;
 mod recent;
 mod settings;
 mod settle;
+mod similar;
 mod source;
 mod sync;
 mod tag;
@@ -247,6 +248,25 @@ fn features_status(calc: State<calc::Calc>) -> calc::Status {
 #[tauri::command]
 fn retry_features(calc: State<calc::Calc>) {
     calc.retry();
+}
+
+/// 基準画像に対する観点ごとの類似度。重みを掛けて並べるのは画面
+#[tauri::command]
+fn similar_images(
+    current: State<Current>,
+    models: State<Models>,
+    id: i64,
+) -> Result<similar::Similar, String> {
+    let aspects = &models.manifest()?.aspects;
+    let start = std::time::Instant::now();
+    let result = current.0.with(|lib| similar::similar(lib, aspects, id))?;
+    log::info!(
+        "類似度を計算しました（{}枚、未計算 {}枚、{:?}）",
+        result.ids.len(),
+        result.uncomputed,
+        start.elapsed()
+    );
+    Ok(result)
 }
 
 /// 特徴量の計算が使うもの。ワーカーは計算する画像があるときだけ、回ごとに起動する
@@ -866,6 +886,7 @@ fn main() {
             model_size,
             prepare_models,
             features_status,
+            similar_images,
             retry_features,
             windows::report_gallery,
             location_warning,

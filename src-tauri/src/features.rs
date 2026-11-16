@@ -172,8 +172,6 @@ impl Store {
     }
 
     /// 1つの観点の、今のモデル名の行をすべて読む
-    // タスク6の検索のコマンドが使う
-    #[allow(dead_code)]
     pub fn load(&self, aspect: &Aspect) -> Result<Vec<(String, Vec<f32>)>, String> {
         let mut stmt = self
             .conn
