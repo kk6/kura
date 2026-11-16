@@ -34,12 +34,17 @@ type Props = {
   onTrash: (ids: number[]) => void
   // 選んだ画像の「ボードに追加」。アイデアボードが OFF ならなく、ボタンを出さない（FR-711）
   onAddToBoard?: () => void
+  // 選んだ1枚を基準に「似た画像を探す」（FR-601）。類似画像検索が OFF ならなく、ボタンを出さない
+  onFindSimilar?: () => void
   // 画像を Finder で選んだ状態で開く
   onReveal: (id: number) => void
   // 拡大表示を開く（FR-508）。サムネイルのダブルクリックで呼ぶ
   onOpen: () => void
   onClose: () => void
 }
+
+// 未計算の画像で「似た画像を探す」を押せない理由。詳細パネルと右クリックメニューで同じ文を出す
+export const NOT_COMPUTED = '特徴量を計算するまで探せません'
 
 function fileSize(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -326,6 +331,18 @@ export default function Detail(props: Props) {
             <dd>{dateTime(image.imported_at)}</dd>
           </dl>
           <div className="detail__actions">
+            {props.onFindSimilar && (
+              <button
+                type="button"
+                className="button"
+                disabled={!detail?.similar}
+                aria-describedby={detail && !detail.similar ? 'detail-similar-note' : undefined}
+                onClick={props.onFindSimilar}
+              >
+                <Icon d={ICONS.scanSearch} />
+                似た画像を探す
+              </button>
+            )}
             {add}
             <button type="button" className="button" onClick={() => props.onReveal(image.id)}>
               <Icon d={ICONS.folder} />
@@ -333,6 +350,11 @@ export default function Detail(props: Props) {
             </button>
             {trash}
           </div>
+          {props.onFindSimilar && detail && !detail.similar && (
+            <p id="detail-similar-note" className="detail__hint">
+              {NOT_COMPUTED}
+            </p>
+          )}
         </>
       )}
     </aside>

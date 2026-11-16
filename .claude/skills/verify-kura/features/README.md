@@ -35,7 +35,10 @@ Kura の利用者から見える動きを実アプリで確かめるための、
 - [Finder での変更を反映する](./finder-sync.md)：差分の確認（FR-104）
 - [アイデアボード](./board.md)：専用ウィンドウ、ボードの管理、追加、配置・視点・取り消し、加工、最前面・不透明度、元画像との連動、保存と保存の失敗（FR-701〜FR-708、FR-711、NFR-13）
 - [元URL](./source-url.md)：取り込み・差分の確認での読み取り、詳細パネルのリンク、補完（FR-208）。記録を付けたダミー画像は `scripts/gen_source_urls.py`
+- [類似画像検索](./similarity.md)：ON/OFF とモデル、ダウンロードの失敗と元に戻す、特徴量の計算、似た画像を探す、重み、2万枚と見本の写真のライブラリ（FR-601〜FR-604、NFR-03、NFR-08、NFR-09）。モデルは `$V model`、通信は `KURA_PROXY=1` と `$V net`
 
 Rust を通らない画面だけの機能（検索、並べ替え、サムネイルの大きさ、拡大表示の拡大・縮小と移動（FR-508））はここに手順を置かない。CLAUDE.md の Playwright のモック（`npm run test:e2e`）で確かめる。
+
+フェーズ3の利用者の確認（`docs/tasks/phase3-check.md`）の A〜G は similarity.md の「確かめること」に対応を書いた。
 
 フェーズ2の利用者の確認（`docs/tasks/phase2-check.md`）の各節と、ここの手順の対応：A・B・C・D・E・F・G は board.md、H は source-url.md、A の「一覧から外す」は library.md、J の外付けドライブは SKILL.md の「保存を失敗させる」。

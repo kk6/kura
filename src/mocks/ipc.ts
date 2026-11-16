@@ -2,7 +2,7 @@ import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
-import type { Report, ScanReport } from '../importTypes'
+import type { FeaturesStatus, Report, ScanReport } from '../importTypes'
 import type { Added, BoardSummary, EditingBoard, Item, Snapshot, Target, Viewport } from '../board/types'
 import photos from 'virtual:docs-photos'
 
@@ -146,6 +146,7 @@ const imageDetail: Handler = (args) => {
     path: `/Users/me/Pictures/Kura ライブラリ/_未分類/${image.file_name}`,
     file_size: 180_000 + image.id * 1000,
     source: SOURCES[image.id] ?? null,
+    similar: stored('mock.settings', DEFAULT_SETTINGS).similarity_enabled && computedImages().includes(image),
   }
 }
 
@@ -436,7 +437,79 @@ const DEFAULT_SETTINGS: Settings = {
   thumb_width: 200,
   tags_collapsed: false,
   board_enabled: true,
+  similarity_enabled: false,
+  similarity_weights: {},
   board_window: { always_on_top: false, opacity: 100, frame: null },
+}
+
+// 類似画像検索のモデル（NFR-08）。本物と同じく、そろっていれば進み具合を送らずに終わる。
+// e2e で失敗の表示を確かめるため、mock.failModel があればダウンロードに失敗する
+const MODEL_SIZE = 371807752
+const prepareModels: Handler = async () => {
+  if (sessionStorage.getItem('mock.modelReady')) return
+  await emit('model-progress', { done: 0, total: MODEL_SIZE })
+  await new Promise((r) => setTimeout(r, 300))
+  await emit('model-progress', { done: MODEL_SIZE / 2, total: MODEL_SIZE })
+  await new Promise((r) => setTimeout(r, 300))
+  if (sessionStorage.getItem('mock.failModel'))
+    throw 'モデルをダウンロードできません（curl: (6) Could not resolve host: github.com）'
+  await emit('model-progress', { done: MODEL_SIZE, total: MODEL_SIZE })
+  sessionStorage.setItem('mock.modelReady', '1')
+}
+
+// 特徴量の計算（FR-604）。本物は Rust のきっかけで計算を始め、features-progress で知らせる。
+// ON にしたときと「再計算」のときに、一覧の画像を数枚ずつ計算したことにする。
+// e2e で止まったときの表示を確かめるため、mock.stopFeatures があれば1枚を失敗にして止まる
+const FEATURES_IDLE: FeaturesStatus = { running: false, done: 0, total: 0, failed: 0, error: null }
+const featuresStatus = (): FeaturesStatus =>
+  stored('mock.settings', DEFAULT_SETTINGS).similarity_enabled
+    ? stored('mock.features', { ...FEATURES_IDLE, done: IMAGES.length, total: IMAGES.length })
+    : FEATURES_IDLE
+async function runFeatures() {
+  const total = IMAGES.length
+  const stop = sessionStorage.getItem('mock.stopFeatures')
+  const end = stop ? total - 2 : total
+  for (let done = 0; done < end; done += Math.ceil(total / 4)) {
+    await emit('features-progress', { ...FEATURES_IDLE, running: true, done, total })
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  const last: FeaturesStatus = stop
+    ? {
+        running: false,
+        done: end,
+        total,
+        failed: 1,
+        error: '特徴量の計算が止まりました。設定の「再計算」でもう一度試せます',
+      }
+    : { ...FEATURES_IDLE, done: total, total }
+  store('mock.features', last)
+  await emit('features-progress', last)
+}
+
+// 類似画像検索（FR-601）。本物は features.db のベクトルの内積を、観点ごとに基準画像を除いた全画像で平均0・標準偏差1にそろえる。
+// モックは一覧の最後の3枚を未計算にし、id から決まる値を返す。基準画像はどちらの観点でも最大になる
+const UNCOMPUTED = 3
+const computedImages = () => IMAGES.slice(0, Math.max(IMAGES.length - UNCOMPUTED, 0))
+const similarImages: Handler = (args) => {
+  const base = Number(args?.id)
+  const computed = computedImages()
+  if (!computed.some((i) => i.id === base)) throw 'この画像の特徴量はまだ計算していません'
+  const score = (id: number, k: number) => (id === base ? 3 : Math.sin(id * k + base))
+  // 見本の写真（npm run docs:screenshots）では、スクリーンショットの並びが写真として不自然にならないよう、
+  // 内容はフォルダの道筋の重なり（同じ被写体ほど高い）で決める
+  const shared = (id: number) => {
+    const [a, b] = [photos![base - 1].category, photos![id - 1].category]
+    let n = 0
+    while (n < a.length && a[n] === b[n]) n++
+    return n
+  }
+  const content = (id: number) => (photos && id !== base ? shared(id) + score(id, 0.7) / 4 : score(id, 0.7))
+  return {
+    aspects: ['content', 'composition'],
+    ids: computed.map((i) => i.id),
+    scores: [computed.map((i) => content(i.id)), computed.map((i) => score(i.id, 1.3))],
+    uncomputed: IMAGES.length - computed.length,
+  }
 }
 
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
@@ -650,13 +723,27 @@ const handlers: Record<string, Handler> = {
     RECENT.splice(RECENT.indexOf(String(args?.path)), 1)
     return [...RECENT]
   },
+  model_size: () => MODEL_SIZE,
+  prepare_models: prepareModels,
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
   // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない
   // 本物と同じく、ボードのウィンドウの表示はギャラリーから送られた値で上書きしない
   save_settings: (args) => {
     if (sessionStorage.getItem('mock.failSettings')) throw '設定を保存できません（Permission denied）'
-    const { board_window } = stored('mock.settings', DEFAULT_SETTINGS)
-    store('mock.settings', { ...(args?.settings as Settings), board_window })
+    const before = stored('mock.settings', DEFAULT_SETTINGS)
+    const next = { ...(args?.settings as Settings), board_window: before.board_window }
+    store('mock.settings', next)
+    if (!before.similarity_enabled && next.similarity_enabled) {
+      sessionStorage.removeItem('mock.features')
+      runFeatures()
+    }
+    if (before.similarity_enabled && !next.similarity_enabled) emit('features-progress', FEATURES_IDLE)
+  },
+  features_status: featuresStatus,
+  similar_images: similarImages,
+  retry_features: () => {
+    sessionStorage.removeItem('mock.stopFeatures')
+    runFeatures()
   },
   // モックのウィンドウは最前面にも半透明にもならない。保存する値だけを本物に合わせる
   set_board_display: (args) => {

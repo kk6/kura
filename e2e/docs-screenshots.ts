@@ -36,6 +36,29 @@ test('一覧と詳細パネル', async ({ page }) => {
   await shot(page, 'gallery')
 })
 
+test('似た画像を探す', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('mock.settings')) return
+    sessionStorage.setItem(
+      'mock.settings',
+      JSON.stringify({
+        confirm_category_move: true,
+        thumb_width: 200,
+        tags_collapsed: false,
+        board_enabled: true,
+        similarity_enabled: true,
+        similarity_weights: { content: 70, composition: 30 },
+        board_window: { always_on_top: false, opacity: 100, frame: null },
+      }),
+    )
+  })
+  await openGallery(page)
+  await page.getByRole('main', { name: '画像の一覧' }).getByAltText(/^猫_/).first().click()
+  await page.getByRole('complementary', { name: '詳細' }).getByRole('button', { name: '似た画像を探す' }).click()
+  await expect(page.getByRole('group', { name: '観点ごとの重み' })).toBeVisible()
+  await shot(page, 'similarity')
+})
+
 test('取り込みとスキップの一覧', async ({ page }) => {
   await openGallery(page)
   await page.getByRole('button', { name: 'フォルダを取り込む' }).click()

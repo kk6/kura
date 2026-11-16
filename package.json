@@ -17,7 +17,8 @@
     "format": "prettier --write .",
     "prepare": "lefthook install",
     "docs:screenshots": "playwright test -c playwright.docs.config.ts",
-    "version:set": "uv run scripts/set_version.py"
+    "version:set": "uv run scripts/set_version.py",
+    "worker:build": "uv run --project ml --with pyinstaller pyinstaller --onedir --noconfirm --name kura-worker --distpath ml/dist --workpath ml/build --specpath ml/build ml/src/kura_worker/__main__.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

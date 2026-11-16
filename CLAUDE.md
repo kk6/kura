@@ -44,7 +44,10 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - テスト（画面）：`npm run test:e2e`（モックの開発サーバーを Playwright の WebKit で開き、`test-results/` にスクリーンショット（`gallery.png` など）を保存する）
 - 見た目が変わっていないことの確認：変更の前のコードで `npm run test:e2e` と `npm run screenshots:save` を流して基準（`test-results-baseline/`）を作り、変更の後に `npm run test:e2e` と `npm run screenshots:compare` を流す。1バイトでも違う画像、増えた画像、減った画像を出す。e2e のスペックは `e2e/fixtures.ts` の `test` を使う。動きを止めて撮るので、同じ画面は同じ画像になる
 - ドキュメントのスクリーンショット：`KURA_DOCS_PHOTOS=<見本の写真のフォルダ> npm run docs:screenshots`（モックの開発サーバーに見本の写真を読ませ、Playwright の WebKit で開いて `docs/images/` に JPEG で撮り直す。`e2e/docs-screenshots.ts`。CI では流さない）
+- ワーカーのビルド：`npm run worker:build`（PyInstaller の onedir で `ml/dist/kura-worker/` に作る。`npm run tauri build` の前にも自動で流れ、`.app` の `Contents/Resources/worker/` に入る。`tauri dev` と `cargo test` はビルドしない。`src-tauri/build.rs` が空の `ml/dist/kura-worker/` を作るので、なくてもビルドは止まらない）
+- テスト（同梱したワーカー）：`npm run tauri build` の後に、`.app` の `Contents/Resources/worker/` の `kura-worker` と `model.json`、モデルを置いたフォルダを `KURA_WORKER`、`KURA_MANIFEST`、`KURA_MODEL_DIR` に渡し、`PATH=/usr/bin:/bin "$(command -v cargo)" test 同梱したワーカー -- --ignored`（`src-tauri/` で実行。uv のない `PATH` で流す）。モデルは `model.json` の `file.name` の名前で置く
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
+- ワーカー（特徴量の計算）：初回に `uv sync --project ml` を実行する。開発版のアプリ（`npm run tauri dev`）は `ml/.venv/bin/python -m kura_worker` でワーカーを起動するので、`.venv` がないと計算を始められない。リポジトリのルートから `ml/.venv/bin/python -m kura_worker --manifest ml/model.json --model-dir <モデルのフォルダ>` で起動し、標準入力と標準出力で1行1件の JSON をやりとりする（`docs/tasks/phase3-design.md` の1章）
 - テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`
 - 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
 - 整形（Rust）：`cargo fmt`（`src-tauri/` で実行）
@@ -52,8 +55,9 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - Lint（TypeScript）：`npm run lint`（型検査、ESLint、Prettier の整形の確認、トークン以外の値の検出、ドキュメントの食い違いの検出）。ドキュメントの検査（`scripts/check-docs.mjs`）は、`docs/design.md` のトークンの表と `tokens.css` の名前と値、この CLAUDE.md と README.md の `npm run` のコマンドが `package.json` にあるか、Tauri のコマンド名が `main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` で揃っているかを確かめる。アプリのバージョンが `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` とロックファイルで揃っているかも確かめる
 - Lint（Rust）：`cargo fmt --check` と `cargo clippy -- -D warnings`（`src-tauri/` で実行）
 - Lint（Python）：`uvx ruff@0.17.3 check` と `uvx ruff@0.17.3 format --check`（`spikes/` は対象外）
-- CI：`.github/workflows/ci.yml`。push と pull request で、上のテストと Lint を流す。ジョブは web（lint、Vitest、build）、e2e、rust、python に分かれて並列に動く。e2e と rust は macOS、OS に左右されない web と python は ubuntu で流す。web はいつも流れ、ほかの3つは `changes` ジョブ（dorny/paths-filter）が変わったファイルを見て流すかを決める（`ml/` の pytest は `ml/` ができてから足す）
+- CI：`.github/workflows/ci.yml`。push と pull request で、上のテストと Lint を流す。ジョブは web（lint、Vitest、build）、e2e、rust、python に分かれて並列に動く。e2e と rust は macOS、OS に左右されない web と python は ubuntu で流す。web はいつも流れ、ほかの3つは `changes` ジョブ（dorny/paths-filter）が変わったファイルを見て流すかを決める
 - リリース：(1) `npm run version:set -- <版>` で `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` とロックファイルのバージョンをそろえる (2) `CHANGELOG.md` に `## [<版>] - <日付>` の項を書く (3) コミットして `main` に入れる (4) `git tag v<版>` を push する。`.github/workflows/release.yml` が、タグとバージョンと CHANGELOG の項を確かめてから `.app` を `Kura-<版>-arm64.zip` にし、CHANGELOG の項を説明にした GitHub Release を作る。`.app` は署名も公証もしない（`tauri.conf.json` のアドホック署名だけ）
+- モデルのリリース（類似画像検索。アプリのリリースとは別に、モデルを変えたときだけ利用者が行う）：アプリは `ml/model.json` の `url` からモデルをダウンロードし、`sha256` で確かめる。(1) モデルのファイルを `ml/model.json` の `file.name` の名前に写し、`shasum -a 256` が `sha256` と、`stat -f %z` が `size` と合うことを確かめる（SigLIP 2 の元は `onnx-community/siglip2-base-patch16-224-ONNX` の `onnx/vision_model.onnx`。スパイクで取った写しが `spikes/similarity/models/siglip2-b16.onnx` にある） (2) `gh release create models-1 --target main --latest=false --title "類似画像検索のモデル（models-1）" --notes "Kura の類似画像検索が使うモデルです。アプリが自動でダウンロードします。ライセンスは添えたファイルを見てください。" <モデルのファイル> ml/models-1/*.txt` で、モデルとライセンスの写し（`ml/models-1/`）を同じ Release に置く。`--latest=false` を外すと、アプリの最新の Release の印がこちらに移る (3) `curl -sIL <url> | grep -i '^content-length'` が `size` と合うことを確かめる。モデルを差し替えるときは、置いたファイルを上書きせず、新しいタグ（`models-2`）に置いて `ml/model.json` の `url`、`sha256`、`size` を直す。中身が変わるなら `model` の名前も変える（計算し直しの合図になる）
 
 ## 設計上の決まり
 

@@ -11,6 +11,17 @@
   overflow: clip;
 }
 
+/* 類似画像検索の結果のモードでは、帯の下に重みのスライダーの段を足す */
+.gallery--similar {
+  grid-template-rows: var(--size-header) var(--size-toolbar) var(--size-toolbar) 1fr var(--size-statusbar);
+  grid-template-areas:
+    "header header header"
+    "sidebar toolbar detail"
+    "sidebar weights detail"
+    "sidebar list detail"
+    "status status status";
+}
+
 .gallery--no-detail {
   grid-template-columns: var(--size-sidebar) minmax(0, 1fr) 0;
 }

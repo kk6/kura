@@ -11,6 +11,10 @@ type Props = {
   // 変わったときだけスクロールを先頭に戻す。並べ替え・絞り込み・一覧の切り替えで変える。
   // images で戻すと、タグやメモを変えただけで先頭に戻ってしまう
   scrollKey: unknown
+  // scrollKey が変わったときに移るスクロールの位置。なければ先頭。類似画像検索を閉じて元の一覧に戻すときに使う
+  scrollTo?: number
+  // スクロールした位置を知らせる。1フレームに1回まで
+  onScrolled?: (top: number) => void
   // 1枚もないときに出す文言
   empty: string
   thumbWidth: number
@@ -34,6 +38,8 @@ export default function Masonry({
   root,
   images,
   scrollKey,
+  scrollTo,
+  onScrolled,
   empty,
   thumbWidth,
   selected,
@@ -65,7 +71,9 @@ export default function Masonry({
   }, [])
 
   useEffect(() => {
-    ref.current!.scrollTop = 0
+    ref.current!.scrollTop = scrollTo ?? 0
+    // scrollTo だけが変わっても動かさない。利用者がスクロールした位置を戻さないため
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollKey])
 
   const { width, height, gap } = viewport
@@ -117,7 +125,10 @@ export default function Masonry({
   // スクロールのたびに描き直さず、1フレームに1回だけ反映する
   const onScroll = () => {
     const el = ref.current!
-    requestAnimationFrame(() => setScrollTop(el.scrollTop))
+    requestAnimationFrame(() => {
+      setScrollTop(el.scrollTop)
+      onScrolled?.(el.scrollTop)
+    })
   }
 
   // 表示範囲の上下に1画面分ずつ余分に描いておく

@@ -64,3 +64,42 @@
   border-radius: var(--radius-md);
   background: var(--color-surface);
 }
+
+/* 類似画像検索の基準画像。帯の高さに収め、縦横比はそのまま */
+.toolbar__base {
+  flex: none;
+  height: var(--size-control);
+  border-radius: var(--radius-sm);
+}
+
+/* 類似画像検索の結果のモードの2段目（docs/design.md「一覧の上の帯」） */
+.gallery__weights {
+  grid-area: weights;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: 0 var(--space-5);
+  border-bottom: var(--border);
+  background: var(--color-surface);
+}
+
+.toolbar__weight {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+  white-space: nowrap;
+}
+
+/* 1行目に名前、2行目に比べるものの説明。2行でも段の高さ（--size-toolbar）に収める */
+.toolbar__weight-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar__weight-label {
+  color: var(--color-text-sub);
+}

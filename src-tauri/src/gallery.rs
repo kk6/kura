@@ -153,6 +153,9 @@ pub struct Detail {
     pub path: PathBuf,
     pub file_size: i64,
     pub source: Option<Source>,
+    /// 「似た画像を探す」の基準にできる（similar::ready）。押す前に未計算を知らせるため。
+    /// 埋めるのは image_detail コマンドで、ここでは false にしておく
+    pub similar: bool,
 }
 
 pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
@@ -190,6 +193,7 @@ pub fn detail(lib: &Library, id: i64) -> Result<Detail, String> {
             .join(file_name),
         file_size,
         source,
+        similar: false,
     })
 }
 
@@ -327,6 +331,7 @@ mod tests {
                     page_url: Some("https://example.com/".into()),
                     link: Some("https://example.com/".into()),
                 }),
+                similar: false,
             }
         );
     }

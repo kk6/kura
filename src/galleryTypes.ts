@@ -27,6 +27,8 @@ export type Detail = {
   file_size: number
   // link はブラウザで開ける URL（有効な掲載ページURLを優先し、なければ画像URL）。どちらも開けない値なら null
   source: { image_url: string | null; page_url: string | null; link: string | null } | null
+  // 「似た画像を探す」の基準にできる（ゴミ箱でも「見つからない」でもなく、特徴量がそろっている）
+  similar: boolean
 }
 
 // src-tauri/src/tag.rs の Counted（image_tags コマンドの返り値）。count は選んだ画像のうちそのタグが付いている枚数
@@ -54,6 +56,10 @@ export type Settings = {
   tags_collapsed: boolean
   // アイデアボードを使う（FR-711）
   board_enabled: boolean
+  // 類似画像検索を使う（5.6）。true にするのは prepare_models でモデルをそろえた後だけ
+  similarity_enabled: boolean
+  // 類似画像検索の観点ごとの重み（FR-602）。観点の名前 → 0〜100。無い観点は画面が初期値で埋める（similarity.ts）
+  similarity_weights: Record<string, number>
   // ボードの専用ウィンドウの表示（FR-705、FR-707）。変えるのはボードの画面の set_board_display だけで、
   // save_settings で送った値は Rust が捨てる
   board_window: BoardDisplay & { frame: { x: number; y: number; width: number; height: number } | null }
