@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Icon, ICONS } from './icons'
-import { ASPECT_LABELS, WEIGHT_MAX, type Weights } from './similarity'
+import { ASPECTS, WEIGHT_MAX, type Weights } from './similarity'
 import { SORTS, type SortKey } from './sort'
 import './GalleryToolbar.css'
 
@@ -125,9 +125,17 @@ export function WeightSliders({
   return (
     <div className="gallery__weights" role="group" aria-label="観点ごとの重み">
       {aspects.map((a) => (
-        <label key={a} className="toolbar__weight">
-          {ASPECT_LABELS[a] ?? a}
+        <div key={a} className="toolbar__weight">
+          {/* 説明は名前に含めず、読み上げではスライダーの補足にする */}
+          <span className="toolbar__weight-text">
+            <label htmlFor={`weight-${a}`} className="toolbar__weight-label">
+              {ASPECTS[a]?.label ?? a}
+            </label>
+            {ASPECTS[a] && <span id={`weight-${a}-hint`}>{ASPECTS[a].hint}</span>}
+          </span>
           <input
+            id={`weight-${a}`}
+            aria-describedby={ASPECTS[a] ? `weight-${a}-hint` : undefined}
             className="slider"
             type="range"
             min={0}
@@ -137,7 +145,7 @@ export function WeightSliders({
             onPointerUp={onCommit}
             onKeyUp={onCommit}
           />
-        </label>
+        </div>
       ))}
     </div>
   )

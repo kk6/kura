@@ -130,8 +130,11 @@ test('押すと結果のモードになり、基準画像が先頭で、未計�
   await expect(toolbar(page)).toContainText('未計算 3枚')
   await expect(toolbar(page).getByAltText(`基準の画像 ${name(5)}`)).toBeVisible()
   await expect(page.getByRole('combobox', { name: '並べ替え' })).toHaveCount(0)
-  await expect(slider(page, '内容')).toHaveValue('50')
-  await expect(slider(page, '構図')).toHaveValue('50')
+  await expect(slider(page, '写っているもの')).toHaveValue('50')
+  await expect(slider(page, '明暗と線の配置')).toHaveValue('50')
+  // ラベルだけでは何を比べるか分からなかったので、下の2行目に短い説明を出す（タスク11で見つけた）
+  await expect(slider(page, '写っているもの')).toHaveAccessibleDescription('人や物、場面')
+  await expect(slider(page, '明暗と線の配置')).toHaveAccessibleDescription('明るい所と暗い所、線の向き')
   await expect(page.getByRole('contentinfo')).toContainText('17枚')
   await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0)
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -184,16 +187,16 @@ test('重みで並びが変わり、両方は0にできず、手を離すと保�
   await pick(page, 7)
   await findButton(page).click()
 
-  await slider(page, '構図').focus()
+  await slider(page, '明暗と線の配置').focus()
   await page.keyboard.press('Home')
-  await expect(slider(page, '構図')).toHaveValue('0')
+  await expect(slider(page, '明暗と線の配置')).toHaveValue('0')
   await expectResults(page, expected(7, { content: 50, composition: 0 }))
 
-  await slider(page, '内容').focus()
+  await slider(page, '写っているもの').focus()
   await page.keyboard.press('Home')
-  await expect(slider(page, '内容')).toHaveValue('1')
+  await expect(slider(page, '写っているもの')).toHaveValue('1')
   await page.keyboard.press('End')
-  await expect(slider(page, '内容')).toHaveValue('100')
+  await expect(slider(page, '写っているもの')).toHaveValue('100')
   await page.getByRole('group', { name: '観点ごとの重み' }).screenshot({ path: 'test-results/similarity-weights.png' })
 
   await expect
@@ -205,8 +208,8 @@ test('重みで並びが変わり、両方は0にできず、手を離すと保�
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await pick(page, 2)
   await findButton(page).click()
-  await expect(slider(page, '内容')).toHaveValue('100')
-  await expect(slider(page, '構図')).toHaveValue('0')
+  await expect(slider(page, '写っているもの')).toHaveValue('100')
+  await expect(slider(page, '明暗と線の配置')).toHaveValue('0')
 })
 
 test('結果をカテゴリ・タグ・検索バーで絞り込め、件数は結果の枚数で数え、閉じても絞り込みは残る', async ({ page }) => {

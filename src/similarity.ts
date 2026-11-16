@@ -32,5 +32,10 @@ export function rankSimilar(s: Similar & { base: number }, weights: Weights): nu
   return [s.base, ...order.map((i) => s.ids[i])]
 }
 
-// スライダーの名前。知らない観点は名前をそのまま出す
-export const ASPECT_LABELS: Record<string, string> = { content: '内容', composition: '構図', pose: 'ポーズ' }
+// スライダーの名前（label）と、その下に出す比べるものの短い説明（hint）。キーは設定に保存する観点の名前。
+// 知らない観点は名前をそのまま出す。ポーズの説明は 3b で骨格推定を決めたときに見直す
+export const ASPECTS: Record<string, { label: string; hint: string }> = {
+  content: { label: '写っているもの', hint: '人や物、場面' },
+  composition: { label: '明暗と線の配置', hint: '明るい所と暗い所、線の向き' },
+  pose: { label: 'ポーズ', hint: '体の向きと手足の形' },
+}
