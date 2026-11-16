@@ -495,10 +495,19 @@ const similarImages: Handler = (args) => {
   const computed = computedImages()
   if (!computed.some((i) => i.id === base)) throw 'この画像の特徴量はまだ計算していません'
   const score = (id: number, k: number) => (id === base ? 3 : Math.sin(id * k + base))
+  // 見本の写真（npm run docs:screenshots）では、スクリーンショットの並びが写真として不自然にならないよう、
+  // 内容はフォルダの道筋の重なり（同じ被写体ほど高い）で決める
+  const shared = (id: number) => {
+    const [a, b] = [photos![base - 1].category, photos![id - 1].category]
+    let n = 0
+    while (n < a.length && a[n] === b[n]) n++
+    return n
+  }
+  const content = (id: number) => (photos && id !== base ? shared(id) + score(id, 0.7) / 4 : score(id, 0.7))
   return {
     aspects: ['content', 'composition'],
     ids: computed.map((i) => i.id),
-    scores: [computed.map((i) => score(i.id, 0.7)), computed.map((i) => score(i.id, 1.3))],
+    scores: [computed.map((i) => content(i.id)), computed.map((i) => score(i.id, 1.3))],
     uncomputed: IMAGES.length - computed.length,
   }
 }
