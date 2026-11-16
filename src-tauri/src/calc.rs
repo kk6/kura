@@ -151,6 +151,7 @@ impl Calc {
             return;
         }
         let aspects = &self.0.env.aspects;
+        let planning = std::time::Instant::now();
         let plan = lib.with(|l| {
             let root = l.root.clone();
             let all = hashes(l, "SELECT hash FROM images")?;
@@ -190,6 +191,14 @@ impl Calc {
                 error: None,
             }
         });
+        // 計画はロックの中で2万件の sweep と computed を流すので、待たせている時間をログで追えるようにする
+        log::info!(
+            "特徴量の計算の計画：対象 {}枚、未計算 {}枚、失敗 {}枚（{}ms）",
+            targets.len(),
+            pending.len(),
+            failed.len(),
+            planning.elapsed().as_millis()
+        );
         if pending.is_empty() {
             return;
         }
