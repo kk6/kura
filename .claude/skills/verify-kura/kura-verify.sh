@@ -224,7 +224,8 @@ SWIFT
   rm -f "$f"
 }
 
-# model <id> : 類似画像検索のモデルを、run のアプリのデータフォルダの models/ に置く（ダウンロードの代わり）。
+# model <id> : 内容（SigLIP 2）のモデルを、run のアプリのデータフォルダの models/ に置く（ダウンロードの代わり）。
+# ポーズのモデルは置かない。3a から更新した利用者と同じく、ポーズのモデルだけがない状態になる。
 # 複製元は KURA_MODEL_SRC（既定は本体のリポジトリの spikes/similarity/models/siglip2-b16.onnx。git の管理外）。
 # ml/model.json の名前で置き、SHA-256 が合うことを確かめる。ON にするとアプリは通信せずにこれを使う
 cmd_model() {
@@ -236,7 +237,7 @@ cmd_model() {
   local name sha
   read -r name sha < <(python3 -I -c 'import json, sys
 for a in json.load(open(sys.argv[1]))["aspects"]:
-    if a["file"]: print(a["file"]["name"], a["file"]["sha256"])' "$REPO/ml/model.json")
+    if a["aspect"] == "content": print(a["files"][0]["name"], a["files"][0]["sha256"])' "$REPO/ml/model.json")
   local models; models="$(data_dir "$1")/models"
   mkdir -p "$models"
   # APFS なら複製（cp -c）で、372MB を写さずに済む
