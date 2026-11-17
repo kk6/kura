@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ja">
+  <meta charset="utf-8" />
+  <title>ポーズのスパイク</title>
+  <style>
+    body { font: 13px -apple-system, sans-serif; margin: 16px; color: #222; background: #f4f4f4; }
+    h2 { font-size: 14px; margin: 24px 0 8px; }
+    p.note { color: #555; margin: 4px 0 8px; }
+    .bar { position: sticky; top: 0; background: #f4f4f4; padding: 12px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #ccc; z-index: 2; }
+    .row { display: flex; gap: 4px; align-items: flex-start; margin-bottom: 8px; }
+    .row > b { width: 96px; flex: none; padding-top: 4px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 4px; }
+    figure { margin: 0; cursor: pointer; position: relative; }
+    figure .pic { position: relative; height: 150px; }
+    figure img { height: 150px; display: block; }
+    figure svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .small figure .pic, .small figure img { height: 110px; }
+    figcaption { font-size: 10px; color: #666; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .query img { outline: 3px solid #222; }
+    .none figcaption { color: #b00; }
+    .few figcaption { color: #a60; }
+  </style>
+  <div class="bar">
+    <span>画像を押すと基準が入れ替わる</span>
+    <label>構成 <select id="model"></select></label>
+    <label>読む画像 <select id="kind"><option value="thumb">サムネイル（幅320px）</option><option value="orig">元の画像</option></select></label>
+    <label>複数人 <select id="multi"><option value="largest">一番大きい1人だけ</option><option value="all">全員を持ち、一番近い組で比べる</option></select></label>
+    <label>左右反転 <select id="mirror"><option value="plain">区別する</option><option value="mirror">同じとみなす</option></select></label>
+    <label><input id="skel" type="checkbox" checked /> 骨格を重ねる</label>
+  </div>
+
+  <h2>1. 似たポーズの上位15件</h2>
+  <p class="note">数字は類似度（共通に見えている関節で位置と大きさをそろえたコサイン類似度 × 比べた関節の割合）。骨格の色は人物ごとに変わる。薄い点は閾値未満の関節（比べない）</p>
+  <div id="query" class="grid"></div>
+  <div id="results" class="grid"></div>
+  <h2>2. 構成を並べて比べる（上位10件。読む画像・複数人・反転は上の選択のまま）</h2>
+  <div id="models"></div>
+  <h2>3. 扱い方を並べて比べる（上位10件。構成と読む画像は上の選択のまま）</h2>
+  <div id="variants"></div>
+  <h2>4. 全画像の推定結果</h2>
+  <p class="note">赤：人物なし。橙：人物はいるが、比べられる関節が足りない。<label>表示 <select id="filter"><option value="">全部</option><option value="none">人物なし</option><option value="few">関節が足りない</option><option value="ok">ポーズあり</option><option value="diff">構成で結果が違う</option></select></label></p>
+  <div id="all" class="grid small"></div>
+
+  <script>
+    const D = /*DATA*/;
+    const n = D.names.length;
+    const MODELS = ["rtmpose-s", "rtmpose-m", "rtmo-s"];
+    const EDGES = [[5,7],[7,9],[6,8],[8,10],[5,6],[5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16],[0,1],[0,2],[1,3],[2,4]];
+    const COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#42d4f4"];
+    const LABEL = { none: "人物なし", few: "関節不足", ok: "" };
+    let q = 0;
+    const $ = (id) => document.getElementById(id);
+    for (const m of MODELS) $("model").add(new Option(m, m));
+    $("model").value = "rtmpose-m";
+
+    function skeleton(i, model, kind) {
+      const [w, h] = D.sizes[i];
+      const e = D.poses[`${model}|${kind}`][i];
+      let s = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">`;
+      const r = Math.max(w, h) / 120;
+      e.kpts.forEach((k, p) => {
+        const c = COLORS[p % COLORS.length], sc = e.scores[p];
+        for (const [a, b] of EDGES)
+          if (sc[a] >= D.kptThr && sc[b] >= D.kptThr)
+            s += `<line x1="${k[a][0]*w}" y1="${k[a][1]*h}" x2="${k[b][0]*w}" y2="${k[b][1]*h}" stroke="${c}" stroke-width="${r*0.8}"/>`;
+        k.forEach(([x, y], j) => (s += `<circle cx="${x*w}" cy="${y*h}" r="${r}" fill="${c}" opacity="${sc[j] >= D.kptThr ? 1 : 0.25}"/>`));
+      });
+      return s + "</svg>";
+    }
+    function fig(i, caption, model = $("model").value, kind = $("kind").value) {
+      const f = document.createElement("figure");
+      const st = D.statuses[`${model}|${kind}`][i];
+      f.className = (i === q ? "query " : "") + st;
+      const sk = $("skel").checked ? skeleton(i, model, kind) : "";
+      f.innerHTML = `<div class="pic"><img loading="lazy" src="thumbs/${String(i).padStart(3, "0")}.jpg">${sk}</div><figcaption title="${D.names[i]}">${caption ?? (LABEL[st] || D.names[i])}</figcaption>`;
+      f.onclick = () => { q = i; render(); scrollTo(0, 0); };
+      return f;
+    }
+    function ranked(key, k) {
+      const row = D.sims[key][q];
+      return [...row.keys()].filter((j) => row[j] !== null).sort((a, b) => row[b] - row[a]).slice(0, k).map((j) => [j, row[j]]);
+    }
+    function line(el, label, key, model, kind) {
+      const r = document.createElement("div");
+      r.className = "row";
+      r.innerHTML = `<b>${label}</b>`;
+      const g = document.createElement("div");
+      g.className = "grid small";
+      const items = ranked(key, 10);
+      if (!items.length) g.textContent = "基準画像にポーズがないので比べない";
+      for (const [j, v] of items) g.append(fig(j, v.toFixed(3), model, kind));
+      r.append(g);
+      el.append(r);
+    }
+    function render() {
+      const model = $("model").value, kind = $("kind").value, multi = $("multi").value, mirror = $("mirror").value;
+      $("query").replaceChildren(fig(q, `基準：${D.names[q]}`));
+      const items = ranked(`${model}|${kind}|${multi}|${mirror}`, 15);
+      $("results").replaceChildren(...items.map(([j, v]) => fig(j, v.toFixed(3))));
+      if (!items.length) $("results").textContent = `基準画像は「${LABEL[D.statuses[`${model}|${kind}`][q]]}」なので、ポーズを比べない`;
+      $("models").replaceChildren();
+      for (const m of MODELS) line($("models"), m, `${m}|${kind}|${multi}|${mirror}`, m, kind);
+      $("variants").replaceChildren();
+      for (const [mu, mi, label] of [["largest", "plain", "1人・区別"], ["all", "plain", "全員・区別"], ["largest", "mirror", "1人・反転同一"], ["all", "mirror", "全員・反転同一"]])
+        line($("variants"), label, `${model}|${kind}|${mu}|${mi}`, model, kind);
+      const f = $("filter").value;
+      const st = D.statuses[`${model}|${kind}`];
+      const diff = (i) => new Set(MODELS.map((m) => D.statuses[`${m}|${kind}`][i])).size > 1;
+      const shown = [...Array(n).keys()].filter((i) => !f || (f === "diff" ? diff(i) : st[i] === f));
+      $("all").replaceChildren(...shown.map((i) => fig(i, `${i} ${LABEL[st[i]] || D.names[i]}`)));
+    }
+    for (const id of ["model", "kind", "multi", "mirror", "skel", "filter"]) $(id).onchange = render;
+    render();
+  </script>
+</html>

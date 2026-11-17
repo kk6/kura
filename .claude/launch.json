@@ -12,6 +12,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "5199", "--bind", "127.0.0.1", "--directory", "spikes/similarity/out"],
       "port": 5199
+    },
+    {
+      "name": "pose-spike",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "5198", "--bind", "127.0.0.1", "--directory", "spikes/pose/out"],
+      "port": 5198
     }
   ]
 }
