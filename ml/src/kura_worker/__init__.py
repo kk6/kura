@@ -85,7 +85,7 @@ def siglip2(paths, threads):
     return embed
 
 
-# ポーズの数は spikes/pose の値（RTMLib 0.0.16 の前後処理）。変えたら model.json の model の名前も変える
+# ポーズの数は spikes/pose の値（RTMLib 0.0.16 の前後処理）。色の順だけは配布物の pipeline.json に合わせる。変えたら model.json の model の名前も変える
 DET_SIZE = 416
 DET_SCORE = 0.3
 POSE_W, POSE_H = 192, 256
@@ -125,8 +125,8 @@ def crop(img, box):
         cy + 0.5 - k * (POSE_H / 2 + 0.5),
     )
     out = img.transform((POSE_W, POSE_H), Image.AFFINE, data, Image.BILINEAR)
-    # RTMLib は BGR の画像に RGB の並びの平均と標準偏差を当てる。スパイクの結果（ポーズの並びを利用者が見て決めた）に合わせる
-    x = (np.asarray(out, dtype=np.float32)[:, :, ::-1] - POSE_MEAN) / POSE_STD
+    # 配布物の pipeline.json は to_rgb: true。RTMLib（とスパイク）は BGR のまま渡すが、学習時の RGB に合わせる
+    x = (np.asarray(out, dtype=np.float32) - POSE_MEAN) / POSE_STD
     return np.ascontiguousarray(x.transpose(2, 0, 1)[None]), (cx, cy), k
 
 

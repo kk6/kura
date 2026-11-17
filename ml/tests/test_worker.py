@@ -75,9 +75,9 @@ def write_fake_detector(path: Path, dets: list) -> None:
     save(graph, path)
 
 
-def write_fake_pose(path: Path) -> None:
-    """RTMPose と同じ入出力の偽物。17点とも切り出しの中心に山を置き、山の高さは切り出しの画素の平均（正規化後）。
-    明るい人物はスコアが高く、暗い人物はスコアが0以下になる。"""
+def write_fake_pose(path: Path, channels=(1 / 3, 1 / 3, 1 / 3)) -> None:
+    """RTMPose と同じ入出力の偽物。17点とも切り出しの中心に山を置き、山の高さは切り出しの画素の平均（正規化後）を
+    入力のチャンネルごとに channels で重み付けした和。明るい人物はスコアが高く、暗い人物はスコアが0以下になる。"""
     x = np.zeros((1, 17, 384), dtype=np.float32)
     x[..., 192] = 1  # SimCC は入力の2倍の細かさ。192 は幅192の中心
     y = np.zeros((1, 17, 512), dtype=np.float32)
@@ -85,9 +85,10 @@ def write_fake_pose(path: Path) -> None:
     graph = helper.make_graph(
         [
             helper.make_node(
-                "ReduceMean", ["input"], ["mean"], axes=[1, 2, 3], keepdims=0
+                "ReduceMean", ["input"], ["mean"], axes=[2, 3], keepdims=0
             ),
-            helper.make_node("Reshape", ["mean", "shape"], ["m"]),
+            helper.make_node("MatMul", ["mean", "w"], ["weighted"]),
+            helper.make_node("Reshape", ["weighted", "shape"], ["m"]),
             helper.make_node("Mul", ["m", "x"], ["simcc_x"]),
             helper.make_node("Mul", ["m", "y"], ["simcc_y"]),
         ],
@@ -108,6 +109,7 @@ def write_fake_pose(path: Path) -> None:
         [
             numpy_helper.from_array(x, "x"),
             numpy_helper.from_array(y, "y"),
+            numpy_helper.from_array(np.array(channels, dtype=np.float32)[:, None], "w"),
             numpy_helper.from_array(np.array([-1, 1, 1], dtype=np.int64), "shape"),
         ],
     )
@@ -119,7 +121,7 @@ POSE = next(a for a in ASPECTS if a["aspect"] == "pose")
 RATIO = 416 / 320
 
 
-def write_models(d: Path, dets=((40, 30, 100, 200, 0.9),)) -> Path:
+def write_models(d: Path, dets=((40, 30, 100, 200, 0.9),), channels=None) -> Path:
     d.mkdir(exist_ok=True)
     for a in ASPECTS:
         if a["kind"] == "vector" and a["files"]:
@@ -128,7 +130,7 @@ def write_models(d: Path, dets=((40, 30, 100, 200, 0.9),)) -> Path:
     write_fake_detector(
         d / detector["name"], [[*(v * RATIO for v in b[:4]), b[4]] for b in dets]
     )
-    write_fake_pose(d / pose["name"])
+    write_fake_pose(d / pose["name"], *([channels] if channels else []))
     return d
 
 
@@ -328,8 +330,8 @@ def test_exits_one_when_request_asks_aspect_not_started(model_dir):
     assert w.proc.wait(timeout=30) == 1
 
 
-def ask_pose(tmp_path, dets, image) -> dict:
-    w = Worker(write_models(tmp_path / "models", dets), ["pose"])
+def ask_pose(tmp_path, dets, image, channels=None) -> dict:
+    w = Worker(write_models(tmp_path / "models", dets, channels), ["pose"])
     try:
         w.read()
         res = w.ask(1, image, ["pose"])
@@ -371,6 +373,14 @@ def test_pose_keeps_only_people_with_enough_joints(tmp_path):
         write_halves(tmp_path / "a.png"),
     )
     assert pose["status"] == "ok" and len(pose["people"]) == 2
+
+
+def test_pose_model_gets_rgb_channel_order(tmp_path):
+    # 配布物の pipeline.json は to_rgb: true。赤い画像は入力の最初のチャンネルが明るい
+    path = tmp_path / "red.png"
+    Image.new("RGB", (320, 240), (255, 0, 0)).save(path)
+    pose = ask_pose(tmp_path, [(40, 30, 100, 200, 0.9)], path, channels=(1, 0, 0))
+    assert pose["status"] == "ok"
 
 
 def test_pose_ignores_boxes_below_score_threshold(tmp_path):
