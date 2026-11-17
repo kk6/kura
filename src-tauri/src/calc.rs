@@ -33,20 +33,36 @@ pub struct Status {
 
 /// 計算の1回分が外に頼るもの。テストでは偽物を渡す
 pub struct Env {
-    /// 類似画像検索が ON で、モデルのファイルがそろっている
+    /// 類似画像検索が ON で、model.json を読めた。モデルのファイルは見ない
     pub enabled: Box<dyn Fn() -> bool + Send + Sync>,
+    /// model.json のすべての観点（sweep が古い行を見分けるのに使う）
     pub aspects: Vec<Aspect>,
-    pub start: Box<dyn Fn() -> Result<Box<dyn Compute>, String> + Send + Sync>,
+    /// その観点のモデルのファイルがそろっている
+    pub available: Box<dyn Fn(&Aspect) -> bool + Send + Sync>,
+    /// 使える観点だけを読み込んだワーカーを起動する
+    pub start: Start,
     pub notify: Box<dyn Fn(&Status) + Send + Sync>,
 }
 
+/// 使える観点だけを読み込んだワーカーを起動する
+pub type Start = Box<dyn Fn(&[Aspect]) -> Result<Box<dyn Compute>, String> + Send + Sync>;
+
 pub trait Compute: Send {
-    fn compute(&mut self, thumb: &Path) -> Result<Vec<Vec<f32>>, worker::Failure>;
+    /// aspects は start に渡した観点の部分集合。返り値は aspects と同じ順・同じ数
+    fn compute(
+        &mut self,
+        thumb: &Path,
+        aspects: &[Aspect],
+    ) -> Result<Vec<worker::Value>, worker::Failure>;
 }
 
 impl Compute for worker::Worker {
-    fn compute(&mut self, thumb: &Path) -> Result<Vec<Vec<f32>>, worker::Failure> {
-        worker::Worker::compute(self, thumb)
+    fn compute(
+        &mut self,
+        thumb: &Path,
+        aspects: &[Aspect],
+    ) -> Result<Vec<worker::Value>, worker::Failure> {
+        worker::Worker::compute(self, thumb, aspects)
     }
 }
 
@@ -150,19 +166,29 @@ impl Calc {
             self.update(|s| *s = Status::default());
             return;
         }
-        let aspects = &self.0.env.aspects;
+        let all = &self.0.env.aspects;
+        // モデルのファイルが欠けた観点だけを止め、ほかの観点は計算する（5.6 の「ポーズ（3b）」）
+        let usable: Vec<Aspect> = all
+            .iter()
+            .filter(|a| (self.0.env.available)(a))
+            .cloned()
+            .collect();
+        if usable.is_empty() {
+            self.update(|s| *s = Status::default());
+            return;
+        }
         let planning = std::time::Instant::now();
         let plan = lib.with(|l| {
             let root = l.root.clone();
-            let all = hashes(l, "SELECT hash FROM images")?;
+            let hashes_all = hashes(l, "SELECT hash FROM images")?;
             let targets = hashes(
                 l,
                 "SELECT hash FROM images WHERE deleted_at IS NULL AND missing_at IS NULL
                  ORDER BY imported_at DESC, id DESC",
             )?;
             let computed = l.with_features(|s| {
-                s.sweep(&all.iter().cloned().collect(), aspects)?;
-                s.computed(aspects)
+                s.sweep(&hashes_all.iter().cloned().collect(), all)?;
+                s.computed(&usable)
             })?;
             Ok((root, targets, computed))
         });
@@ -174,17 +200,27 @@ impl Calc {
             }
             Err(e) => return self.fail_library(&e),
         };
-        let (pending, failed): (Vec<String>, Vec<String>) = {
+        // 画像ごとに、usable のうち行がない観点
+        let missing = |h: &String| -> Vec<Aspect> {
+            usable
+                .iter()
+                .zip(&computed)
+                .filter(|(_, done)| !done.contains(h))
+                .map(|(a, _)| a.clone())
+                .collect()
+        };
+        let (pending, failed): (Vec<(String, Vec<Aspect>)>, Vec<_>) = {
             let failed = lock(&self.0.failed);
             targets
                 .iter()
-                .filter(|h| !computed.contains(*h))
-                .cloned()
-                .partition(|h| !failed.contains(&(root.clone(), h.clone())))
+                .map(|h| (h.clone(), missing(h)))
+                .filter(|(_, m)| !m.is_empty())
+                .partition(|(h, _)| !failed.contains(&(root.clone(), h.clone())))
         };
         self.update(|s| {
             *s = Status {
                 running: false,
+                // usable の観点がすべてそろった対象の画像
                 done: targets.len() - pending.len() - failed.len(),
                 total: targets.len(),
                 failed: failed.len(),
@@ -202,16 +238,16 @@ impl Calc {
         if pending.is_empty() {
             return;
         }
-        let mut worker = match (self.0.env.start)() {
+        let mut worker = match (self.0.env.start)(&usable) {
             Ok(w) => w,
             Err(e) => return self.fail(STOPPED, &e),
         };
         self.update(|s| s.running = true);
-        for hash in &pending {
+        for (hash, missing) in &pending {
             if self.generation() != gen {
                 break;
             }
-            let result = worker.compute(&library::thumb_path(&root, hash));
+            let result = worker.compute(&library::thumb_path(&root, hash), missing);
             if self.generation() != gen {
                 break;
             }
@@ -230,12 +266,9 @@ impl Calc {
                 if !exists {
                     return Ok(Check::Gone);
                 }
-                if let Ok(vectors) = &result {
-                    let pairs: Vec<(&Aspect, &[f32])> = aspects
-                        .iter()
-                        .zip(vectors)
-                        .map(|(a, v)| (a, v.as_slice()))
-                        .collect();
+                if let Ok(values) = &result {
+                    let pairs: Vec<(&Aspect, &worker::Value)> =
+                        missing.iter().zip(values).collect();
                     l.with_features(|s| s.put(hash, &pairs, now()))?;
                 }
                 Ok(Check::Valid)
@@ -332,13 +365,22 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::features::tests::aspect;
-    use worker::Failure;
+    use crate::features::tests::{aspect, pose_aspect};
+    use worker::{Failure, Pose, PoseStatus, Value};
 
+    /// 内容と構図のベクトルを返す。ポーズは偽のワーカーがいつも「人物なし」にする
     type Behave = Box<dyn FnMut(&str) -> Result<Vec<Vec<f32>>, Failure> + Send>;
 
     fn aspects() -> Vec<Aspect> {
-        vec![aspect("content", "m1", 2), aspect("composition", "c1", 3)]
+        vec![
+            aspect("content", "m1", 2),
+            aspect("composition", "c1", 3),
+            pose_aspect("p1", 3),
+        ]
+    }
+
+    fn names(aspects: &[Aspect]) -> Vec<String> {
+        aspects.iter().map(|a| a.aspect.clone()).collect()
     }
 
     fn good() -> Result<Vec<Vec<f32>>, Failure> {
@@ -349,14 +391,27 @@ mod tests {
     struct Fake {
         behave: Arc<Mutex<Behave>>,
         seen: Arc<Mutex<Vec<String>>>,
+        asked: Arc<Mutex<Vec<Vec<String>>>>,
         drops: Arc<AtomicUsize>,
     }
 
     impl Compute for Fake {
-        fn compute(&mut self, thumb: &Path) -> Result<Vec<Vec<f32>>, Failure> {
+        fn compute(&mut self, thumb: &Path, asked: &[Aspect]) -> Result<Vec<Value>, Failure> {
             let hash = thumb.file_stem().unwrap().to_str().unwrap().to_string();
             lock(&self.seen).push(hash.clone());
-            (lock(&self.behave))(&hash)
+            lock(&self.asked).push(names(asked));
+            let vectors = (lock(&self.behave))(&hash)?;
+            Ok(asked
+                .iter()
+                .map(|a| match a.aspect.as_str() {
+                    "content" => Value::Vector(vectors[0].clone()),
+                    "composition" => Value::Vector(vectors[1].clone()),
+                    _ => Value::Pose(Pose {
+                        status: PoseStatus::None,
+                        people: vec![],
+                    }),
+                })
+                .collect())
         }
     }
 
@@ -373,8 +428,13 @@ mod tests {
         enabled: Arc<AtomicBool>,
         start_fails: Arc<AtomicBool>,
         starts: Arc<AtomicUsize>,
+        /// start に渡された観点の名前
+        started: Arc<Mutex<Vec<Vec<String>>>>,
+        /// モデルのファイルがない観点の名前
+        unavailable: Arc<Mutex<HashSet<String>>>,
         behave: Arc<Mutex<Behave>>,
         seen: Arc<Mutex<Vec<String>>>,
+        asked: Arc<Mutex<Vec<Vec<String>>>>,
         drops: Arc<AtomicUsize>,
         /// behave の中から halt を呼ぶための Calc の写し
         me: Arc<OnceLock<Calc>>,
@@ -386,8 +446,11 @@ mod tests {
         let enabled = Arc::new(AtomicBool::new(true));
         let start_fails = Arc::new(AtomicBool::new(false));
         let starts = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Mutex::new(vec![]));
+        let unavailable = Arc::new(Mutex::new(HashSet::new()));
         let behave: Arc<Mutex<Behave>> = Arc::new(Mutex::new(Box::new(|_| good())));
         let seen = Arc::new(Mutex::new(vec![]));
+        let asked = Arc::new(Mutex::new(vec![]));
         let drops = Arc::new(AtomicUsize::new(0));
         let env = Env {
             enabled: Box::new({
@@ -395,22 +458,30 @@ mod tests {
                 move || e.load(Ordering::SeqCst)
             }),
             aspects: aspects(),
+            available: Box::new({
+                let u = unavailable.clone();
+                move |a| !lock(&u).contains(&a.aspect)
+            }),
             start: Box::new({
-                let (fails, starts, behave, seen, drops) = (
+                let (fails, starts, started, behave, seen, asked, drops) = (
                     start_fails.clone(),
                     starts.clone(),
+                    started.clone(),
                     behave.clone(),
                     seen.clone(),
+                    asked.clone(),
                     drops.clone(),
                 );
-                move || {
+                move |usable| {
                     starts.fetch_add(1, Ordering::SeqCst);
+                    lock(&started).push(names(usable));
                     if fails.load(Ordering::SeqCst) {
                         return Err("偽のワーカーを起動できない".into());
                     }
                     Ok(Box::new(Fake {
                         behave: behave.clone(),
                         seen: seen.clone(),
+                        asked: asked.clone(),
                         drops: drops.clone(),
                     }) as Box<dyn Compute>)
                 }
@@ -431,8 +502,11 @@ mod tests {
             enabled,
             start_fails,
             starts,
+            started,
+            unavailable,
             behave,
             seen,
+            asked,
             drops,
             me,
         }
@@ -493,7 +567,7 @@ mod tests {
     }
 
     fn computed(lib: &Mutex<Option<Library>>) -> HashSet<String> {
-        lib.with(|l| l.with_features(|s| s.computed(&aspects())))
+        lib.with(|l| l.with_features(|s| s.computed_all(&aspects())))
             .unwrap()
     }
 
@@ -631,7 +705,7 @@ mod tests {
         r.lib
             .with(|l| {
                 l.with_features(|s| {
-                    s.put(
+                    s.put_vectors(
                         "A",
                         &[(&old[0], &[1.0, 0.0]), (&old[1], &[1.0, 0.0, 0.0])],
                         1,
@@ -658,7 +732,7 @@ mod tests {
         r.lib
             .with(|l| {
                 l.with_features(|s| {
-                    s.put("Z", &[(&a[0], &[1.0, 0.0]), (&a[1], &[1.0, 0.0, 0.0])], 1)
+                    s.put_vectors("Z", &[(&a[0], &[1.0, 0.0]), (&a[1], &[1.0, 0.0, 0.0])], 1)
                 })
             })
             .unwrap();
@@ -974,5 +1048,105 @@ mod tests {
             r.computed().contains("N")
         });
         assert_eq!(r.seen(), strings(["A", "N"]));
+    }
+
+    impl Rig {
+        fn unavailable(&self, names: &[&str]) {
+            *lock(&self.unavailable) = names.iter().map(|n| n.to_string()).collect();
+        }
+
+        fn asked(&self) -> Vec<Vec<String>> {
+            lock(&self.asked).clone()
+        }
+    }
+
+    fn strs(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn ポーズが使えるようになると内容と構図だけ計算済みの画像にポーズだけを計算する() {
+        let r = rig();
+        r.add("A", 1);
+        r.unavailable(&["pose"]);
+        r.pass();
+        let before = r
+            .lib
+            .with(|l| l.with_features(|s| s.embedding_times()))
+            .unwrap();
+        assert_eq!(before.len(), 2);
+        // 書き直されたら computed_at が変わるよう、時刻を進める
+        thread::sleep(Duration::from_millis(5));
+
+        r.unavailable(&[]);
+        r.pass();
+
+        assert_eq!(
+            r.asked(),
+            [strs(&["content", "composition"]), strs(&["pose"])]
+        );
+        assert_eq!(
+            *lock(&r.started),
+            [
+                strs(&["content", "composition"]),
+                strs(&["content", "composition", "pose"])
+            ]
+        );
+        let after = r
+            .lib
+            .with(|l| l.with_features(|s| s.embedding_times()))
+            .unwrap();
+        assert_eq!(before, after);
+        assert_eq!(r.computed(), set(["A"]));
+        assert_eq!(r.calc.status().done, 1);
+    }
+
+    #[test]
+    fn ポーズが使えない間は内容と構図を計算しワーカーにポーズを渡さない() {
+        let r = rig();
+        r.add("A", 1);
+        r.add("B", 2);
+        r.unavailable(&["pose"]);
+
+        r.pass();
+
+        assert_eq!(*lock(&r.started), [strs(&["content", "composition"])]);
+        assert_eq!(r.asked(), vec![strs(&["content", "composition"]); 2]);
+        let s = r.calc.status();
+        // done は使える観点のそろった画像の数
+        assert_eq!((s.done, s.total, s.failed), (2, 2, 0));
+        assert!(r.computed().is_empty());
+    }
+
+    #[test]
+    fn 使える観点が1つもなければワーカーを起動せず状態が初期値になる() {
+        let r = rig();
+        r.add("A", 1);
+        r.pass();
+        r.unavailable(&["content", "composition", "pose"]);
+
+        r.pass();
+
+        assert_eq!(r.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(r.calc.status(), Status::default());
+    }
+
+    #[test]
+    fn ポーズのモデルが使えない間も計算済みのポーズの行は消えない() {
+        let r = rig();
+        r.add("A", 1);
+        r.pass();
+        r.unavailable(&["pose"]);
+        r.add("B", 2);
+
+        r.pass();
+
+        let p = &aspects()[2];
+        let poses = r
+            .lib
+            .with(|l| l.with_features(|s| s.load_poses(p)))
+            .unwrap();
+        assert_eq!(poses.len(), 1);
+        assert_eq!(poses[0].0, "A");
     }
 }

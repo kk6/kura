@@ -29,6 +29,9 @@ export type Backfill = { running: boolean; counts: BackfillCounts | null; error:
 // src-tauri/src/calc.rs の Status（features_status コマンドと features-progress イベント。FR-604）
 export type FeaturesStatus = { running: boolean; done: number; total: number; failed: number; error: string | null }
 
+// src-tauri/src/model.rs の Missing（missing_models コマンド）。モデルのファイルが欠けた観点と、ダウンロードの大きさ
+export type MissingModels = { aspects: string[]; size: number }
+
 export type ModelFetch = { running: boolean; progress: ImportProgress | null; error: string | null }
 
 // src-tauri/src/sync.rs の Report（scan_library コマンドの返り値。差分検出 FR-104）
