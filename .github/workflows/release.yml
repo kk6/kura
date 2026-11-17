@@ -12,6 +12,10 @@ jobs:
   release:
     # Apple シリコンのランナー。zip の名前の CPU は uname -m から取る
     runs-on: macos-latest
+    env:
+      # ランナーの Homebrew の新しい Python（3.15）には onnxruntime のホイールがない。
+      # ml/.python-version で固定しないのは、利用者のグローバルの gitignore が除外するため
+      UV_PYTHON: '3.14'
     steps:
       - uses: actions/checkout@v4
         with:
