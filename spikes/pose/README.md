@@ -20,7 +20,7 @@ YOLO-Pose（AGPL-3.0）と MediaPipe（TFLite）は候補から外した（要�
 - 写真274枚を読み取り専用で使った。ドキュメント用の見本 `~/Projects/kura-library`（人物169、動物28、小物10、風景24）と、利用者が足した `~/Projects/kura-pose-extra`（43枚。寝る、膝を立てて座る、頭が写っていない胴体、極端なアングル、手だけなど）。本物の資料は使っていない
 - `fetch.py`：OpenMMLab の公式の配布先から zip を取り、`.onnx` だけを `models/` に取り出す
 - `pose.py`：サムネイルを本体と同じ条件（幅320px、JPEG 品質85）で `out/thumbs/` に作る。構成ごとに、サムネイルと元の画像の両方から骨格（COCO 17点）を推定し、時間を測る。前後処理は RTMLib 0.0.16 を使った
-  - トップダウン（RTMPose-s / m）：YOLOX-tiny（入力416×416、人物の閾値0.7）で人物の枠を出し、枠ごとに RTMPose（入力 192×256）で関節を出す
+  - トップダウン（RTMPose-s / m）：YOLOX-tiny（入力416×416。人物の閾値は、RTMLib が NMS を中に持つ ONNX で既定の0.7を使わないため、実際は0.3だった（J1 で分かった）。RTMPose へは BGR で渡していた（配布の設定では RGB が正しい）で人物の枠を出し、枠ごとに RTMPose（入力 192×256）で関節を出す
   - 1段（RTMO-s）：入力640×640 で人物と関節をまとめて出す（閾値0.7）
   - ONNX Runtime は CPU、1スレッド（`intra_op_num_threads=1`）。RTMLib はセッションの設定を渡さないので、`InferenceSession` を差し替えて渡した
 - `report.py`：類似度を計算し、統計を `out/stats.md` に、並びを見比べるページを `out/index.html` に出す
