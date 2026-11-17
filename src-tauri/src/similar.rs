@@ -5,7 +5,16 @@ use serde::Serialize;
 
 use crate::features;
 use crate::library::{err, Library};
-use crate::manifest::Aspect;
+use crate::manifest::{Aspect, Kind};
+
+/// タスク14まで、類似度と基準にできるかはベクトルの観点だけで決める。ポーズを足しても 3a の検索は変わらない
+fn vectors(aspects: &[Aspect]) -> Vec<Aspect> {
+    aspects
+        .iter()
+        .filter(|a| a.kind == Kind::Vector)
+        .cloned()
+        .collect()
+}
 
 /// 基準画像に対する観点ごとの類似度。ids と scores の各配列は同じ長さ・同じ並び。aspects は model.json の並び
 #[derive(Debug, Serialize)]
@@ -22,6 +31,7 @@ const UNCOMPUTED: &str = "この画像の特徴量はまだ計算していませ
 /// 基準画像 id に対する、特徴量がそろった全画像の類似度を観点ごとに返す。
 /// 値は基準画像を除いた全画像で平均0・標準偏差1にそろえる（5.6 の「重み」）
 pub fn similar(lib: &mut Library, aspects: &[Aspect], id: i64) -> Result<Similar, String> {
+    let aspects = &vectors(aspects)[..];
     hash_of(lib, id)?.ok_or("ゴミ箱か「見つからない」の画像、または無い画像です")?;
     // 類似画像検索を使ったことのないライブラリには features.db を作らない（設計メモ2章）
     if !features::path(&lib.root).exists() {
@@ -76,6 +86,7 @@ pub fn similar(lib: &mut Library, aspects: &[Aspect], id: i64) -> Result<Similar
 /// id を基準に探せるか。ゴミ箱でも「見つからない」でもなく、今のモデルの全観点の特徴量がそろっている。
 /// 画面が押す前に未計算を知るため、詳細パネルを読むたびに呼ぶ（5.6 の「入口と結果」）
 pub fn ready(lib: &mut Library, aspects: &[Aspect], id: i64) -> Result<bool, String> {
+    let aspects = &vectors(aspects)[..];
     let Some(hash) = hash_of(lib, id)? else {
         return Ok(false);
     };
@@ -169,7 +180,7 @@ mod tests {
     fn put(lib: &mut Library, hash: &str, deg: f32) {
         let a = aspects();
         let v = unit(deg);
-        lib.with_features(|s| s.put(hash, &[(&a[0], &v[..]), (&a[1], &v[..])], 1))
+        lib.with_features(|s| s.put_vectors(hash, &[(&a[0], &v[..]), (&a[1], &v[..])], 1))
             .unwrap();
     }
 
@@ -270,13 +281,13 @@ mod tests {
         let base = image(&mut lib, "base", 0.0);
         let half = add(&mut lib, "half", "");
         let a = aspects();
-        lib.with_features(|s| s.put("half", &[(&a[0], &unit(10.0)[..])], 1))
+        lib.with_features(|s| s.put_vectors("half", &[(&a[0], &unit(10.0)[..])], 1))
             .unwrap();
         // 古いモデル名の行は、今のモデルの特徴量に数えない
         let old = add(&mut lib, "old", "");
         let stale = aspect("composition", "c0", 2);
         lib.with_features(|s| {
-            s.put(
+            s.put_vectors(
                 "old",
                 &[(&a[0], &unit(10.0)[..]), (&stale, &unit(10.0)[..])],
                 1,
@@ -318,7 +329,7 @@ mod tests {
         let none = add(&mut lib, "none", "");
         let half = add(&mut lib, "half", "");
         let a = aspects();
-        lib.with_features(|s| s.put("half", &[(&a[0], &unit(0.0)[..])], 1))
+        lib.with_features(|s| s.put_vectors("half", &[(&a[0], &unit(0.0)[..])], 1))
             .unwrap();
         let trash = add(&mut lib, "trash", "trash");
         put(&mut lib, "trash", 0.0);
@@ -347,7 +358,7 @@ mod tests {
         let flat = add(&mut lib, "flat", "");
         let a = aspects();
         lib.with_features(|s| {
-            s.put(
+            s.put_vectors(
                 "flat",
                 &[(&a[0], &unit(20.0)[..]), (&a[1], &[0.0, 0.0][..])],
                 1,
@@ -397,8 +408,10 @@ mod tests {
         tx.commit().unwrap();
         for i in 0..N {
             let (c, p) = (unit(768), unit(384));
-            lib.with_features(|s| s.put(&format!("h{i}"), &[(&a[0], &c[..]), (&a[1], &p[..])], 1))
-                .unwrap();
+            lib.with_features(|s| {
+                s.put_vectors(&format!("h{i}"), &[(&a[0], &c[..]), (&a[1], &p[..])], 1)
+            })
+            .unwrap();
         }
         let size = std::fs::metadata(crate::features::path(&lib.root))
             .unwrap()
@@ -417,5 +430,23 @@ mod tests {
             );
         }
         eprintln!("features.db：{}バイト", size);
+    }
+
+    #[test]
+    fn ポーズの観点があっても類似度と基準にできるかは内容と構図だけで決める() {
+        let (_d, mut lib) = open();
+        let base = image(&mut lib, "base", 0.0);
+        let near = image(&mut lib, "near", 10.0);
+        image(&mut lib, "far", 170.0);
+        let mut a = aspects();
+        a.push(crate::features::tests::pose_aspect("p1", 51));
+
+        let r = similar(&mut lib, &a, base).unwrap();
+
+        assert_eq!(r.aspects, ["content", "composition"]);
+        assert_eq!(r.ids.len(), 3);
+        assert_eq!(r.uncomputed, 0);
+        assert!(score(&r, 0, near) > 0.0);
+        assert!(ready(&mut lib, &a, base).unwrap());
     }
 }

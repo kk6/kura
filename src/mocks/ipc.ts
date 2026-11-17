@@ -443,18 +443,28 @@ const DEFAULT_SETTINGS: Settings = {
 }
 
 // 類似画像検索のモデル（NFR-08）。本物と同じく、そろっていれば進み具合を送らずに終わる。
-// e2e で失敗の表示を確かめるため、mock.failModel があればダウンロードに失敗する
-const MODEL_SIZE = 371807752
+// 大きさは ml/model.json の内容のモデル（372 MB）と、ポーズの2つの zip（約70 MB）。
+// e2e で失敗の表示を確かめるため、mock.failModel があればダウンロードに失敗する。
+// 3a から更新した利用者を見立てるため、mock.missingPose があれば mock.modelReady でもポーズのモデルだけがない
+const POSE_SIZE = 69687555
+const MODEL_SIZE = 371807752 + POSE_SIZE
+const missingModels = () => {
+  if (!sessionStorage.getItem('mock.modelReady')) return { aspects: ['content', 'pose'], size: MODEL_SIZE }
+  if (sessionStorage.getItem('mock.missingPose')) return { aspects: ['pose'], size: POSE_SIZE }
+  return { aspects: [], size: 0 }
+}
 const prepareModels: Handler = async () => {
-  if (sessionStorage.getItem('mock.modelReady')) return
-  await emit('model-progress', { done: 0, total: MODEL_SIZE })
+  const total = missingModels().size
+  if (total === 0) return
+  await emit('model-progress', { done: 0, total })
   await new Promise((r) => setTimeout(r, 300))
-  await emit('model-progress', { done: MODEL_SIZE / 2, total: MODEL_SIZE })
+  await emit('model-progress', { done: total / 2, total })
   await new Promise((r) => setTimeout(r, 300))
   if (sessionStorage.getItem('mock.failModel'))
-    throw 'モデルをダウンロードできません（curl: (6) Could not resolve host: github.com）'
-  await emit('model-progress', { done: MODEL_SIZE, total: MODEL_SIZE })
+    throw 'モデルをダウンロードできません（curl: (6) Could not resolve host: download.openmmlab.com）'
+  await emit('model-progress', { done: total, total })
   sessionStorage.setItem('mock.modelReady', '1')
+  sessionStorage.removeItem('mock.missingPose')
 }
 
 // 特徴量の計算（FR-604）。本物は Rust のきっかけで計算を始め、features-progress で知らせる。
@@ -724,6 +734,7 @@ const handlers: Record<string, Handler> = {
     return [...RECENT]
   },
   model_size: () => MODEL_SIZE,
+  missing_models: missingModels,
   prepare_models: prepareModels,
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
   // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない

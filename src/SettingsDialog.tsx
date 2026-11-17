@@ -3,7 +3,7 @@ import { save } from '@tauri-apps/plugin-dialog'
 import { useEffect, useRef, useState } from 'react'
 import type { Settings } from './galleryTypes'
 import ConfirmDialog from './ConfirmDialog'
-import type { Backfill, BackfillCounts, FeaturesStatus, ModelFetch } from './importTypes'
+import type { Backfill, BackfillCounts, FeaturesStatus, MissingModels, ModelFetch } from './importTypes'
 import Status from './Status'
 import { Progress } from './StatusbarResult'
 import './SkipDialog.css'
@@ -49,7 +49,17 @@ export default function SettingsDialog({
   // ON にする前の確認に出すモデルの大きさ。null は確認を出していない
   const [modelSize, setModelSize] = useState<number | null>(null)
   const [sizeError, setSizeError] = useState<string | null>(null)
+  // 欠けているモデル。3a から更新した利用者は、ON のままポーズのモデルだけがない（NFR-08）
+  const [missing, setMissing] = useState<MissingModels | null>(null)
+  const fetching = modelFetch?.running ?? false
   useEffect(() => ref.current?.showModal(), [])
+  // 開いたときと、ダウンロードが終わったときに読み直す。通信しない
+  useEffect(() => {
+    if (fetching) return
+    invoke<MissingModels>('missing_models')
+      .then(setMissing)
+      .catch((e) => console.error(e))
+  }, [fetching, settings.similarity_enabled])
 
   // 押すまで通信しない（NFR-08）。大きさは同梱した model.json から読むだけ
   async function askSimilarity() {
@@ -112,6 +122,21 @@ export default function SettingsDialog({
           オンにすると、初回だけモデルをダウンロードします。オフにしても、ダウンロードしたモデルと計算した結果は消えません。
         </p>
         <p>モデル：SigLIP 2（Google、Apache License 2.0）</p>
+        {settings.similarity_enabled && missing?.aspects.includes('pose') && (
+          <>
+            <p>
+              「体の姿勢」で比べるには、ポーズのモデル（約{mb(missing.size)}）が必要です。OpenMMLab
+              が公開しているモデルを、アプリのデータフォルダへダウンロードします。
+            </p>
+            {!modelFetch && (
+              <div>
+                <button type="button" className="button" onClick={onFetchModels}>
+                  ダウンロード
+                </button>
+              </div>
+            )}
+          </>
+        )}
         {modelFetch?.running && (
           <p className="dialog__row" role="status">
             {modelFetch.progress

@@ -8,7 +8,32 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use crate::manifest::Aspect;
+use crate::manifest::{Aspect, Kind};
+
+/// 1つの観点の計算の結果
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Vector(Vec<f32>),
+    Pose(Pose),
+}
+
+/// ポーズの観点の結果。people は関節が足りる人物ごとの、長さ dim の配列。status が Ok のときだけ1人以上
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Pose {
+    pub status: PoseStatus,
+    pub people: Vec<Vec<f32>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PoseStatus {
+    /// 人物の枠が1つもない
+    None,
+    /// 枠はあるが、関節が足りる人物がいない
+    Few,
+    /// 関節が足りる人物が1人以上
+    Ok,
+}
 
 /// 何を起動するか。テストでは偽のワーカーを指す
 pub struct Spec {
@@ -35,7 +60,6 @@ pub struct Worker {
     stdin: ChildStdin,
     lines: Receiver<String>,
     next: u64,
-    aspects: Vec<Aspect>,
     timeouts: Timeouts,
 }
 
@@ -51,6 +75,7 @@ struct Ready {
 struct ReadyAspect {
     aspect: String,
     model: String,
+    kind: Kind,
     dim: usize,
 }
 
@@ -58,15 +83,66 @@ struct ReadyAspect {
 struct Reply {
     id: u64,
     ok: bool,
-    features: Option<std::collections::HashMap<String, Vec<f32>>>,
+    features: Option<std::collections::HashMap<String, serde_json::Value>>,
     error: Option<String>,
 }
 
+/// やりとりの版。ready の観点の形と、要求の aspects が2で変わった
+const PROTOCOL: u32 = 2;
+
+/// 返事の1つの観点の値を、観点の決まりに照らして読む
+fn value(a: &Aspect, raw: serde_json::Value) -> Result<Value, String> {
+    let finite = |v: &[f32]| v.iter().all(|x| x.is_finite());
+    match a.kind {
+        Kind::Vector => {
+            let v: Vec<f32> = serde_json::from_value(raw)
+                .map_err(|e| format!("ワーカーの返した {} を読めません（{e}）", a.aspect))?;
+            if v.len() != a.dim {
+                return Err(format!(
+                    "ワーカーの返した {} の長さが {} です（{} のはず）",
+                    a.aspect,
+                    v.len(),
+                    a.dim
+                ));
+            }
+            if !finite(&v) {
+                return Err(format!(
+                    "ワーカーの返した {} に有限でない値があります",
+                    a.aspect
+                ));
+            }
+            Ok(Value::Vector(v))
+        }
+        Kind::Pose => {
+            let p: Pose = serde_json::from_value(raw)
+                .map_err(|e| format!("ワーカーの返した {} を読めません（{e}）", a.aspect))?;
+            if (p.status == PoseStatus::Ok) == p.people.is_empty() {
+                return Err(format!(
+                    "ワーカーの返した {} の状態と人数が合いません（{:?}、{}人）",
+                    a.aspect,
+                    p.status,
+                    p.people.len()
+                ));
+            }
+            if !p.people.iter().all(|x| x.len() == a.dim && finite(x)) {
+                return Err(format!(
+                    "ワーカーの返した {} の人の長さが {} でないか、有限でない値があります",
+                    a.aspect, a.dim
+                ));
+            }
+            Ok(Value::Pose(p))
+        }
+    }
+}
+
 impl Worker {
-    /// 起動して ready を待ち、aspects が expected と同じことを確かめる
+    /// expected の観点だけを読み込むよう --aspects を足して起動し、ready を待ち、aspects が expected と同じことを確かめる
     pub fn start(spec: &Spec, expected: &[Aspect], timeouts: Timeouts) -> Result<Worker, String> {
+        let names: Vec<&str> = expected.iter().map(|a| a.aspect.as_str()).collect();
         let mut child = Command::new(&spec.program)
             .args(&spec.args)
+            .arg("--aspects")
+            .arg(names.join(","))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -99,7 +175,6 @@ impl Worker {
             stdin,
             lines,
             next: 1,
-            aspects: expected.to_vec(),
             timeouts,
         };
         let line = match worker.lines.recv_timeout(worker.timeouts.ready) {
@@ -121,7 +196,7 @@ impl Worker {
                 .error
                 .unwrap_or_else(|| "ワーカーが準備できません".into()));
         }
-        if ready.protocol != Some(1) {
+        if ready.protocol != Some(PROTOCOL) {
             return Err(format!(
                 "ワーカーのやりとりの版が違います（{:?}）。アプリとワーカーの版が合っていません",
                 ready.protocol
@@ -129,10 +204,9 @@ impl Worker {
         }
         let same = ready.aspects.is_some_and(|got| {
             got.len() == expected.len()
-                && got
-                    .iter()
-                    .zip(expected)
-                    .all(|(g, e)| g.aspect == e.aspect && g.model == e.model && g.dim == e.dim)
+                && got.iter().zip(expected).all(|(g, e)| {
+                    g.aspect == e.aspect && g.model == e.model && g.kind == e.kind && g.dim == e.dim
+                })
         });
         if !same {
             return Err(
@@ -143,15 +217,16 @@ impl Worker {
         Ok(worker)
     }
 
-    /// 1枚を計算する。返り値は expected と同じ順・同じ数のベクトル
-    pub fn compute(&mut self, thumb: &Path) -> Result<Vec<Vec<f32>>, Failure> {
+    /// 1枚の aspects（start の expected の部分集合）を計算する。返り値は aspects と同じ順・同じ数
+    pub fn compute(&mut self, thumb: &Path, aspects: &[Aspect]) -> Result<Vec<Value>, Failure> {
         let id = self.next;
         self.next += 1;
         // macOS のパスは UTF-8 なので、ここで止まるのはその画像だけの問題として扱う
         let path = thumb
             .to_str()
             .ok_or_else(|| Failure::Image(format!("パスを渡せません（{}）", thumb.display())))?;
-        let request = serde_json::json!({ "id": id, "path": path }).to_string();
+        let names: Vec<&str> = aspects.iter().map(|a| a.aspect.as_str()).collect();
+        let request = serde_json::json!({ "id": id, "path": path, "aspects": names }).to_string();
         writeln!(self.stdin, "{request}")
             .and_then(|()| self.stdin.flush())
             .map_err(|e| Failure::Dead(format!("ワーカーに要求を書けません（{e}）")))?;
@@ -179,27 +254,13 @@ impl Worker {
             return Err(Failure::Image(reply.error.unwrap_or_default()));
         }
         let mut features = reply.features.unwrap_or_default();
-        self.aspects
+        aspects
             .iter()
             .map(|a| {
-                let v = features.remove(&a.aspect).ok_or_else(|| {
+                let raw = features.remove(&a.aspect).ok_or_else(|| {
                     Failure::Dead(format!("ワーカーの返事に {} がありません", a.aspect))
                 })?;
-                if v.len() != a.dim {
-                    return Err(Failure::Dead(format!(
-                        "ワーカーの返した {} の長さが {} です（{} のはず）",
-                        a.aspect,
-                        v.len(),
-                        a.dim
-                    )));
-                }
-                if !v.iter().all(|x| x.is_finite()) {
-                    return Err(Failure::Dead(format!(
-                        "ワーカーの返した {} に有限でない値があります",
-                        a.aspect
-                    )));
-                }
-                Ok(v)
+                value(a, raw).map_err(Failure::Dead)
             })
             .collect()
     }
@@ -219,22 +280,30 @@ mod tests {
     use std::fs;
     use std::time::Instant;
 
-    const READY: &str = r#"{"ready": true, "protocol": 1, "aspects": [{"aspect": "content", "model": "m1", "dim": 2}, {"aspect": "composition", "model": "m2", "dim": 3}]}"#;
+    const READY: &str = r#"{"ready": true, "protocol": 2, "aspects": [{"aspect": "content", "model": "m1", "kind": "vector", "dim": 2}, {"aspect": "composition", "model": "m2", "kind": "vector", "dim": 3}]}"#;
     const OK: &str =
         r#"{"id": %d, "ok": true, "features": {"content": [0.6, 0.8], "composition": [1, 0, 0]}}"#;
+    const READY_POSE: &str = r#"{"ready": true, "protocol": 2, "aspects": [{"aspect": "content", "model": "m1", "kind": "vector", "dim": 2}, {"aspect": "pose", "model": "p1", "kind": "pose", "dim": 3}]}"#;
 
     // 黙るワーカー。sleep だと kill されるのは sh だけで、sleep がパイプを持ったまま残る。
     // `exec cat >/dev/null` だと標準出力のパイプが閉じ、黙るのではなく終わったことになる
     const SILENT: &str = "exec cat 3>&1 >/dev/null";
 
     fn expected() -> Vec<Aspect> {
-        [("content", "m1", 2), ("composition", "m2", 3)]
-            .into_iter()
-            .map(|(a, m, d)| Aspect {
-                aspect: a.into(),
-                model: m.into(),
-                dim: d,
-                file: None,
+        use crate::features::tests::aspect;
+        vec![aspect("content", "m1", 2), aspect("composition", "m2", 3)]
+    }
+
+    fn with_pose() -> Vec<Aspect> {
+        use crate::features::tests::{aspect, pose_aspect};
+        vec![aspect("content", "m1", 2), pose_aspect("p1", 3)]
+    }
+
+    fn vectors(v: Vec<Value>) -> Vec<Vec<f32>> {
+        v.into_iter()
+            .map(|x| match x {
+                Value::Vector(v) => v,
+                other => panic!("ベクトルでない：{other:?}"),
             })
             .collect()
     }
@@ -277,7 +346,7 @@ mod tests {
         unsafe { libc::kill(pid, 0) == 0 }
     }
 
-    fn dead_reason(r: Result<Vec<Vec<f32>>, Failure>) -> String {
+    fn dead_reason(r: Result<Vec<Value>, Failure>) -> String {
         match r {
             Err(Failure::Dead(e)) => e,
             other => panic!("Dead になっていない：{other:?}"),
@@ -289,9 +358,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut w = Worker::start(&replying(dir.path(), OK), &expected(), quick()).unwrap();
 
-        let v = w.compute(Path::new("/tmp/a.jpg")).unwrap();
+        let v = w.compute(Path::new("/tmp/a.jpg"), &expected()).unwrap();
 
-        assert_eq!(v, vec![vec![0.6, 0.8], vec![1.0, 0.0, 0.0]]);
+        assert_eq!(vectors(v), vec![vec![0.6, 0.8], vec![1.0, 0.0, 0.0]]);
     }
 
     #[test]
@@ -300,7 +369,7 @@ mod tests {
         let mut w = Worker::start(&replying(dir.path(), OK), &expected(), quick()).unwrap();
 
         for _ in 0..3 {
-            assert!(w.compute(Path::new("/tmp/a.jpg")).is_ok());
+            assert!(w.compute(Path::new("/tmp/a.jpg"), &expected()).is_ok());
         }
     }
 
@@ -312,11 +381,11 @@ mod tests {
         );
         let mut w = Worker::start(&fake(dir.path(), &body), &expected(), quick()).unwrap();
 
-        match w.compute(Path::new("/tmp/broken.jpg")) {
+        match w.compute(Path::new("/tmp/broken.jpg"), &expected()) {
             Err(Failure::Image(e)) => assert_eq!(e, "読めません"),
             other => panic!("Image になっていない：{other:?}"),
         }
-        assert!(w.compute(Path::new("/tmp/a.jpg")).is_ok());
+        assert!(w.compute(Path::new("/tmp/a.jpg"), &expected()).is_ok());
     }
 
     #[test]
@@ -364,7 +433,11 @@ mod tests {
         let wrong = [
             READY.replace(r#""m1""#, r#""m9""#),
             READY.replace(r#""dim": 3"#, r#""dim": 4"#),
-            READY.replace(r#""protocol": 1"#, r#""protocol": 2"#),
+            READY.replace(r#""protocol": 2"#, r#""protocol": 1"#),
+            READY.replace(
+                r#""kind": "vector", "dim": 3"#,
+                r#""kind": "pose", "dim": 3"#,
+            ),
         ];
         for ready in wrong {
             let dir = tempfile::tempdir().unwrap();
@@ -382,7 +455,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let spec = fake(dir.path(), &format!("echo '{READY}'\nread line\nexit 0"));
         let mut w = Worker::start(&spec, &expected(), quick()).unwrap();
-        dead_reason(w.compute(Path::new("/tmp/a.jpg")));
+        dead_reason(w.compute(Path::new("/tmp/a.jpg"), &expected()));
     }
 
     #[test]
@@ -392,7 +465,7 @@ mod tests {
         let mut w = Worker::start(&spec, &expected(), quick()).unwrap();
         let t = Instant::now();
 
-        dead_reason(w.compute(Path::new("/tmp/a.jpg")));
+        dead_reason(w.compute(Path::new("/tmp/a.jpg"), &expected()));
 
         assert!(t.elapsed() >= quick().reply);
     }
@@ -421,7 +494,7 @@ mod tests {
         for (name, reply) in wrong {
             let dir = tempfile::tempdir().unwrap();
             let mut w = Worker::start(&replying(dir.path(), reply), &expected(), quick()).unwrap();
-            match w.compute(Path::new("/tmp/a.jpg")) {
+            match w.compute(Path::new("/tmp/a.jpg"), &expected()) {
                 Err(Failure::Dead(_)) => {}
                 other => panic!("{name}：Dead になっていない：{other:?}"),
             }
@@ -437,6 +510,130 @@ mod tests {
         drop(w);
 
         assert!(!alive(dir.path()));
+    }
+
+    #[test]
+    fn 起動の引数にstartの観点をaspectsとして足す() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = dir.path().join("args");
+        let spec = fake(
+            dir.path(),
+            &format!(
+                "printf '%s\\n' \"$@\" > '{}'\necho '{READY_POSE}'\n{SILENT}",
+                args.display()
+            ),
+        );
+        let spec = Spec {
+            args: [spec.args, vec!["--model-dir".into(), "/m".into()]].concat(),
+            ..spec
+        };
+
+        let _w = Worker::start(&spec, &with_pose(), quick()).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&args).unwrap(),
+            "--model-dir\n/m\n--aspects\ncontent,pose\n"
+        );
+    }
+
+    #[test]
+    fn 要求に観点を並べポーズの返事を受け取れる() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("requests");
+        let reply = r#"{"id": %d, "ok": true, "features": {"pose": {"status": "ok", "people": [[0.1, 0.2, 0.9], [1, 2, 0.5]]}, "content": [9, 9, 9]}}"#;
+        let spec = fake(
+            dir.path(),
+            &format!(
+                "echo '{READY_POSE}'\nn=0\nwhile read line; do echo \"$line\" >> '{}'; n=$((n+1)); printf '{reply}\\n' $n; done",
+                log.display()
+            ),
+        );
+        let mut w = Worker::start(&spec, &with_pose(), quick()).unwrap();
+
+        let v = w
+            .compute(Path::new("/tmp/a.jpg"), &with_pose()[1..])
+            .unwrap();
+
+        assert_eq!(
+            v,
+            [Value::Pose(Pose {
+                status: PoseStatus::Ok,
+                people: vec![vec![0.1, 0.2, 0.9], vec![1.0, 2.0, 0.5]],
+            })]
+        );
+        let sent: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(&log).unwrap().trim()).unwrap();
+        assert_eq!(sent["aspects"], serde_json::json!(["pose"]));
+        assert_eq!(sent["path"], "/tmp/a.jpg");
+    }
+
+    #[test]
+    fn 人物なしと関節が足りないを受け取れる() {
+        for (status, want) in [("none", PoseStatus::None), ("few", PoseStatus::Few)] {
+            let dir = tempfile::tempdir().unwrap();
+            let reply = format!(
+                r#"{{"id": %d, "ok": true, "features": {{"pose": {{"status": "{status}", "people": []}}}}}}"#
+            );
+            let spec = fake(
+                dir.path(),
+                &format!("echo '{READY_POSE}'\nn=0\nwhile read line; do n=$((n+1)); printf '{reply}\\n' $n; done"),
+            );
+            let mut w = Worker::start(&spec, &with_pose(), quick()).unwrap();
+
+            let v = w
+                .compute(Path::new("/tmp/a.jpg"), &with_pose()[1..])
+                .unwrap();
+
+            assert_eq!(
+                v,
+                [Value::Pose(Pose {
+                    status: want,
+                    people: vec![]
+                })]
+            );
+        }
+    }
+
+    #[test]
+    fn 決まりと違うポーズの返事でcomputeがdeadになる() {
+        let wrong = [
+            ("観点がない", r#"{"content": [1, 0]}"#),
+            (
+                "知らない状態",
+                r#"{"pose": {"status": "many", "people": []}}"#,
+            ),
+            ("ok で0人", r#"{"pose": {"status": "ok", "people": []}}"#),
+            (
+                "none で人がいる",
+                r#"{"pose": {"status": "none", "people": [[1, 2, 3]]}}"#,
+            ),
+            (
+                "few で人がいる",
+                r#"{"pose": {"status": "few", "people": [[1, 2, 3]]}}"#,
+            ),
+            (
+                "人の長さが違う",
+                r#"{"pose": {"status": "ok", "people": [[1, 2]]}}"#,
+            ),
+            (
+                "有限でない値",
+                r#"{"pose": {"status": "ok", "people": [[1, 2, 1e39]]}}"#,
+            ),
+            ("ベクトルで返す", r#"{"pose": [1, 2, 3]}"#),
+        ];
+        for (name, features) in wrong {
+            let dir = tempfile::tempdir().unwrap();
+            let reply = format!(r#"{{"id": %d, "ok": true, "features": {features}}}"#);
+            let spec = fake(
+                dir.path(),
+                &format!("echo '{READY_POSE}'\nn=0\nwhile read line; do n=$((n+1)); printf '{reply}\\n' $n; done"),
+            );
+            let mut w = Worker::start(&spec, &with_pose(), quick()).unwrap();
+            match w.compute(Path::new("/tmp/a.jpg"), &with_pose()[1..]) {
+                Err(Failure::Dead(_)) => {}
+                other => panic!("{name}：Dead になっていない：{other:?}"),
+            }
+        }
     }
 
     /// 同梱したワーカー（本物のモデル）で1枚を計算する。リリース用ビルドの .app の中身を渡して流す。
@@ -468,12 +665,9 @@ mod tests {
         };
 
         let mut w = Worker::start(&spec, &expected, timeouts).unwrap();
-        let v = w.compute(&thumb).unwrap();
+        // 形と有限の値は compute が確かめる
+        let v = w.compute(&thumb, &expected).unwrap();
 
         assert_eq!(v.len(), expected.len());
-        for (a, x) in expected.iter().zip(&v) {
-            assert_eq!(x.len(), a.dim, "{}", a.aspect);
-            assert!(x.iter().all(|f| f.is_finite()), "{}", a.aspect);
-        }
     }
 }
