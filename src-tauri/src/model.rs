@@ -67,13 +67,17 @@ pub fn prepare(
     mut progress: impl FnMut(u64, u64),
 ) -> Result<(), String> {
     let _fetching = FETCHING.lock().unwrap_or_else(PoisonError::into_inner);
-    let total = files.iter().map(|f| download_size(f)).sum();
+    // 置いてあるモデルを合計に入れない。ポーズのモデルだけを取るときに「372 MB / 441 MB」から始めないため
+    let todo: Vec<&ModelFile> = files
+        .iter()
+        .copied()
+        .filter(|f| !matches(&dir.join(&f.name), &f.sha256))
+        .collect();
+    let total = todo.iter().map(|f| download_size(f)).sum();
     let mut done = 0;
-    for file in files {
-        if !matches(&dir.join(&file.name), &file.sha256) {
-            fs::create_dir_all(dir).map_err(|e| format!("モデルの置き場所を作れません（{e}）"))?;
-            fetch(&file.url, dir, file, |bytes| progress(done + bytes, total))?;
-        }
+    for file in todo {
+        fs::create_dir_all(dir).map_err(|e| format!("モデルの置き場所を作れません（{e}）"))?;
+        fetch(&file.url, dir, file, |bytes| progress(done + bytes, total))?;
         done += download_size(file);
     }
     Ok(())
@@ -306,6 +310,28 @@ mod tests {
         assert_eq!(fs::read(dir.join("det.onnx")).unwrap(), BODY);
         only(&dir, &["det.onnx"]);
         let n = zip.len() as u64;
+        assert_eq!(seen.last(), Some(&(n, n)));
+    }
+
+    #[test]
+    fn 進み具合はダウンロードするファイルだけで数える() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (url, zip) = serve_zip(tmp.path(), BODY);
+        let dir = tmp.path().join("models");
+        fs::create_dir_all(&dir).unwrap();
+        // 3a から更新した利用者。内容のモデルはそろっていて、ポーズのモデルだけがない
+        fs::write(dir.join("vision.onnx"), b"vision").unwrap();
+        let vision = model("vision.onnx", "file:///none", b"vision");
+        let det = zipped("det.onnx", &url, BODY, &zip);
+        let mut seen = Vec::new();
+
+        prepare(&dir, &[&vision, &det], |done, total| {
+            seen.push((done, total))
+        })
+        .unwrap();
+
+        let n = zip.len() as u64;
+        assert!(seen.iter().all(|(d, t)| *t == n && *d <= n), "{seen:?}");
         assert_eq!(seen.last(), Some(&(n, n)));
     }
 
