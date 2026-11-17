@@ -4,14 +4,47 @@
     {
       "aspect": "content",
       "model": "siglip2-base-patch16-224",
+      "kind": "vector",
       "dim": 768,
-      "file": {
-        "name": "siglip2-base-patch16-224-vision.onnx",
-        "url": "https://github.com/kk6/kura/releases/download/models-1/siglip2-base-patch16-224-vision.onnx",
-        "sha256": "c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad",
-        "size": 371807752
-      }
+      "files": [
+        {
+          "name": "siglip2-base-patch16-224-vision.onnx",
+          "url": "https://github.com/kk6/kura/releases/download/models-1/siglip2-base-patch16-224-vision.onnx",
+          "sha256": "c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad",
+          "size": 371807752
+        }
+      ]
     },
-    { "aspect": "composition", "model": "gray16-edge4x8-v1", "dim": 384, "file": null }
+    { "aspect": "composition", "model": "gray16-edge4x8-v1", "kind": "vector", "dim": 384, "files": [] },
+    {
+      "aspect": "pose",
+      "model": "rtmpose-m-body7-yolox-tiny-humanart-v1",
+      "kind": "pose",
+      "dim": 51,
+      "files": [
+        {
+          "name": "yolox_tiny_8xb8-300e_humanart-6f3252f9.onnx",
+          "url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_tiny_8xb8-300e_humanart-6f3252f9.zip",
+          "sha256": "ceb11c07298f95c50d7c5abeb906d03340c85f23aa79e3e66966e7fb6c307250",
+          "size": 20283006,
+          "archive": {
+            "member": "20230928/yolox_onnx/yolox_tiny_8xb8-300e_humanart-6f3252f9/end2end.onnx",
+            "sha256": "36e09ca555916253fa1b5d51bec01e48e98e1f0af966c51ce3e844d8c8fc4cfc",
+            "size": 18887737
+          }
+        },
+        {
+          "name": "rtmpose-m_simcc-body7_pt-body7_420e-256x192-e48f03d0_20230504.onnx",
+          "url": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-m_simcc-body7_pt-body7_420e-256x192-e48f03d0_20230504.zip",
+          "sha256": "5c0a4bf67953e6d2ac43ce15e77dc9d5d354ae18430a47d2c5963a7bc5683e3c",
+          "size": 54330655,
+          "archive": {
+            "member": "20230831/rtmpose_onnx/rtmpose-m_simcc-body7_pt-body7_420e-256x192-e48f03d0_20230504/end2end.onnx",
+            "sha256": "f7fbb6c5c11a1bb70f3d445e4ddec5d144ea89ad5649c081ef976f9b24a0b741",
+            "size": 50799818
+          }
+        }
+      ]
+    }
   ]
 }
