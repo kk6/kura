@@ -99,7 +99,7 @@ Claude は `docs/design.md` を読み、モックの画面のスクリーンシ�
 - 対象の ID（FR-xxx、NFR-xx）か、タスクの番号
 - 作業をどこまで進めるか。手元の変更まで、コミットまで、PR までのいずれかを伝えます。Claude は頼まれないとコミットも push もしません
 - 作業の対象外にすること（「カテゴリの色はこのタスクではやらない」など）
-- 決まっているものの、文書に記載されていないこと。決めたことは、Claude に `docs/requirements.md` へ書き戻してもらいます
+- 決まっているものの、文書に記載されていないこと。決めたことは、Claude に書き戻してもらいます。何をするかは `docs/requirements.md` に、理由は `docs/adr/` の ADR に、用語は `GLOSSARY.md` に書きます
 
 ## 終わったときに確かめること
 
@@ -107,7 +107,7 @@ Claude は `docs/design.md` を読み、モックの画面のスクリーンシ�
 - CI が通っている（web、e2e、rust、python）
 - 画面を変えたなら、スクリーンショットを見る。実アプリで確かめたなら、証跡を見る
 - 画面の動きや文言を変えたなら、`docs/user-guide.md` も直っている
-- 決めたことが `docs/requirements.md` に書き戻されている
+- 決めたことが `docs/requirements.md` に、理由が `docs/adr/` に書き戻されている
 
 ## 本物の資料について
 
