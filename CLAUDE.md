@@ -94,3 +94,25 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 1つの作業は、FR-xxx の ID 1つか、関連する数個の ID の単位にする。
 - コミットメッセージや PR の説明には、対応した ID を書く。
 - フェーズの順番は `docs/requirements.md` の「開発フェーズと優先度」に従う。
+
+## 決まりと、それを守る仕組み
+
+過去に直した間違いと、それが2度起きないようにしている仕組み。守る仕組みが「なし（判断）」の決まりは、エージェントが読んで守るしかない。同じ指摘を2度受けたら、検査か作りで守れないかを先に考え、この表に足す。
+
+| 決まり | 守る仕組み |
+| --- | --- |
+| 色・文字サイズ・余白は `tokens.css` の変数だけを使う | `scripts/check-tokens.mjs`（`npm run lint`、CI の web） |
+| `docs/design.md` のトークンの表と `tokens.css` をそろえる | `scripts/check-docs.mjs`（同上） |
+| Tauri のコマンドを `main.rs`、`src/mocks/ipc.ts`、画面の `invoke` でそろえる | `scripts/check-docs.mjs`。モックだけが古いと e2e は通ってしまう |
+| CLAUDE.md と README.md に書く `npm run` のコマンドは `package.json` にある | `scripts/check-docs.mjs` |
+| バージョンを `package.json`、`Cargo.toml`、`tauri.conf.json` とロックファイルでそろえる | `scripts/check-docs.mjs` と `release.yml`（タグ、版、CHANGELOG の項） |
+| 利用者向けの文書に書くモデルの大きさは `ml/model.json` と合わせる | `scripts/check-docs.mjs`（「ポーズのモデル」はポーズの観点、ほかは全体の大きさ） |
+| 整形をそろえる | lefthook（コミットするファイル）と CI の `prettier --check`、`cargo fmt --check`、ruff |
+| 画像を動かす途中で落ちても画像を失わない | 作り（`pending_ops` の3段階）、`fileops` のテスト、`verify-crash-safe-move` の TLA+ と `DRIFT` |
+| 開発版が本物のライブラリのアプリのデータを使わない | 作り（開発版は `debug/` のアプリのデータ）。手で本物のライブラリを開いたときは、移行の前に `kura.db` の写しを残す |
+| 3a で計算した特徴量の値を変えない | `ml/tests` の値の比較（構図のエッジの合計は CPU の差を許す） |
+| 見た目を変えない変更で、画面が変わっていない | `npm run screenshots:compare`（手で流す） |
+| Rust のコマンド、DB、ファイル操作の変更は実アプリで確かめる | なし（判断）。`verify-kura` の手順 |
+| 未決事項は実装で決めずに質問し、決まったら `docs/requirements.md` に書き戻す | なし（判断） |
+| 本物の資料フォルダに触れない。画像をリポジトリにコミットしない | なし（判断） |
+| 画面の動きや文言を変えたら `docs/user-guide.md` も直す | なし（判断）。数と名前で照らせる所は `check-docs.mjs` に足す |
