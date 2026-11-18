@@ -133,7 +133,7 @@
             <li>
               <h3>似た画像を探す</h3>
               <p>
-                選んだ画像に似た画像を、写っているものと、明暗と線の配置で比べて並べます。どちらを重く見るかはスライダーで決めます。
+                選んだ画像に似た画像を、写っているもの、明暗と線の配置、体の姿勢で比べて並べます。どれを重く見るかはスライダーで決めます。
               </p>
             </li>
             <li>
@@ -158,7 +158,7 @@
                 width="1440"
                 height="900"
                 loading="lazy"
-                alt="選んだ猫の写真に似た画像を、似ている順に並べた画面"
+                alt="選んだ人物の写真に似た画像を、似ている順に並べた画面。帯に3つの見方の重みのスライダーがある"
               />
               <figcaption>似た画像を探す</figcaption>
             </figure>
@@ -220,7 +220,7 @@
             <li><a href="https://github.com/kk6/kura/blob/main/CHANGELOG.md">CHANGELOG</a>：各バージョンの変更内容</li>
             <li>
               <a href="https://github.com/kk6/kura/blob/main/docs/requirements.md">要件定義書</a
-              >：これから作る機能（ポーズが似た画像の検索、.clip やフォントの管理など）
+              >：これから作る機能（検索条件の保存、.clip やフォントの管理など）
             </li>
           </ul>
         </section>
@@ -278,6 +278,10 @@
         </nav>
       </div>
       <p class="note">Kura は MIT ライセンスのオープンソースソフトウェアです。</p>
+      <p class="note">
+        ポーズのモデルは OpenMMLab の配布先から取得します（Kura は配布しません）。条件は
+        <a href="https://github.com/kk6/kura#ライセンス">README のライセンスの節</a>を見てください。
+      </p>
       <p class="note">画面の中の写真：<a href="https://unsplash.com/ja">Unsplash</a></p>
     </footer>
   </body>
