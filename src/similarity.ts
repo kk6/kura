@@ -1,6 +1,22 @@
 // src-tauri/src/similar.rs の Similar（similar_images コマンドの返り値）。ids と scores の各配列は同じ長さ・同じ並び。
-// scores は観点ごとに、基準画像を除いた全画像で平均0・標準偏差1にそろえた値（5.6 の「重み」）
-export type Similar = { aspects: string[]; ids: number[]; scores: number[][]; uncomputed: number }
+// scores は観点ごとに、基準画像を除いた全画像で平均0・標準偏差1にそろえた値（5.6 の「重み」）。
+// skipped は比べなかった観点と理由で、aspects と scores には入らない（基準画像にポーズがない、モデルがない）
+export type Skip = 'missing_models' | 'uncomputed' | 'none' | 'few'
+export type Similar = {
+  aspects: string[]
+  ids: number[]
+  scores: number[][]
+  uncomputed: number
+  skipped: Record<string, Skip>
+}
+
+// 比べなかった観点の、スライダーの代わりに出す理由（FR-605）
+export const SKIP_REASONS: Record<Skip, string> = {
+  none: '基準の画像に人物がいません',
+  few: '基準の画像は手足が足りません',
+  uncomputed: '基準の画像は未計算です',
+  missing_models: 'ポーズのモデルを設定から取得してください',
+}
 
 // 観点の名前（model.json の aspects）→ 重み（0〜100 の整数。FR-602）
 export type Weights = Record<string, number>
@@ -33,9 +49,9 @@ export function rankSimilar(s: Similar & { base: number }, weights: Weights): nu
 }
 
 // スライダーの名前（label）と、その下に出す比べるものの短い説明（hint）。キーは設定に保存する観点の名前。
-// 知らない観点は名前をそのまま出す。ポーズの説明は 3b で骨格推定を決めたときに見直す
+// 知らない観点は名前をそのまま出す
 export const ASPECTS: Record<string, { label: string; hint: string }> = {
   content: { label: '写っているもの', hint: '人や物、場面' },
   composition: { label: '明暗と線の配置', hint: '明るい所と暗い所、線の向き' },
-  pose: { label: 'ポーズ', hint: '体の向きと手足の形' },
+  pose: { label: '体の姿勢', hint: '手足や胴の向き' },
 }
