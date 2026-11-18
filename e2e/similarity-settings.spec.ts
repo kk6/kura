@@ -175,6 +175,7 @@ test('ON でポーズのモデルがないときだけ、説明と大きさと�
   const settings = await openUpdated(page)
   await expect(settings).toContainText(POSE_TEXT)
   await expect(settings.getByRole('button', { name: 'ダウンロード', exact: true })).toBeVisible()
+  await expect(settings).toContainText('Kura は配布せず、OpenMMLab の配布先から直接取得します')
   // 押すまで通信しない
   expect(await page.evaluate(() => sessionStorage.getItem('mock.missingPose'))).toBe('1')
   await settings.screenshot({ path: 'test-results/similarity-pose-missing.png' })
