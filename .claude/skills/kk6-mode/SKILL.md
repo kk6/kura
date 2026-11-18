@@ -59,7 +59,8 @@ CLAUDE.md と `~/.claude/rules/` に書いてある決まりは繰り返さな�
 フェーズを進めるメインのセッションだけに当てはまる。
 
 - 進め方は、`grilling` で要件を詰める → `docs/tasks/phaseN.md` と開始ブリーフを書く → 作業セッションに渡す、の順にする。
-- `grilling` の最中は、`mattpocock-skills:domain-modeling` の用語の詰め方だけを使う。あいまいな言葉、表記ゆれ、コードと食い違う説明をその場で指摘し、具体的な場面で境目を確かめる。決まった用語は `docs/requirements.md` に書く。`GLOSSARY.md` と `docs/adr/` は作らない。
+- `grilling` の最中は、`mattpocock-skills:domain-modeling` の用語の詰め方だけを使う。あいまいな言葉、表記ゆれ、コードと食い違う説明をその場で指摘し、具体的な場面で境目を確かめる。決まった用語は `GLOSSARY.md` に書く。
+- 比べて選んだ判断は、`intent` スキルで `docs/adr/` に ADR として書く。`docs/requirements.md` には何をするかだけを書き、理由は ADR へのリンクにする。
 - 進行役は実装しない。まとまりごとに作業セッションを始め、報告と差分を確かめ、CI と同じコマンドを手元で流してから統合する。
 - 開始ブリーフは `mattpocock-skills:writing-for-agents` で書き、作業セッションが設計の判断をしなくて済む細かさにする。見出しは次の順にする：
   - 背景
