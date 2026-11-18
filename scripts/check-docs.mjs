@@ -3,6 +3,7 @@
 // - CLAUDE.md と README.md に書いた npm のコマンドが package.json にあるか
 // - Tauri のコマンド名が、Rust、src/mocks/ipc.ts、画面の invoke で揃っているか
 // - アプリのバージョンが package.json、Cargo.toml、tauri.conf.json とロックファイルで揃っているか
+// - 利用者向けの文書に書いたモデルの大きさ（約 N MB）が ml/model.json と合っているか
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -80,10 +81,24 @@ if (new Set(Object.values(versions)).size !== 1)
       .join('、')}`,
   )
 
+// モデルの大きさ。画面は model_size で数えるので、手で書いた文書だけがモデルの差し替えで古くなる。
+// ダウンロードする大きさ（archive があれば zip の大きさ）を MB に丸めて比べる。
+// 「ポーズのモデル」と書いた所はポーズの観点の大きさ、ほかの「モデル」は全体の大きさ
+const aspects = JSON.parse(read('ml/model.json')).aspects
+const mb = (files) => Math.round(files.reduce((s, f) => s + (f.archive?.size ?? f.size), 0) / 1e6)
+const total = mb(aspects.flatMap((a) => a.files))
+const pose = mb(aspects.filter((a) => a.kind === 'pose').flatMap((a) => a.files))
+for (const file of ['README.md', 'docs/user-guide.md', 'homepage/index.html']) {
+  for (const m of read(file).matchAll(/(ポーズの)?モデル[^。\n]{0,20}?約\s?(\d+)\s?MB/g)) {
+    const want = m[1] ? pose : total
+    if (Number(m[2]) !== want) problems.push(`${file} の「${m[0]}」が ml/model.json と合わない（${want} MB）`)
+  }
+}
+
 if (problems.length) {
   console.error(`ドキュメントの食い違い（${problems.length}件）:\n${problems.join('\n')}`)
   process.exit(1)
 }
 console.log(
-  `ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件、バージョン ${versions['package.json']} を確かめた`,
+  `ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件、モデルの大きさ、バージョン ${versions['package.json']} を確かめた`,
 )

@@ -40,3 +40,6 @@ __pycache__/
 /.design-sync/.cache/
 /.design-sync/learnings/
 /.design-sync/node_modules
+
+# 推敲のツール yomiyasu の記録
+.yomiyasu/
