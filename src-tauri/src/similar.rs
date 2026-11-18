@@ -498,7 +498,8 @@ mod tests {
         assert!((score(&r, 1, flat) - score(&r, 1, ortho)).abs() < 1e-5);
     }
 
-    /// NFR-03 の計測。`cargo test --release 類似度の2万件の計測 -- --ignored --nocapture` で流す
+    /// NFR-03 の計測。`cargo test --release 類似度の2万件の計測 -- --ignored --nocapture` で流す。
+    /// ポーズは6割を1〜3人の「ポーズあり」、2割を人物なし、1割を関節不足、1割を未計算にする
     #[test]
     #[ignore]
     fn 類似度の2万件の計測() {
@@ -506,6 +507,7 @@ mod tests {
         let a = vec![
             aspect("content", "siglip2-base-patch16-224", 768),
             aspect("composition", "gray16-edge4x8-v1", 384),
+            crate::features::tests::pose_aspect("rtmpose-m-body7-yolox-tiny-humanart-v1", 51),
         ];
         let (_d, mut lib) = open();
         let mut seed = 0x2545_f491_4f6c_dd1du64;
@@ -537,10 +539,29 @@ mod tests {
                 s.put_vectors(&format!("h{i}"), &[(&a[0], &c[..]), (&a[1], &p[..])], 1)
             })
             .unwrap();
+            let people: Vec<Vec<f32>> = (0..1 + i % 3)
+                .map(|_| unit(51).into_iter().map(|x| x * 4.0 + 0.5).collect())
+                .collect();
+            let v = match i % 10 {
+                0..=5 => crate::features::tests::pose(
+                    PoseStatus::Ok,
+                    &people.iter().map(|p| &p[..]).collect::<Vec<_>>(),
+                ),
+                6 | 7 => crate::features::tests::pose(PoseStatus::None, &[]),
+                8 => crate::features::tests::pose(PoseStatus::Few, &[]),
+                _ => continue,
+            };
+            lib.with_features(|s| s.put(&format!("h{i}"), &[(&a[2], &v)], 1))
+                .unwrap();
         }
         let size = std::fs::metadata(crate::features::path(&lib.root))
             .unwrap()
             .len();
+        for run in 0..5 {
+            let start = std::time::Instant::now();
+            let n = lib.with_features(|s| s.load_poses(&a[2])).unwrap().len();
+            eprintln!("load_poses {run}回目：{:?}（{n}行）", start.elapsed());
+        }
         let mut times = Vec::new();
         for run in 0..5 {
             let start = std::time::Instant::now();
@@ -548,6 +569,7 @@ mod tests {
             let json = serde_json::to_string(&r).unwrap();
             times.push(start.elapsed());
             assert_eq!(r.ids.len(), N);
+            assert_eq!(r.aspects.len(), 3);
             eprintln!(
                 "{run}回目：{:?}（JSON {}バイト）",
                 times[run as usize],
