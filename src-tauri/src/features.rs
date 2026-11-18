@@ -310,9 +310,7 @@ impl Store {
         Ok(out)
     }
 
-    /// pose の観点の、今のモデル名の正しい形の行をすべて読む（タスク14が使う）
-    // タスク14の類似度の計算が使う
-    #[allow(dead_code)]
+    /// pose の観点の、今のモデル名の正しい形の行をすべて読む
     pub fn load_poses(&self, aspect: &Aspect) -> Result<Vec<(String, Pose)>, String> {
         if aspect.kind != Kind::Pose {
             return Err(format!("{} はポーズの観点ではありません", aspect.aspect));

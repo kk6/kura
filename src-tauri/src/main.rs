@@ -265,13 +265,17 @@ fn retry_features(calc: State<calc::Calc>) {
 /// 基準画像に対する観点ごとの類似度。重みを掛けて並べるのは画面
 #[tauri::command]
 fn similar_images(
+    app: AppHandle,
     current: State<Current>,
     models: State<Models>,
     id: i64,
 ) -> Result<similar::Similar, String> {
-    let aspects = &models.manifest()?.aspects;
+    let manifest = models.manifest()?;
+    let missing = model::missing(manifest, &app_file(&app, "models")?).aspects;
     let start = std::time::Instant::now();
-    let result = current.0.with(|lib| similar::similar(lib, aspects, id))?;
+    let result = current
+        .0
+        .with(|lib| similar::similar(lib, &manifest.aspects, id, &missing))?;
     log::info!(
         "類似度を計算しました（{}枚、未計算 {}枚、{:?}）",
         result.ids.len(),
