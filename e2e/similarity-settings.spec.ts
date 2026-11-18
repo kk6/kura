@@ -22,6 +22,7 @@ test('初期値は OFF で、ON にする前にモデルの大きさを見せ、
   await check.click()
   const confirm = page.getByRole('dialog', { name: '類似画像検索を使う' })
   await expect(confirm).toContainText('441 MB')
+  await expect(confirm).toContainText('OpenMMLab')
   await confirm.screenshot({ path: 'test-results/similarity-confirm.png' })
   await confirm.getByRole('button', { name: 'キャンセル' }).click()
 

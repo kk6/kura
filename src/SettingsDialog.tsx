@@ -225,8 +225,9 @@ export default function SettingsDialog({
           }}
           onClose={() => setModelSize(null)}
         >
-          類似画像検索に使うモデル（{mb(modelSize)}）を、Kura の GitHub Release
-          からアプリのデータフォルダへダウンロードします。ダウンロード済みのときは通信しません。
+          類似画像検索に使うモデル（合わせて {mb(modelSize)}）を、アプリのデータフォルダへダウンロードします。SigLIP 2
+          は Kura の GitHub Release から、ポーズのモデルは OpenMMLab
+          の配布先から取得します。ダウンロード済みのモデルは取得し直しません。
         </ConfirmDialog>
       )}
     </>
