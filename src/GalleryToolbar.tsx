@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Icon, ICONS } from './icons'
-import { ASPECTS, WEIGHT_MAX, type Weights } from './similarity'
+import { ASPECTS, SKIP_REASONS, WEIGHT_MAX, type Skip, type Weights } from './similarity'
 import { SORTS, type SortKey } from './sort'
 import './GalleryToolbar.css'
 
@@ -110,14 +110,18 @@ export function ThumbSlider({ width, onChange }: { width: number; onChange: (wid
 }
 
 // 類似画像検索の結果のモードで、帯の2段目に出す観点ごとの重み（FR-602）。onChange は動かしている間ずっと呼び、
-// onCommit は手を離したとき（キーボードでは変えるたび）に呼ぶ。保存は onCommit だけで行い、ファイルを書く回数を抑える
+// onCommit は手を離したとき（キーボードでは変えるたび）に呼ぶ。保存は onCommit だけで行い、ファイルを書く回数を抑える。
+// skipped は比べなかった観点（基準画像にポーズがないなど。FR-605）で、スライダーを出さずに名前と理由だけを出す。
+// 使えないスライダーを出すと、理由の文の分だけ幅が広がり、詳細パネルを開いた幅でつまみが切れたため（タスク14で利用者が選んだ）
 export function WeightSliders({
   aspects,
+  skipped,
   weights,
   onChange,
   onCommit,
 }: {
   aspects: string[]
+  skipped: Record<string, Skip>
   weights: Weights
   onChange: (aspect: string, value: number) => void
   onCommit: () => void
@@ -145,6 +149,14 @@ export function WeightSliders({
             onPointerUp={onCommit}
             onKeyUp={onCommit}
           />
+        </div>
+      ))}
+      {Object.entries(skipped).map(([a, why]) => (
+        <div key={a} className="toolbar__weight toolbar__weight--off">
+          <span className="toolbar__weight-text">
+            <span className="toolbar__weight-label">{ASPECTS[a]?.label ?? a}</span>
+            <span>{SKIP_REASONS[why]}</span>
+          </span>
         </div>
       ))}
     </div>

@@ -664,6 +664,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
       {similar && (
         <WeightSliders
           aspects={similar.aspects}
+          skipped={similar.skipped}
           weights={weights}
           onChange={(a, v) => setWeights((w) => changeWeight(w, a, v))}
           onCommit={saveWeights}

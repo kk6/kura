@@ -103,3 +103,8 @@
 .toolbar__weight-label {
   color: var(--color-text-sub);
 }
+
+/* 比べなかった観点（FR-605）。スライダーを出さず、名前も理由と同じ薄い色にする */
+.toolbar__weight--off .toolbar__weight-label {
+  color: var(--color-text-faint);
+}

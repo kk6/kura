@@ -7,6 +7,7 @@ const similar = (base: number, rows: [number, number, number][]): Similar & { ba
   ids: rows.map((r) => r[0]),
   scores: [rows.map((r) => r[1]), rows.map((r) => r[2])],
   uncomputed: 0,
+  skipped: {},
 })
 
 describe('rankSimilar', () => {
@@ -73,5 +74,53 @@ describe('changeWeight', () => {
 
   test('最後の1つは0にならず、1で止まる', () => {
     expect(changeWeight({ content: 0, composition: 40 }, 'composition', 0)).toEqual({ content: 0, composition: 1 })
+  })
+})
+
+describe('rankSimilar（ポーズの重みを足した3本）', () => {
+  // 1 が基準。2 は似たポーズ、3 は人物がいない（ポーズは平均の0）、4 は似ていないポーズ。内容と構図は同じ
+  const s: Similar & { base: number } = {
+    base: 1,
+    aspects: ['content', 'composition', 'pose'],
+    ids: [1, 2, 3, 4],
+    scores: [
+      [1, 0.1, 0.1, 0.1],
+      [1, 0, 0, 0],
+      [3, 1.2, 0, -1.2],
+    ],
+    uncomputed: 0,
+    skipped: {},
+  }
+
+  test('ポーズの重みを上げると似たポーズが上に来て、人物のいない画像は真ん中に残る', () => {
+    expect(rankSimilar(s, { content: 50, composition: 50, pose: 100 })).toEqual([1, 2, 3, 4])
+  })
+
+  test('ポーズを0にすると、内容と構図だけの並びになる', () => {
+    const flat = { ...s, scores: [[1, 0.1, 0.3, 0.2], [1, 0, 0, 0], s.scores[2]] }
+    expect(rankSimilar(flat, { content: 50, composition: 50, pose: 0 })).toEqual([1, 3, 4, 2])
+  })
+
+  test('比べなかった観点の重みは並びに使わない', () => {
+    const skipped = {
+      ...s,
+      aspects: ['content', 'composition'],
+      scores: [
+        [1, 0.3, 0.2, 0.1],
+        [1, 0, 0, 0],
+      ],
+      skipped: { pose: 'none' as const },
+    }
+    expect(rankSimilar(skipped, { content: 50, composition: 50, pose: 100 })).toEqual([1, 2, 3, 4])
+  })
+})
+
+describe('fillWeights（3a で保存した重み）', () => {
+  test('3a で保存した内容と構図の値はそのままで、ポーズだけ初期値で埋める', () => {
+    expect(fillWeights(['content', 'composition', 'pose'], { content: 30, composition: 100 })).toEqual({
+      content: 30,
+      composition: 100,
+      pose: DEFAULT_WEIGHT,
+    })
   })
 })

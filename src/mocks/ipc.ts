@@ -497,9 +497,12 @@ async function runFeatures() {
 }
 
 // 類似画像検索（FR-601）。本物は features.db のベクトルの内積を、観点ごとに基準画像を除いた全画像で平均0・標準偏差1にそろえる。
-// モックは一覧の最後の3枚を未計算にし、id から決まる値を返す。基準画像はどちらの観点でも最大になる
+// モックは一覧の最後の3枚を未計算にし、id から決まる値を返す。基準画像はどの観点でも最大になる。
+// ポーズ（FR-605）は、id が4の倍数なら人物なし、4で割って2余るなら関節が足りない、奇数ならポーズあり。
+// ポーズのない画像のポーズの値は平均の0。基準画像にポーズがないか、mock.missingPose のときはポーズを比べない
 const UNCOMPUTED = 3
 const computedImages = () => IMAGES.slice(0, Math.max(IMAGES.length - UNCOMPUTED, 0))
+const mockPose = (id: number) => (id % 4 === 0 ? 'none' : id % 4 === 2 ? 'few' : 'ok')
 const similarImages: Handler = (args) => {
   const base = Number(args?.id)
   const computed = computedImages()
@@ -514,12 +517,18 @@ const similarImages: Handler = (args) => {
     return n
   }
   const content = (id: number) => (photos && id !== base ? shared(id) + score(id, 0.7) / 4 : score(id, 0.7))
-  return {
+  const ids = computed.map((i) => i.id)
+  const result = {
     aspects: ['content', 'composition'],
-    ids: computed.map((i) => i.id),
-    scores: [computed.map((i) => content(i.id)), computed.map((i) => score(i.id, 1.3))],
+    ids,
+    scores: [ids.map(content), ids.map((id) => score(id, 1.3))],
     uncomputed: IMAGES.length - computed.length,
+    skipped: {},
   }
+  const status = sessionStorage.getItem('mock.missingPose') ? 'missing_models' : mockPose(base)
+  if (status !== 'ok') return { ...result, skipped: { pose: status } }
+  const pose = ids.map((id) => (mockPose(id) === 'ok' ? score(id, 1.9) : 0))
+  return { ...result, aspects: [...result.aspects, 'pose'], scores: [...result.scores, pose] }
 }
 
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
