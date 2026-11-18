@@ -135,7 +135,7 @@ $V stop <id>
 | `windows <id>` | 自分が起動した Kura のウィンドウごとの層（最前面の固定で 0 以外）、不透明度（alpha）、位置と大きさ。WindowServer の値を読む |
 | `template <id>` | アプリを止め、run の `lib/` を見本として保存する |
 | `relaunch <id>` | 同じ run の HOME とライブラリのまま起動し直す（再起動の後に設定や計算が残るかの確認） |
-| `model <id>` | 類似画像検索のモデルを run のアプリのデータフォルダに置き、SHA-256 を確かめる（features/similarity.md） |
+| `model <id> [pose]` | 類似画像検索のモデルを run のアプリのデータフォルダに置き、SHA-256 を確かめる。`pose` を付けると、ポーズのモデルを OpenMMLab の zip から取り出して置く（features/similarity.md） |
 | `net <id> up\|down` | `KURA_PROXY=1` で起動した Kura の通信の口を開ける・閉じる。つないだ先は `evidence/proxy.log`（features/similarity.md） |
 | `stop <id>` | 停止と後片付け（プロキシも止める）。証跡は残す |
 | `real-data-mtime` | 利用者のアプリデータのファイルの更新日時（中身は読まない） |
