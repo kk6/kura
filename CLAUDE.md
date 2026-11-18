@@ -4,11 +4,13 @@
 
 ## まず読むもの
 
-- `docs/requirements.md`：要件定義書。機能要件には FR-xxx、非機能要件には NFR-xx の ID が付いている
+- `docs/requirements.md`：要件定義書。機能要件には FR-xxx、非機能要件には NFR-xx の ID が付いている。アプリが何をするかだけを書く
+- `docs/adr/`：設計判断の記録（ADR）。判断の理由と、比べて却下した案を書く。一覧は `docs/adr/README.md`
+- `GLOSSARY.md`：用語集。文書と画面の文言で使う言葉と、使わない言い方
 - `docs/design.md`：デザインの決まり。画面に手を入れる前に必ず読む
 - `docs/user-guide.md`：利用者向けの使い方。画面の動きや文言を変えたら合わせて直す
 
-要件定義書の「未決事項」に関わる判断が必要になったら、実装で決めずに質問する。決まったことは `docs/requirements.md` に書き戻す。
+要件定義書の「未決事項」に関わる判断が必要になったら、実装で決めずに質問する。決まったことは、何をするかを `docs/requirements.md` に、理由と比べた案を `intent` スキルで `docs/adr/` の ADR に、新しい用語を `GLOSSARY.md` に書き戻す。比べて選んだ判断の理由と経緯は requirements.md に書かず、ADR へリンクする。
 
 ## 技術構成
 
@@ -113,6 +115,6 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 | 3a で計算した特徴量の値を変えない | `ml/tests` の値の比較（構図のエッジの合計は CPU の差を許す） |
 | 見た目を変えない変更で、画面が変わっていない | `npm run screenshots:compare`（手で流す） |
 | Rust のコマンド、DB、ファイル操作の変更は実アプリで確かめる | なし（判断）。`verify-kura` の手順 |
-| 未決事項は実装で決めずに質問し、決まったら `docs/requirements.md` に書き戻す | なし（判断） |
+| 未決事項は実装で決めずに質問し、決まったら `docs/requirements.md`、`docs/adr/`、`GLOSSARY.md` に書き戻す | なし（判断） |
 | 本物の資料フォルダに触れない。画像をリポジトリにコミットしない | なし（判断） |
 | 画面の動きや文言を変えたら `docs/user-guide.md` も直す | なし（判断）。数と名前で照らせる所は `check-docs.mjs` に足す |

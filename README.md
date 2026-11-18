@@ -100,6 +100,8 @@ KURA_DOCS_PHOTOS=<見本の写真のフォルダ> npm run docs:screenshots
 | [docs/user-guide.md](docs/user-guide.md) | ユーザーガイド。アプリの使い方 |
 | [CHANGELOG.md](CHANGELOG.md) | 各バージョンの変更内容 |
 | [docs/requirements.md](docs/requirements.md) | 要件定義書。機能要件（FR-xxx）と非機能要件（NFR-xx）、開発フェーズ |
+| [docs/adr/](docs/adr/README.md) | 設計判断の記録（ADR）。判断の理由と、比べて却下した案 |
+| [GLOSSARY.md](GLOSSARY.md) | 用語集 |
 | [docs/design.md](docs/design.md) | 画面のデザインの決まり |
 | [CLAUDE.md](CLAUDE.md) | 開発の決まりとコマンドの一覧 |
 | [docs/development.md](docs/development.md) | 開発ガイド。Claude Code への開発の依頼方法と、検証用スキルの使い方 |
