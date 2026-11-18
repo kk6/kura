@@ -8,6 +8,7 @@ computer-use を使う。準備：
   - WKWebView の中のクリック（`app_click` の座標か `element_index`。raw input で届く）、`app_scroll`、`app_type` の文字の入力
   - ボードのウィンドウは `app_list_windows` で出る `window_id` を渡して操作する
   - `app_menu`（メニューバー）。例：`["ファイル", "ライブラリを切り替える…"]`（⌘⇧O）
+- 背景操作のクリックが WKWebView に届かない環境もある（2026-11-18 に2つのセッションで、背景からのクリックがすべて断られるか、押しても画面が変わらなかった）。最初の `app_click` が断られるか画面が変わらなければ、背景操作は使えないものとして、すぐ `request_full_control` に切り替える。サブセッションでは、承認を待っていることを進行役にも1行で知らせる。利用者が席を外していると承認を求める表示に気づかず、待ったまま止まるため
 - 背景操作でできないこと：`app_key` の Return は WKWebView に届かなかった（タグの確定が通らない）。キーを使う手順（Return、Escape、⌘⇧B、⌘Delete、⌘A、名前の変更の確定）とフォルダ選択のダイアログ（NSOpenPanel の ⌘⇧G）は、`request_full_control` で全画面操作の承認をもらい、`computer_batch` で通した。承認を求める前に、どの手順のためかを利用者に1行で伝える。
 - 背景操作でウィンドウをつかんでいる間は `computer_batch` が断られる。全画面操作に移る前に `app_release` を呼ぶ。
 
