@@ -46,19 +46,25 @@ const findButton = (page: Page) =>
 const toolbar = (page: Page) => page.locator('.gallery__toolbar')
 const slider = (page: Page, label: string) => page.getByRole('group', { name: '観点ごとの重み' }).getByLabel(label)
 
-// モックの similarImages と同じ値で、重みを掛けた並びを出す
+// モックのポーズ。id が4の倍数なら人物なし、4で割って2余るなら関節が足りない、奇数ならポーズあり
+const posed = (id: number) => id % 2 === 1
+
+// モックの similarImages と同じ値で、重みを掛けた並びを出す。weights に無いポーズの重みは初期値の50
 function expected(base: number, weights: Record<string, number>, keep: (id: number) => boolean = () => true) {
   const ids = Array.from({ length: COUNT - UNCOMPUTED.length }, (_, i) => i + 1)
   const score = (id: number, k: number) => (id === base ? 3 : Math.sin(id * k + base))
+  const scores = [ids.map((i) => score(i, 0.7)), ids.map((i) => score(i, 1.3))]
+  const pose = ids.map((i) => (posed(i) ? score(i, 1.9) : 0))
   return rankSimilar(
     {
       base,
-      aspects: ['content', 'composition'],
+      aspects: posed(base) ? ['content', 'composition', 'pose'] : ['content', 'composition'],
       ids,
-      scores: [ids.map((i) => score(i, 0.7)), ids.map((i) => score(i, 1.3))],
+      scores: posed(base) ? [...scores, pose] : scores,
       uncomputed: UNCOMPUTED.length,
+      skipped: {},
     },
-    weights,
+    { pose: 50, ...weights },
   ).filter(keep)
 }
 
@@ -182,15 +188,18 @@ test('Escape は拡大表示、選択の順に外し、何もなければ結果�
   await expect(toolbar(page).getByRole('heading')).toHaveText('すべての画像')
 })
 
-test('重みで並びが変わり、両方は0にできず、手を離すと保存して次の検索でも使う', async ({ page }) => {
+test('重みで並びが変わり、全部は0にできず、手を離すと保存して次の検索でも使う', async ({ page }) => {
   await open(page)
   await pick(page, 7)
   await findButton(page).click()
 
+  await slider(page, '体の姿勢').focus()
+  await page.keyboard.press('Home')
+  await expect(slider(page, '体の姿勢')).toHaveValue('0')
   await slider(page, '明暗と線の配置').focus()
   await page.keyboard.press('Home')
   await expect(slider(page, '明暗と線の配置')).toHaveValue('0')
-  await expectResults(page, expected(7, { content: 50, composition: 0 }))
+  await expectResults(page, expected(7, { content: 50, composition: 0, pose: 0 }))
 
   await slider(page, '写っているもの').focus()
   await page.keyboard.press('Home')
@@ -201,15 +210,55 @@ test('重みで並びが変わり、両方は0にできず、手を離すと保�
 
   await expect
     .poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('mock.settings')!).similarity_weights))
-    .toEqual({ content: 100, composition: 0 })
+    .toEqual({ content: 100, composition: 0, pose: 0 })
 
   await toolbar(page).getByRole('button', { name: '閉じる', exact: true }).click()
   await page.reload()
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
-  await pick(page, 2)
+  await pick(page, 3)
   await findButton(page).click()
   await expect(slider(page, '写っているもの')).toHaveValue('100')
   await expect(slider(page, '明暗と線の配置')).toHaveValue('0')
+  await expect(slider(page, '体の姿勢')).toHaveValue('0')
+})
+
+test('ポーズの重みを上げると、人物のいない画像も消えずに並ぶ', async ({ page }) => {
+  await open(page)
+  await pick(page, 5)
+  await findButton(page).click()
+  await expect(slider(page, '体の姿勢')).toHaveValue('50')
+  await expect(slider(page, '体の姿勢')).toHaveAccessibleDescription('手足や胴の向き')
+  await slider(page, '体の姿勢').focus()
+  await page.keyboard.press('End')
+  await expectResults(page, expected(5, { content: 50, composition: 50, pose: 100 }))
+  for (const id of [4, 6, 8]) await expect(page.getByAltText(name(id), { exact: true })).toHaveCount(1)
+})
+
+test('基準画像にポーズがないときは体の姿勢のスライダーを出さず、理由を出して内容と構図だけで並べる', async ({
+  page,
+}) => {
+  await open(page)
+  const weights = page.getByRole('group', { name: '観点ごとの重み' })
+  for (const [id, why] of [
+    [4, '基準の画像に人物がいません'],
+    [6, '基準の画像は手足が足りません'],
+  ] as const) {
+    await pick(page, id)
+    await findButton(page).click()
+    await expect(toolbar(page).getByAltText(`基準の画像 ${name(id)}`)).toBeVisible()
+    await expect(weights.getByRole('slider')).toHaveCount(2)
+    await expect(weights).toContainText(`体の姿勢${why}`)
+    await expectResults(page, expected(id, { content: 50, composition: 50 }))
+    await toolbar(page).getByRole('button', { name: '閉じる', exact: true }).click()
+  }
+
+  // 3a から更新してポーズのモデルがないときは、ポーズのある画像でも比べない
+  await page.evaluate(() => sessionStorage.setItem('mock.missingPose', '1'))
+  await pick(page, 5)
+  await findButton(page).click()
+  await expect(weights.getByRole('slider')).toHaveCount(2)
+  await expect(weights).toContainText('体の姿勢ポーズのモデルを設定から取得してください')
+  await weights.screenshot({ path: 'test-results/similarity-weights-no-pose.png' })
 })
 
 test('結果をカテゴリ・タグ・検索バーで絞り込め、件数は結果の枚数で数え、閉じても絞り込みは残る', async ({ page }) => {

@@ -214,9 +214,20 @@ fn model_size(models: State<Models>) -> Result<u64, String> {
     Ok(model::size(models.manifest()?))
 }
 
+/// モデルのファイルが欠けている観点と、そのダウンロードの大きさ。通信しない。
+/// 3a から更新した利用者に、設定でポーズのモデルの「ダウンロード」を出すために使う
+#[tauri::command]
+fn missing_models(app: AppHandle, models: State<Models>) -> Result<model::Missing, String> {
+    Ok(model::missing(
+        models.manifest()?,
+        &app_file(&app, "models")?,
+    ))
+}
+
 /// 類似画像検索のモデルを app_file(app, "models") にそろえ、進み具合を model-progress で知らせる。
 /// similarity_enabled は、これが Ok を返した後に画面が save_settings で true にする。
-/// モデルがそろう前に ON を保存すると、計算を始める側がモデルのない状態を見るため
+/// モデルがそろう前に ON を保存すると、計算を始める側がモデルのない状態を見るため。
+/// そろえたら計算を起こす。ON のまま足りないモデルを取得したときは、save_settings のきっかけがないため
 #[tauri::command]
 async fn prepare_models(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -232,6 +243,7 @@ async fn prepare_models(app: AppHandle) -> Result<(), String> {
             }
         })?;
         log::info!("モデルをそろえました：{}", dir.display());
+        app.state::<calc::Calc>().wake();
         Ok(())
     })
     .await
@@ -253,13 +265,17 @@ fn retry_features(calc: State<calc::Calc>) {
 /// 基準画像に対する観点ごとの類似度。重みを掛けて並べるのは画面
 #[tauri::command]
 fn similar_images(
+    app: AppHandle,
     current: State<Current>,
     models: State<Models>,
     id: i64,
 ) -> Result<similar::Similar, String> {
-    let aspects = &models.manifest()?.aspects;
+    let manifest = models.manifest()?;
+    let missing = model::missing(manifest, &app_file(&app, "models")?).aspects;
     let start = std::time::Instant::now();
-    let result = current.0.with(|lib| similar::similar(lib, aspects, id))?;
+    let result = current
+        .0
+        .with(|lib| similar::similar(lib, &manifest.aspects, id, &missing))?;
     log::info!(
         "類似度を計算しました（{}枚、未計算 {}枚、{:?}）",
         result.ids.len(),
@@ -275,24 +291,24 @@ fn calc_env(app: &AppHandle, manifest: Option<manifest::Manifest>) -> calc::Env 
         .as_ref()
         .map(|m| m.aspects.clone())
         .unwrap_or_default();
-    let (a, b, c) = (app.clone(), app.clone(), app.clone());
-    let expected = aspects.clone();
+    let (a, b, c, d) = (app.clone(), app.clone(), app.clone(), app.clone());
+    let loaded = manifest.is_some();
     calc::Env {
+        // model.json を読めなければ、設定によらず使えない。モデルのファイルは観点ごとに available で見る
         enabled: Box::new(move || {
-            // model.json を読めなければ、設定によらず使えない
-            let Some(m) = &manifest else { return false };
-            let on = settings_file(&a).is_ok_and(|f| settings::load(&f).similarity_enabled);
-            on && app_file(&a, "models")
-                .is_ok_and(|dir| model::files(m).iter().all(|f| dir.join(&f.name).is_file()))
+            loaded && settings_file(&a).is_ok_and(|f| settings::load(&f).similarity_enabled)
         }),
         aspects,
-        start: Box::new(move || {
+        available: Box::new(move |aspect| {
+            app_file(&d, "models").is_ok_and(|dir| model::available(&dir, aspect))
+        }),
+        start: Box::new(move |usable| {
             let spec = worker_spec(&b)?;
             let timeouts = worker::Timeouts {
                 ready: std::time::Duration::from_secs(60),
                 reply: std::time::Duration::from_secs(30),
             };
-            let w = worker::Worker::start(&spec, &expected, timeouts)?;
+            let w = worker::Worker::start(&spec, usable, timeouts)?;
             Ok(Box::new(w) as Box<dyn calc::Compute>)
         }),
         notify: Box::new(move |s| {
@@ -899,6 +915,7 @@ fn main() {
             load_settings,
             save_settings,
             model_size,
+            missing_models,
             prepare_models,
             features_status,
             similar_images,

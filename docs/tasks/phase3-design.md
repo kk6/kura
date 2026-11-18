@@ -1,4 +1,4 @@
-# フェーズ3の設計メモ（タスク2、4、5）
+# フェーズ3の設計メモ（タスク2、4、5、13）
 
 2026-11-15 作成。[phase3.md](phase3.md) のタスク2（ワーカーの起動・再起動・終了）、タスク4（`features.db`）、タスク5（バックグラウンドの計算）を、設計の判断をせずに実装するための文書です。仕様は [requirements.md](../requirements.md) の4章・5.6・7章が正本で、この文書は作り方を決めます。
 
@@ -20,7 +20,7 @@
 
 ### 観点の定義（`ml/model.json`）
 
-モデルの名前・次元・ダウンロード元・スレッド数は、`ml/model.json` の1か所に置きます。Rust とワーカーの両方がこのファイルを読みます。モデルを入れ替えるときは、このファイルとワーカーのコードを変え、Rust のコードは変えません（NFR-11）。タスク1で作ります。
+モデルの名前・次元・ダウンロード元・スレッド数は、`ml/model.json` の1か所に置きます。Rust とワーカーの両方がこのファイルを読みます。モデルを入れ替えるときは、このファイルとワーカーのコードを変え、Rust のコードは変えません（NFR-11）。タスク1で作ります。3b で `file` を `files` にし、`kind` を足しました（5章）。下は 3a の形です。
 
 ```json
 {
@@ -624,7 +624,353 @@ impl Compute for worker::Worker { /* そのまま呼ぶ */ }
 
 ## 4. 3b への覚え書き
 
-3b（ポーズ）で作り直す所です。3a では決めません。タスク12（2026-11-18）で、ポーズの扱い（要件定義書の5.6「ポーズ（3b）」）は決まりました。下の2点は、タスク13の最初にこの文書の5章で決めます。
+3b（ポーズ）で作り直す所です。3a では決めません。タスク12（2026-11-18）で、ポーズの扱い（要件定義書の5.6「ポーズ（3b）」）は決まりました。下の2点は、タスク13の最初にこの文書の5章で決めました（2026-11-18）。
 
 - ワーカーのやりとりは「1枚で全部の観点を返す」、`computed` は「全部の観点がそろった画像」です。ポーズをこの形のまま足すと、3a で計算済みの画像の内容と構図も計算し直すことになり、phase3.md のタスク13の「内容と構図の特徴量を計算し直さない」と合いません。要求に観点を指定する形にするか、タスク12で決めます
 - 人物を検出できなかった画像の記録（計算をやり直さない）は、`embeddings` の行では表せません。持ち方はタスク12で決めます
+
+## 5. タスク13：ポーズの特徴量の計算
+
+2026-11-18 作成（まとまり J0）。ポーズの扱いは要件定義書の5.6「ポーズ（3b）」が正本です。この章は、ワーカー（J1）と Rust・設定の画面（J2）を並行して作るための受け渡しを決めます。類似度の計算と結果の画面（タスク14、まとまり K）は範囲外です。K への覚え書きは最後の節に置きます。
+
+### モデルの取得元とライセンス
+
+2つのモデルは、Kura の GitHub Release に写しを置かず、OpenMMLab の公式の配布先から zip のまま取得します（2026-11-18、利用者が決めた）。再配布を認めているかを判断できなかったためです。Kura は2つのモデルを再配布しません。新しいタグ `models-2` は作りません。
+
+調べたこと（2026-11-18。法的な判断ではなく、見つかった表記の記録）：
+
+| モデル | 配布物 | 重みのライセンス | 学習データ |
+| --- | --- | --- | --- |
+| YOLOX-tiny | `https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/yolox_tiny_8xb8-300e_humanart-6f3252f9.zip` | zip の中にライセンスのファイルがない（中身は `end2end.onnx`、`deploy.json`、`pipeline.json`、`detail.json`、見本の画像2枚）。重みについての表記は見つからなかった | COCO と Human-Art。Human-Art（`github.com/IDEA-Research/HumanArt` の README）は「CC-license」（版の記載なし）で、フォームで「非商用の目的での利用許可」を申請して入手し、データの共有を禁じている |
+| RTMPose-m | `https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/onnx_sdk/rtmpose-m_simcc-body7_pt-body7_420e-256x192-e48f03d0_20230504.zip` | 同上（zip の中身の形も同じ） | body7（`mmpose/projects/rtmpose` の README）：AI Challenger、COCO、CrowdPose、MPII、sub-JHMDB、Halpe、PoseTrack18。AI Challenger、CrowdPose、Halpe、PoseTrack は、規約の本文を見つけられなかった（論文や配布ページは研究向けの書き方） |
+
+- mmpose のリポジトリの `LICENSE` は Apache-2.0（Copyright 2018-2020 Open-MMLab）。本文はコードと文書についての表記で、学習済みの重みには触れていない
+- 学習データに非商用の条件があり、重みのライセンスの表記がないので、写しを配布してよいとは言えない。利用者が自分で公式の配布先から取得する形なら、Kura は重みを配布しない
+- 公式の URL が消えると、ポーズのモデルを取得できなくなる（利用者が受け入れた）。そのときは設定にダウンロードのエラーが出て、内容と構図はそのまま使える
+- ライセンスと取得元の表記（README、設定の説明、紹介ページ）はタスク15で直す。SigLIP 2 の写し（`models-1`）はそのまま
+
+### `ml/model.json` の形
+
+1つの観点に複数のファイルを持てるよう、`file` を `files`（配列）に変えます。ベクトルでない観点を表すため、`kind` を足します。値はこの J0 のブランチに入れてあり、J1 と J2 は変えません。
+
+```json
+{
+  "threads": 1,
+  "aspects": [
+    {
+      "aspect": "content",
+      "model": "siglip2-base-patch16-224",
+      "kind": "vector",
+      "dim": 768,
+      "files": [
+        {
+          "name": "siglip2-base-patch16-224-vision.onnx",
+          "url": "https://github.com/kk6/kura/releases/download/models-1/siglip2-base-patch16-224-vision.onnx",
+          "sha256": "c0573e3f…",
+          "size": 371807752
+        }
+      ]
+    },
+    { "aspect": "composition", "model": "gray16-edge4x8-v1", "kind": "vector", "dim": 384, "files": [] },
+    {
+      "aspect": "pose",
+      "model": "rtmpose-m-body7-yolox-tiny-humanart-v1",
+      "kind": "pose",
+      "dim": 51,
+      "files": [
+        {
+          "name": "yolox_tiny_8xb8-300e_humanart-6f3252f9.onnx",
+          "url": "https://download.openmmlab.com/…/yolox_tiny_8xb8-300e_humanart-6f3252f9.zip",
+          "sha256": "ceb11c07…",
+          "size": 20283006,
+          "archive": { "member": "20230928/yolox_onnx/…/end2end.onnx", "sha256": "36e09ca5…", "size": 18887737 }
+        },
+        { "name": "rtmpose-m_…_20230504.onnx", "url": "…", "sha256": "5c0a4bf6…", "size": 54330655, "archive": { "…": "…" } }
+      ]
+    }
+  ]
+}
+```
+
+完全な値は `ml/model.json` にあります。
+
+- `kind` は `"vector"` か `"pose"`。`"vector"` は今までの観点で、`dim` はベクトルの長さ
+- `"pose"` の `dim` は1人分の数の個数。COCO の17点 × （x、y、スコア）で51
+- `files` の各項目の `name`、`sha256`、`size` は、`models/` に置くファイル（`.onnx`）のもの。置いてあるかの確かめと、置いた後の確かめに使う
+- `archive` があれば、`url` は zip を指す。`archive.sha256` と `archive.size` は zip のもので、ダウンロードの確かめと進み具合に使う。`archive.member` は zip の中の `.onnx` のパス。`archive` がなければ、今までどおり `url` が `.onnx` そのものを指す
+- ポーズの `files` は「人物の検出、骨格」の順に並べる。ワーカーはこの順で受け取る（モデル名ごとのコードが知っている。`role` のようなキーは足さない）
+- `model` の名前は、2つのモデルと、ワーカーの閾値（下の「骨格の形」）をまとめた名前。どれかを変えたら名前も変える（3a と同じく、古い行を計算し直す目印）
+- 前処理と後処理の値（入力の大きさ、平均と標準偏差、閾値）は、3a と同じく `model.json` に置かず、ワーカーのコードに書く
+
+Rust（`manifest.rs`）は次の形で読みます。
+
+```rust
+pub struct Aspect { pub aspect: String, pub model: String, pub kind: Kind, pub dim: usize, pub files: Vec<ModelFile> }
+#[serde(rename_all = "lowercase")]
+pub enum Kind { Vector, Pose }
+pub struct ModelFile { pub name: String, pub url: String, pub sha256: String, pub size: u64, #[serde(default)] pub archive: Option<Archive> }
+pub struct Archive { pub member: String, pub sha256: String, pub size: u64 }
+```
+
+- `model::files` は、すべての観点の `files` をつないだものを返す。`model::size` は、ダウンロードする大きさ（`archive` があればその `size`、なければ `size`）の合計。確認のダイアログに出す大きさは、ポーズを足して約442MB（372MB と約70MB）になる
+- この J0 のブランチでは `model.json` だけが新しい形で、Rust とワーカーは古い形を読む。統合用のブランチ（`feat/phase3-pose`）では、J1 と J2 を統合するまで、`ml/` の pytest と、開発版の類似画像検索が動かない（`model.json` を読めない）。CI はそこで流さない（統合用のブランチは push しない）
+
+### ダウンロード（`model.rs`）
+
+`archive` のあるファイルは、次の順に置きます。どの段で失敗しても、`.part` を消してから `Err` を返します。
+
+1. `url` を `<name>.zip.part` に `/usr/bin/curl` で取る（今までと同じ引数と通信の止まり方）。進み具合は `.zip.part` の大きさと `archive.size`
+2. `.zip.part` の SHA-256 が `archive.sha256` と違えば、失敗（「ダウンロードしたモデルの中身が正しくありません」）
+3. `/usr/bin/unzip -p <.zip.part> <archive.member>` の標準出力を `<name>.part` に書く。`unzip` が0以外で終わったら失敗
+4. `<name>.part` の SHA-256 が `sha256` と違えば失敗。合えば `<name>` に rename する
+5. `.zip.part` を消す
+
+- `unzip` は macOS に入っている。zip のクレートを足さない（`curl` と同じ理由）
+- 置いてあるかの確かめ（`prepare` の最初）は、今までどおり `<name>` の SHA-256 を `sha256` と比べる。zip は残さない
+- `prepare` の進み具合の合計（`total`）は、ダウンロードする大きさの合計
+
+### 観点ごとに使えるか
+
+モデルのファイルが欠けた観点だけを止め、ほかの観点の計算と検索は続けます（要件定義書の5.6「ポーズ（3b）」）。
+
+- 観点が「使える」：その観点の `files` がすべて `models/` にある（今の `enabled` と同じく、`is_file` で見る。SHA-256 は計算しない）。`files` が空の観点（構図）はいつも使える
+- `calc::Env` を次のように変える。`enabled` は「設定が ON で、`model.json` を読めた」だけにする。モデルのファイルは見ない
+
+```rust
+pub struct Env {
+    pub enabled: Box<dyn Fn() -> bool + Send + Sync>,
+    /// model.json のすべての観点（sweep が古い行を見分けるのに使う）
+    pub aspects: Vec<Aspect>,
+    /// その観点のモデルのファイルがそろっている
+    pub available: Box<dyn Fn(&Aspect) -> bool + Send + Sync>,
+    /// 使える観点だけを読み込んだワーカーを起動する
+    pub start: Box<dyn Fn(&[Aspect]) -> Result<Box<dyn Compute>, String> + Send + Sync>,
+    pub notify: Box<dyn Fn(&Status) + Send + Sync>,
+}
+```
+
+- 使える観点が1つもなければ、`enabled` が false のときと同じに扱う（`Status` を初期値にして終わる）
+- 壊れたモデルのファイル（あるが読めない）は、今までどおりワーカーの起動の失敗になり、計算全体が止まる。観点ごとには分けない（ファイルは置くときに SHA-256 で確かめているため、起きるのは利用者がファイルを触ったときだけ）
+- 類似度（`similar::similar`）と、基準にできるか（`similar::ready`、`image_detail`）は、タスク14まで `kind` が `"vector"` の観点だけで計算する。ポーズの観点を足しても、3a の検索の結果と入口は変わらない。ポーズを計算していない画像も、今までどおり基準にできる
+
+### ワーカーとのやりとり（protocol 2）
+
+1章の形を次のように変えます。`protocol` は2にします（ready の観点の形と要求の形が変わるため。版が合わないワーカーを1章のとおり起動の失敗にする）。
+
+起動の引数に、読み込む観点を足します。並びは `model.json` と同じにします。
+
+```
+kura-worker --manifest <model.json> --model-dir <モデルのフォルダ> --aspects content,composition,pose
+```
+
+| 向き | いつ | 行 |
+| --- | --- | --- |
+| Python → Rust | 読み込み終えたとき | `{"ready": true, "protocol": 2, "aspects": [{"aspect": "content", "model": "siglip2-base-patch16-224", "kind": "vector", "dim": 768}, …, {"aspect": "pose", "model": "rtmpose-m-body7-yolox-tiny-humanart-v1", "kind": "pose", "dim": 51}]}` |
+| Rust → Python | 1枚の計算 | `{"id": 1, "path": "<サムネイル>", "aspects": ["pose"]}` |
+| Python → Rust | 計算できた | `{"id": 1, "ok": true, "features": {"pose": {"status": "ok", "people": [[x, y, s, x, y, s, …（51個）], …]}}}` |
+| Python → Rust | 計算できなかった | 1章と同じ `{"id": 1, "ok": false, "error": "…"}` |
+
+- `--aspects` は必須。ワーカーは並んだ観点のモデルだけを読み込み、ready の `aspects` にもその観点だけを並べる。`model.json` にない観点名、モデルのファイルがない観点は、1章と同じく `ready: false` で終わる
+- 要求の `aspects` は必須で、`--aspects` の中の観点を `model.json` の並びで1つ以上並べる。ワーカーは並んだ観点だけを計算して返す。`aspects` がない、空、起動時にない観点を含む要求は、1章の「決まりと違う要求」と同じく、標準エラーに書いて終了コード1で終わる
+- `vector` の観点の値は今までどおり長さ `dim` の配列。`pose` の観点の値は `{"status": …, "people": […]}`
+  - `status` は `"none"`（人物の枠が1つもない）、`"few"`（枠はあるが、関節が足りる人物がいない）、`"ok"`（関節が足りる人物が1人以上）
+  - `people` は関節が足りる人物ごとの、長さ `dim`（51）の配列。`"ok"` なら1人以上、`"none"` と `"few"` なら空
+- Rust（`worker.rs`）が確かめること：返事の `features` に、要求した観点がすべてある。`vector` は1章と同じ。`pose` は、`status` が3つのどれか、`status` と `people` の数が上の決まりに合う、各人が長さ `dim` で、どの値も有限。どれかに外れたら1章と同じく `Failure::Dead`
+- 要求していない観点が返事に入っていても無視する（知らないキーを無視する決まりのとおり）
+
+`worker.rs` の形：
+
+```rust
+pub enum Value { Vector(Vec<f32>), Pose(Pose) }
+pub struct Pose { pub status: PoseStatus, pub people: Vec<Vec<f32>> }
+pub enum PoseStatus { None, Few, Ok }
+
+impl Worker {
+    /// expected は起動した観点（--aspects と同じ並び）
+    pub fn start(spec: &Spec, expected: &[Aspect], timeouts: Timeouts) -> Result<Worker, String>;
+    /// aspects は expected の部分集合。返り値は aspects と同じ順・同じ数
+    pub fn compute(&mut self, thumb: &Path, aspects: &[Aspect]) -> Result<Vec<Value>, Failure>;
+}
+```
+
+`calc::Compute::compute` も同じ引数と返り値にします。`--aspects` は `main.rs` の `worker_spec` が `start` の引数から作ります。
+
+### 骨格の形（ワーカー）
+
+要件定義書の5.6「ポーズ（3b）」とスパイク（`spikes/pose/`）のとおりに計算します。数はスパイクの値です。
+
+1. サムネイルを読み、EXIF の向きを直して RGB にする（3a と同じ `load`）
+2. YOLOX-tiny（入力416×416）で人物の枠を出す。スコアの閾値は0.3。配布の ONNX は NMS を中に持つ（IoU の閾値0.65）ので、ワーカーでは NMS をしない
+   - J1 で分かったこと（2026-11-18）：NMS を中に持つ ONNX では、RTMLib 0.0.16 は既定の閾値0.7を使わず、0.3より大きい枠を選ぶ。スパイクも0.3で動いていた。0.7にするとスパイクと状態が違う画像が34枚になり、0.3では274枚中273枚が一致した
+3. 枠が1つもなければ `none`
+4. 枠ごとに RTMPose-m（入力 192×256、枠を1.25倍に広げる。入力は配布の `pipeline.json` のとおり RGB にする。スパイクは BGR で渡していたが、2026-11-18 に利用者が RGB に直すと決めた。差は J1 で測る）で、COCO の17点の座標とスコアを出す（SimCC の復号）
+5. スコアが0.3以上の関節が6点以上ある人物だけを `people` に入れる。1人もいなければ `few`、いれば `ok`
+6. 座標はサムネイルの長い辺で割る（x も y も同じ値で割る）。0〜1 に収まるとは限らない（枠の外の関節を推定することがある）。スコアはモデルの値のまま
+
+- 縦横を同じ値で割るので、骨格の縦横比はサムネイルのまま残る。スパイクは幅と高さで別々に割って保存し、比べるときにピクセルに戻していた。比べ方（重心を引いたコサイン類似度）は大きさによらないので、長い辺で割った値でもスパイクと同じ類似度になる
+- `people` には、関節が足りない人物を入れない。足りる人物の、スコアが0.3未満の関節も、座標とスコアをそのまま入れる（比べるときに K が見えない関節として外す）
+- 人物の並びは決めない（K は全員の組の最大を取るので、並びによらない）
+- 前処理と後処理は NumPy と Pillow で書く。RTMLib と OpenCV は使わない（要件定義書の4章）。アフィン変換は Pillow の `Image.transform`（`AFFINE`、`BILINEAR`）で、RTMLib（`cv2.warpAffine`、線形補間）との差は J1 で見本の写真を使って測る
+- 1枚の要求で `content`、`composition`、`pose` を並べられたときは、画像を1回だけ読む
+
+### 持ち方（`features.db`）
+
+ポーズは別の表に置きます。`user_version` は2にします。
+
+```sql
+CREATE TABLE poses(
+    hash TEXT NOT NULL,           -- 画像の SHA-256
+    aspect TEXT NOT NULL,         -- model.json の aspect（"pose"）
+    model TEXT NOT NULL,          -- model.json の model
+    status INTEGER NOT NULL,      -- 0 人物なし、1 関節が足りない、2 ポーズあり
+    people BLOB NOT NULL,         -- float32 のリトルエンディアン。1人 dim 個 × 人数。status が 0 と 1 なら空
+    computed_at INTEGER NOT NULL,
+    PRIMARY KEY(hash, aspect, model)
+)
+```
+
+- 「人物なし」と「関節が足りない」も1行として書く。行があれば計算済みなので、計算をやり直さない
+- 版の上げ方：`Store::open` の版の確かめに「1 なら、`poses` を作って `user_version` を2にする（1つのトランザクション）」を足す。`embeddings` の行は残るので、3a で計算した内容と構図は計算し直さない。0 なら両方の表を作って2にする。2 なら何もしない。それ以外（3 以上）は今までどおり作り直す
+- 3a のアプリ（版1しか知らない）で版2の `features.db` を開くと、2章の決まりで作り直す。古い版に戻すと、特徴量を計算し直すことになる（2章の「新しい版の `features.db` も作り直す」と同じ扱い）
+- `computed`、`load` が長さの違う行を無いものとして扱うのと同じく、`poses` の行は次のどれかなら無いものとして扱う：`status` が0〜2でない、`status` が2で `people` の長さが `dim × 4` の正の倍数でない、`status` が0か1で `people` が空でない
+
+`features.rs` の変え方：
+
+```rust
+impl Store {
+    /// 1枚分を1つのトランザクションで書く。Vector は embeddings に、Pose は poses に書く。
+    /// 形が aspect と合わない値（長さ、status と人数）があれば、何も書かずに Err
+    pub fn put(&mut self, hash: &str, values: &[(&Aspect, &Value)], now: i64) -> Result<(), String>;
+    /// 観点ごとの、今のモデル名の行がある画像のハッシュ。返り値は aspects と同じ順
+    pub fn computed(&self, aspects: &[Aspect]) -> Result<Vec<HashSet<String>>, String>;
+    /// vector の観点の行を読む（今までの load。pose の観点を渡したら Err）
+    pub fn load(&self, aspect: &Aspect) -> Result<Vec<(String, Vec<f32>)>, String>;
+    /// pose の観点の行を読む（タスク14が使う）
+    pub fn load_poses(&self, aspect: &Aspect) -> Result<Vec<(String, Pose)>, String>;
+    /// has、remove、sweep は embeddings と poses の両方を見る
+}
+```
+
+- `Value` と `Pose` は `worker.rs` の型を使う（`features` が `worker` の型を知ることになるので、型だけを `manifest.rs` に移してもよい。J2 が決めて報告する）
+- `computed` を観点ごとの集合にするのは、`calc` が画像ごとに足りない観点を知るため。「全部そろった画像」が要るときは、呼ぶ側で共通部分を取る
+- `sweep` は、`model.json` のすべての観点（使えるかによらない）を渡す。ポーズのモデルを消しても、計算済みのポーズの行は消えない
+
+### 計算の1回分（`Calc::pass` の変え方）
+
+3章の手順を次のように変えます。変えない所は3章のままです。
+
+1. `enabled()` が false なら、3章と同じく終わる
+2. `usable` = `aspects` のうち `available` が true のもの。空なら、`Status` を初期値にして終わる
+3. 計画：`sweep(all, aspects)` の後、`computed(usable)` を読む。画像ごとに、`usable` のうち行がない観点（`missing`）を出す
+4. `pending` = `targets` のうち、`missing` が空でなく、`failed` にないもの。各画像に `missing` を持たせる
+5. `Status` の `done` は「`usable` の観点がすべてそろった対象の画像」の数。`total`、`failed` は3章のまま
+6. `start(&usable)` でワーカーを起動する
+7. 1枚ごとに `compute(thumb, &missing)` を呼び、返った値を `missing` と組にして `put` する。ほかは3章のまま
+
+- ポーズのモデルを後から置くと、`usable` に `pose` が加わり、3a で計算済みの画像は `missing` が `["pose"]` だけになる。内容と構図は計算し直さない
+- ステータスバーの「特徴量を計算中 N / M枚」は、このときポーズだけの計算でも同じ文で出す（文は変えない）
+- 失敗の記録（`failed`）は今までどおり（ルート、ハッシュ）の組。ワーカーは画像を1回読んで全観点を計算するので、観点ごとに分けない
+
+### 設定の「ポーズのモデルをダウンロード」（NFR-08）
+
+| 名前 | 種類 | 中身 |
+| --- | --- | --- |
+| `missing_models` | コマンド（新規） | `{ "aspects": ["pose"], "size": 69687555 }`。`files` が欠けている観点の名前（`model.json` の並び）と、そのダウンロードの大きさの合計。通信しない。`model.json` を読めなければ `Err` |
+| `prepare_models` | コマンド（今のまま） | 欠けているファイル、SHA-256 が合わないファイルだけを取得する。成功したら、最後に `calc.wake()` を呼ぶ（足す） |
+| `model_size` | コマンド（今のまま） | すべてのファイルのダウンロードの大きさの合計。ON にするときの確認に使う |
+
+- 設定の類似画像検索が ON で、`missing_models` の `aspects` が空でないとき、設定の類似画像検索の欄に、足りないモデルの説明と大きさと「ダウンロード」を出す。3b で欠けうるのは `pose` だけなので、文はポーズについて書く（例：「「体の姿勢」で比べるには、ポーズのモデル（約70MB）が必要です」と「ダウンロード」）。文と置き場所は J2 がモックの画面で作り、統合の前に利用者が確かめる
+- 押すまで通信しない。押すと、ON にするときと同じ進み具合の表示を出し、失敗したらエラーと「再試行」を出す。キャンセルと途中からの再開は作らない（ON にするときと同じ）
+- 成功したら `missing_models` を読み直して欄を消す。`prepare_models` が `wake` を呼ぶので、ポーズの計算がすぐ始まる
+- 失敗しても `similarity_enabled` は変えない。内容と構図の計算と検索はそのまま続く
+- OFF のときは出さない。ON にするときの流れ（大きさを見せて確認し、全部のファイルをそろえてから ON を保存する）は今のまま。初めて ON にする利用者は、ポーズのモデルも一緒に取得する
+- `prepare_models` の中の `wake` は、OFF のときにも呼ばれるが、`enabled()` が false なので何もしない。ON にする流れでは、`save_settings` の `wake` と2回になるが、合図は旗1つなので1回分しか動かない（3章）
+- 結果の帯の「体の姿勢」のスライダーを使えなくして理由を出すのは K。K は `missing_models` で判断する
+
+### 失敗時の動き
+
+| 起きたこと | 動き |
+| --- | --- |
+| ポーズのモデルがない（3a からの更新） | `pose` が使えない。内容と構図の計算と検索は続く。設定に「ダウンロード」が出る |
+| 公式の URL が開けない、消えた | `prepare_models` が `Err`。設定にエラーと「再試行」。`.zip.part` も `.part` も残らない |
+| zip の SHA-256 が違う、`unzip` が失敗した、取り出した `.onnx` の SHA-256 が違う | 同上。前からあった正しいファイルは壊さない |
+| ワーカーが protocol 1（古いワーカー）、ready の観点が `--aspects` と違う | 1章と同じく起動の失敗。計算全体が止まり、エラーが出る |
+| 返事の `pose` の形が決まりと違う | 1章と同じく `Failure::Dead` |
+| ポーズの計算中に画像が読めない | 1章と同じく `ok: false`。その画像を `failed` に数える |
+| `features.db` の版が2より新しい | 2章のとおり作り直す |
+
+### 先に書くテスト
+
+`ml/`（pytest。偽の小さな ONNX をテストの中で作る）：
+
+- `--aspects` に並べた観点だけが ready に並び、`kind` と `dim` が `model.json` と同じ
+- `--aspects` にない観点のモデルのファイルがなくても起動できる。並べた観点のファイルがないと `ready: false`
+- 要求の `aspects` に並べた観点だけが返る。`["pose"]` なら `content` と `composition` のモデルを呼ばない（偽のモデルが呼ばれた回数で確かめる）
+- 要求に `aspects` がない、空、起動していない観点を含むと、終了コード1で終わる
+- 人物の検出の偽のモデルが枠を返さないと `none`、枠を返して骨格の偽のモデルがスコアの低い関節を返すと `few`、足りる関節を返すと `ok` で `people` が1人以上、各人が51個の有限の数
+- 関節が足りる人物と足りない人物が混ざると、足りる人物だけが `people` に入る
+- 座標がサムネイルの長い辺で割った値になる（偽の骨格のモデルが返す位置から計算できる値と比べる）
+- 3a の観点（内容と構図）の値が、変更の前と同じ
+- 読めない画像で `ok: false`、次の要求に答える（1章のまま）
+
+`ml/` の開発側の確認（pytest とは別に1回。結果を報告する）：
+
+- 見本の写真（`kura-library` と `kura-pose-extra`、読むだけ）のサムネイルで、スパイクの `out/poses.json`（rtmpose-m、thumb）と比べる。状態（none、few、ok）が一致した枚数、`ok` の画像で人数が一致した枚数、関節の座標の差（長い辺を1とした値の中央と最大）
+- 1スレッドで、ポーズだけの1枚あたりの時間（中央と平均）と、2万枚の見込み。スパイク（中央31ms）より目立って遅ければ、原因を書いて報告する
+- PyInstaller の onedir の大きさ（OpenCV を入れないので、3a の112MBからほとんど増えない見込み）
+
+`src-tauri/`：
+
+- `manifest.rs`：`kind`、`dim`、`files`、`archive` を読む。`archive` がない項目も読める。`kind` が知らない値なら `Err`
+- `model.rs`：`archive` のあるファイルを `file://` の zip から取り出して置ける。zip の SHA-256 が違う、`member` がない、取り出した中身の SHA-256 が違うと失敗し、`.zip.part` も `.part` も本体も残らない。前からあった正しいファイルを壊さない。`size` が `archive.size` で数える。全部そろっていれば `curl` も `unzip` も起動しない
+- `features.rs`：版1の `features.db`（`embeddings` に行がある）を開くと版2になり、`embeddings` の行が残る。版0から作ると両方の表がある。3以上は作り直す。`put` で `Value::Pose` の3つの状態が書けて `load_poses` で読める。`none` と `few` の行も `computed` に入る。`status` と人数が合わない値、長さが `dim` の倍数でない人の `put` は `Err` で、同じ呼び出しのほかの観点も書かれない。`has`、`remove`、`sweep` が `poses` も見る。壊れた `poses` の行（上の3つの場合）を数えない
+- `worker.rs`：`--aspects` が `start` の引数から作られる（偽のワーカーが引数を書き出す）。protocol 1 の ready で `start` が `Err`。要求に `aspects` が入る。`pose` の返事を `Value::Pose` で受け取れる。要求した観点が返事にない、`status` が知らない値、`ok` で人が0人、`none` で人がいる、人の長さが `dim` と違う、有限でない値で、それぞれ `Failure::Dead`
+- `calc.rs`：内容と構図だけ計算済みの画像に、`pose` が使えるようになると、`compute` に `["pose"]` だけが渡され、`embeddings` の行の `computed_at` が変わらない。`pose` が使えない間は、`start` に `pose` が渡されず、`compute` にも渡されず、内容と構図の計算が進む。使える観点が1つもないと、ワーカーを起動せず `Status` が初期値。`done` が使える観点のそろった画像の数。ポーズのモデルが使えない間も、ポーズの行は `sweep` で消えない
+- `similar.rs`：`model.json` に `pose` の観点があっても、類似度と `ready` は内容と構図だけで計算する（ポーズの行がない画像も基準にできる）
+- `main.rs`：`missing_models` が欠けた観点と大きさを返し、通信しない。コマンド名を `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` にそろえる
+- 画面（e2e、モック）：ON で `pose` が欠けているときだけ、説明と大きさと「ダウンロード」が出る。押すと進み具合が出て、成功すると欄が消える。失敗するとエラーと「再試行」が出て、ON のまま
+
+実アプリ（verify-kura。J1 と J2 を統合した後）：
+
+- 3a の状態（内容と構図だけ計算済み、ポーズのモデルなし）のライブラリで、アプリを新しい版にして開く。内容と構図の検索が使え、計算が始まらない（未計算がない）。設定に「ダウンロード」が出る。押すまで外への通信がない
+- 「ダウンロード」を押すと、OpenMMLab の公式の URL から取得してポーズの計算が始まる。`features.db` の `embeddings` の行の `computed_at` が変わらず、`poses` に行が増える。人物のいないダミー画像は `status` 0 になる
+- 計算の後にアプリを起動し直しても、ポーズの計算をやり直さない
+- ダウンロードの失敗（URL を開けなくする）で、エラーと「再試行」が出て、内容と構図はそのまま使える
+- 2万枚のダミーのライブラリで、ポーズだけの計算にかかる時間を測る（1枚あたりと、2万枚の見込み）
+
+### J1 と J2 の境界
+
+| | J1（`feat/phase3-pose-worker`） | J2（`feat/phase3-pose-calc`） |
+| --- | --- | --- |
+| 触るファイル | `ml/`（`model.json` を除く） | `src-tauri/`、`src/`（設定の画面と型）、`src/mocks/ipc.ts`、`e2e/`、`docs/user-guide.md` |
+| 相手と合わせるもの | この章の「ワーカーとのやりとり」と「骨格の形」 | この章の「ワーカーとのやりとり」 |
+| 相手を待たずに確かめる方法 | pytest（偽の ONNX）と、本物のモデルでの開発側の確認 | `cargo test`（偽のワーカーのシェルスクリプト）、モックの e2e |
+| 2つがそろってから確かめるもの | なし | 実アプリ（verify-kura）の確認。先に終わった方を統合した後、後の方が `feat/phase3-pose` の最新を取り込んで行う。J2 が先に終わったら、実アプリの確認は J1 の統合の後に J2 のセッションか、メインセッションが行う |
+
+- `ml/model.json` はどちらも変えない。変える必要が分かったら、止まってメインセッションに報告する
+- `CLAUDE.md` の「コマンド」はどちらも変えない見込み（新しいコマンドを足さない）。足すなら、先に統合する側だけが変え、後の側は取り込んでから足す
+- `docs/requirements.md`、`docs/tasks/` は、どちらも書き換えない。設計メモと違う作りにした所は報告に書き、メインセッションが直す
+
+### 決めたことと退けた案
+
+| 決めたこと | 退けた案 | 理由 |
+| --- | --- | --- |
+| ポーズのモデルは OpenMMLab の公式の配布先から zip のまま取得する（2026-11-18、利用者が決めた） | `models-2` に写しを置く。モデルを選び直す | 学習データ（Human-Art など）に非商用の条件があり、重みのライセンスの表記がないので、再配布してよいと判断できない。選び直すとスパイクのやり直しになる |
+| zip は `/usr/bin/unzip -p` で取り出す | zip のクレートを足す。`ditto -x -k` | クレートを足さない（`curl` と同じ理由）。`ditto` はフォルダごと展開するので、1つのファイルを取り出すなら `unzip -p` の方が短い |
+| zip と取り出した `.onnx` の両方の SHA-256 を確かめる | zip だけ確かめる | 置いてあるかの確かめは `.onnx` のハッシュで行うので、どちらにしても `.onnx` のハッシュが要る。zip の確かめで、展開の前に壊れた取得を止められる |
+| `file` を `files`（配列）にし、`kind` を足す | 観点を2つ（検出と骨格）に分ける。`file` のまま、ポーズだけ別のキーにする | 検出だけでは特徴量にならない。形を1つにすると、Rust とワーカーの読み方が1通りで済む |
+| ポーズの `dim` は1人分の数（51） | `kind` ごとに別のキー（`joints` など） | Rust の長さの確かめ（`dim × 4` バイト）を両方で同じ形にできる |
+| 起動の引数 `--aspects` で読み込む観点を決め、要求の `aspects` で計算する観点を決める | ワーカーが置いてあるファイルを見て決める。いつも全部を返す | 使えるかを決めるのは Rust の1か所にする。3a で計算済みの画像の内容と構図を計算し直さない（4章の覚え書き） |
+| `protocol` を2にする | 1のまま、キーを足すだけ | ready の観点の形と、要求の必須のキーが変わる。古いワーカーと新しいアプリが組になったら、起動の時点で止めたい |
+| ポーズは `poses` の表に置き、版を2にする（1から上げる） | `embeddings` の `vector` に人数分を並べ、状態を別の目印で表す。版を上げずに `CREATE TABLE IF NOT EXISTS` する | `embeddings` の長さの確かめと、「人物なし」の空の行の意味が混ざらない。版を上げると、表の形が版で決まる（2章の決まり）。上げるときに `embeddings` を残すので、3a の特徴量を計算し直さない |
+| 関節が足りる人物だけを、17点とスコアのまま保存する | 足りない人物も保存する。見えない関節を除いて保存する | 3つの状態は計算の時点で決まる（要件定義書の5.6）。比べ方を変えるときに、スコアの閾値を K の側で変えられる |
+| 座標はサムネイルの長い辺で割る | 幅と高さで別々に割る（スパイクの保存の形）。ピクセルのまま | 縦横比が保たれ、比べるときに画像の大きさが要らない。サムネイルの大きさによらない |
+| モデルが欠けた観点だけ止める。使えるかはファイルの有無で見る | 起動のたびに SHA-256 で確かめる | 3a の `enabled` と同じ見方。372MB のハッシュを計算のたびに取らない |
+| 「ダウンロード」の後に `prepare_models` が `wake` を呼ぶ | 画面が `save_settings` を呼び直す | ON のまま設定を変えないので、`save_settings` のきっかけがない。3章の「画面からは `wake` を呼ばない」を守る |
+| タスク14まで、類似度と入口は `vector` の観点だけで計算する | ポーズを計算していない画像を未計算として扱う | J2 の統合の後も、3a の検索の動きが変わらない。ポーズの比べ方は K で入れる |
+
+### タスク14（K）への覚え書き
+
+- ポーズの行の状態は、行がない（未計算、またはモデルがない）、`none`、`few`、`ok` の4通りになる。比べる側の「ポーズがない」（平均0とみなす）に、未計算を含めるかは K で決める。帯のスライダーを使えなくするのは、基準画像の状態と `missing_models` を見る
+- 座標は長い辺で割った値、`people` は関節が足りる人物だけで、スコアが0.3未満の関節を含む。比べ方は要件定義書の5.6「ポーズ（3b）」のとおり、K が Rust に書く
+- `load_poses` は J2 が作る。2万件で読み出す時間は測っていない

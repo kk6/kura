@@ -443,18 +443,28 @@ const DEFAULT_SETTINGS: Settings = {
 }
 
 // 類似画像検索のモデル（NFR-08）。本物と同じく、そろっていれば進み具合を送らずに終わる。
-// e2e で失敗の表示を確かめるため、mock.failModel があればダウンロードに失敗する
-const MODEL_SIZE = 371807752
+// 大きさは ml/model.json の内容のモデル（372 MB）と、ポーズの2つの zip（約70 MB）。
+// e2e で失敗の表示を確かめるため、mock.failModel があればダウンロードに失敗する。
+// 3a から更新した利用者を見立てるため、mock.missingPose があれば mock.modelReady でもポーズのモデルだけがない
+const POSE_SIZE = 69687555
+const MODEL_SIZE = 371807752 + POSE_SIZE
+const missingModels = () => {
+  if (!sessionStorage.getItem('mock.modelReady')) return { aspects: ['content', 'pose'], size: MODEL_SIZE }
+  if (sessionStorage.getItem('mock.missingPose')) return { aspects: ['pose'], size: POSE_SIZE }
+  return { aspects: [], size: 0 }
+}
 const prepareModels: Handler = async () => {
-  if (sessionStorage.getItem('mock.modelReady')) return
-  await emit('model-progress', { done: 0, total: MODEL_SIZE })
+  const total = missingModels().size
+  if (total === 0) return
+  await emit('model-progress', { done: 0, total })
   await new Promise((r) => setTimeout(r, 300))
-  await emit('model-progress', { done: MODEL_SIZE / 2, total: MODEL_SIZE })
+  await emit('model-progress', { done: total / 2, total })
   await new Promise((r) => setTimeout(r, 300))
   if (sessionStorage.getItem('mock.failModel'))
-    throw 'モデルをダウンロードできません（curl: (6) Could not resolve host: github.com）'
-  await emit('model-progress', { done: MODEL_SIZE, total: MODEL_SIZE })
+    throw 'モデルをダウンロードできません（curl: (6) Could not resolve host: download.openmmlab.com）'
+  await emit('model-progress', { done: total, total })
   sessionStorage.setItem('mock.modelReady', '1')
+  sessionStorage.removeItem('mock.missingPose')
 }
 
 // 特徴量の計算（FR-604）。本物は Rust のきっかけで計算を始め、features-progress で知らせる。
@@ -487,9 +497,12 @@ async function runFeatures() {
 }
 
 // 類似画像検索（FR-601）。本物は features.db のベクトルの内積を、観点ごとに基準画像を除いた全画像で平均0・標準偏差1にそろえる。
-// モックは一覧の最後の3枚を未計算にし、id から決まる値を返す。基準画像はどちらの観点でも最大になる
+// モックは一覧の最後の3枚を未計算にし、id から決まる値を返す。基準画像はどの観点でも最大になる。
+// ポーズ（FR-605）は、id が4の倍数なら人物なし、4で割って2余るなら関節が足りない、奇数ならポーズあり。
+// ポーズのない画像のポーズの値は平均の0。基準画像にポーズがないか、mock.missingPose のときはポーズを比べない
 const UNCOMPUTED = 3
 const computedImages = () => IMAGES.slice(0, Math.max(IMAGES.length - UNCOMPUTED, 0))
+const mockPose = (id: number) => (id % 4 === 0 ? 'none' : id % 4 === 2 ? 'few' : 'ok')
 const similarImages: Handler = (args) => {
   const base = Number(args?.id)
   const computed = computedImages()
@@ -504,12 +517,18 @@ const similarImages: Handler = (args) => {
     return n
   }
   const content = (id: number) => (photos && id !== base ? shared(id) + score(id, 0.7) / 4 : score(id, 0.7))
-  return {
+  const ids = computed.map((i) => i.id)
+  const result = {
     aspects: ['content', 'composition'],
-    ids: computed.map((i) => i.id),
-    scores: [computed.map((i) => content(i.id)), computed.map((i) => score(i.id, 1.3))],
+    ids,
+    scores: [ids.map(content), ids.map((id) => score(id, 1.3))],
     uncomputed: IMAGES.length - computed.length,
+    skipped: {},
   }
+  const status = sessionStorage.getItem('mock.missingPose') ? 'missing_models' : mockPose(base)
+  if (status !== 'ok') return { ...result, skipped: { pose: status } }
+  const pose = ids.map((id) => (mockPose(id) === 'ok' ? score(id, 1.9) : 0))
+  return { ...result, aspects: [...result.aspects, 'pose'], scores: [...result.scores, pose] }
 }
 
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
@@ -724,6 +743,7 @@ const handlers: Record<string, Handler> = {
     return [...RECENT]
   },
   model_size: () => MODEL_SIZE,
+  missing_models: missingModels,
   prepare_models: prepareModels,
   load_settings: () => stored('mock.settings', DEFAULT_SETTINGS),
   // e2e で保存の失敗を確かめるため、mock.failSettings があれば保存しない
