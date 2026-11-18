@@ -271,7 +271,7 @@ def test_returns_unit_vector_of_dim_per_aspect(worker, tmp_path):
 
 def test_3a_aspects_keep_values_from_before_pose(worker, tmp_path):
     # 3a のワーカー（protocol 1）で同じ偽のモデルと画像から出した値。
-    # JPEG はデコーダーが OS ごとに数値を変えるので、可逆の PNG で比べる
+    # 画像は可逆の PNG にして、デコードの違いを入れない
     worker.read()
     f = worker.ask(1, write_image(tmp_path / "a.png", 1), ["content", "composition"])[
         "features"
@@ -283,7 +283,9 @@ def test_3a_aspects_keep_values_from_before_pose(worker, tmp_path):
     assert np.allclose(
         f["composition"][:4], [0.046434, -0.03443, -0.074862, 0.006002], atol=1e-5
     )
-    assert math.isclose(sum(f["composition"]), 7.950014, abs_tol=1e-4)
+    # エッジの向きの区切りに近い点が、mac（ARM）と ubuntu（x86）の浮動小数点の差で隣の区切りに入るので、
+    # 合計は 0.1% ほどずれる（CI で 7.9427）。計算の取り違えはこれより大きくずれる
+    assert math.isclose(sum(f["composition"]), 7.950014, rel_tol=5e-3)
 
 
 @pytest.mark.parametrize("names", [["pose"], ["content"], ["composition", "pose"]])
