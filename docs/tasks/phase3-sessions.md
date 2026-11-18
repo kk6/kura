@@ -354,6 +354,31 @@ Tauri のコマンドを足したら、main.rs の generate_handler!、src/mocks
   人物のいない画像が消えないことを、スクリーンショットで残してください
 ```
 
+### L（タスク15）：3b の検証手順、文書、リリース準備
+
+2026-11-18 作成。基点と統合先は J1 と同じ（`feat/phase3-pose`）。
+
+- 触るファイル：`.claude/skills/verify-kura/`、`docs/tasks/phase3-check.md`、`docs/user-guide.md`、`README.md`、`homepage/`、`docs/images/`、`CHANGELOG.md`、CLAUDE.md、`src/SettingsDialog.tsx`（ON の確認の文）、`src/mocks/ipc.ts`、`e2e/`
+- 完了の条件：phase3.md のタスク15の「終わったと言える状態」（タスク9・10と同じ）
+
+```text
+まとまり L は、3b の実アプリの検証手順と、利用者向けの文書・リリースの準備をそろえます。新しい機能は足しません。
+
+- verify-kura の features/similarity.md に、ポーズのモデルの置き方（隔離した環境へ、取得元の zip から取り出して置く）、
+  人物なし・関節不足の画像の作り方、ポーズの計算が済んだかを features.db で確かめる方法を足し、実際に流して確かめてください
+- phase3-check の H の各項目について、必要な操作と証跡がそろっているかを確かめ、足りない準備を報告してください
+- 設定の「類似画像検索」を ON にするときの確認の文（src/SettingsDialog.tsx の「Kura の GitHub Release から…」）が、
+  ポーズのモデルを OpenMMLab から取るようになって正しくなくなっています。表示する大きさも 372MB から 441MB に変わりました。
+  取得元とダウンロードする量を正しく書き直してください。文はモックの画面で作り、スクリーンショットを報告してください
+- ポーズのモデルは再配布しません（要件定義書の4章、phase3-design.md の5章「モデルの取得元とライセンス」）。
+  README の「ライセンス」の節、設定の説明、紹介ページに、取得元と学習データの条件をどう書くかは、案を出して利用者に確かめてから書きます
+- CLAUDE.md の「モデルのリリース」に、ポーズのモデルは GitHub Release に置かないことと、OpenMMLab の zip を差し替えるときの手順
+  （ml/model.json の url、sha256、size と、取り出すファイルの sha256 を直す）を書きます
+- user-guide に「体の姿勢」のスライダー、基準画像にポーズがないときの表示、ポーズのモデルのダウンロードを書きます（タスク13・14で足りない分）。
+  README と紹介ページも 3b に合わせます。スクリーンショットを撮り直すときは KURA_DOCS_PHOTOS=/Users/kk6/Projects/kura-library npm run docs:screenshots を使います
+- CHANGELOG は [Unreleased] に書きます。版は利用者が決めます。決まるまで npm run version:set を実行しないでください
+```
+
 ## メインセッションの統合手順
 
 1. 報告を受けたら、`git status`、現在のブランチ、基点からの差分とコミットを確認する。対象タスク以外の変更や、未保存の利用者の変更を混ぜない
