@@ -270,19 +270,20 @@ def test_returns_unit_vector_of_dim_per_aspect(worker, tmp_path):
 
 
 def test_3a_aspects_keep_values_from_before_pose(worker, tmp_path):
-    # 3a のワーカー（protocol 1）で同じ偽のモデルと画像から出した値
+    # 3a のワーカー（protocol 1）で同じ偽のモデルと画像から出した値。
+    # JPEG はデコーダーが OS ごとに数値を変えるので、可逆の PNG で比べる
     worker.read()
-    f = worker.ask(1, write_image(tmp_path / "a.jpg", 1), ["content", "composition"])[
+    f = worker.ask(1, write_image(tmp_path / "a.png", 1), ["content", "composition"])[
         "features"
     ]
     assert np.allclose(
-        f["content"][:4], [-0.017816, 0.032943, -0.025789, -0.033662], atol=1e-5
+        f["content"][:4], [-0.017824, 0.032946, -0.025789, -0.033659], atol=1e-5
     )
-    assert math.isclose(sum(f["content"]), -1.29866, abs_tol=1e-4)
+    assert math.isclose(sum(f["content"]), -1.298537, abs_tol=1e-4)
     assert np.allclose(
-        f["composition"][:4], [0.045854, -0.034685, -0.074955, 0.005584], atol=1e-5
+        f["composition"][:4], [0.046434, -0.03443, -0.074862, 0.006002], atol=1e-5
     )
-    assert math.isclose(sum(f["composition"]), 7.945388, abs_tol=1e-4)
+    assert math.isclose(sum(f["composition"]), 7.950014, abs_tol=1e-4)
 
 
 @pytest.mark.parametrize("names", [["pose"], ["content"], ["composition", "pose"]])
