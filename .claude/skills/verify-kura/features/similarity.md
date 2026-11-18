@@ -111,18 +111,20 @@ $R $V net <id> down     # 閉じる。ダウンロードの途中なら、その
 
 ### 2万枚のライブラリ（性能の確認用）
 
-見本を写し、ダミー画像を2万枚置いて、Kura に差分の確認で登録させる。特徴量は実アプリで計算する（Apple M5 Max のリリース用ビルドで、登録に約2分、計算に16分38秒。2026-11-16）。一度作ったら、性能の確認のたびに写して使う。
+見本を写し、人物の写真から作った約1万枚と、ダミー画像を約9,400枚置いて、Kura に差分の確認で登録させる。人物の画像を混ぜるのは、ポーズのある画像どうしの比べ方（3b）の時間を測るため（ダミーだけだとポーズはすべて「人物なし」になり、比べる組がない）。特徴量は実アプリで計算する。一度作ったら、性能の確認のたびに写して使う。
 
 ```bash
 B=.claude/tmp/verify-kura
-cp -R $B/template $B/lib20k
-uv run scripts/gen_dev_library.py 20000 --out $B/lib20k/dummy20k   # 約1分
-PATH=/usr/bin:/bin:/usr/sbin:/sbin KURA_IN_PLACE=1 $R $V launch build20k $B/lib20k
+rsync -a --exclude .DS_Store /Users/kk6/Projects/kura-library/人物/ $B/pose-src/人物/   # 「ポーズの確認用のライブラリ」と同じ写し
+cp -R $B/template $B/lib20k && mkdir -p $B/lib20k/人物 && cp $B/pose-src/人物/*.jpg $B/lib20k/人物/
+ml/.venv/bin/python -I .claude/skills/verify-kura/pose_images.py $B/pose-src/人物 $B/lib20k 169 59   # 脚・反転・組と、変形 9,971枚。約1分20秒
+uv run scripts/gen_dev_library.py 9400 --out $B/lib20k/dummy   # 約20秒
+PATH=/usr/bin:/bin:/usr/sbin:/sbin KURA_PROXY=1 KURA_IN_PLACE=1 $R $V launch build20k $B/lib20k
 ```
 
-1. `app.log` に `差分を反映しました：登録 …` が出るまで待つ（ダミーの重複と非対応形式はスキップに数えられる）。
-2. `$R $V model build20k` でモデルを置き、設定で ON にする。ステータスバーに「特徴量を計算中 N / M枚」。`pgrep -fl kura-worker` が `.app` の中のワーカーを指す。
-3. 計算が終わるまで待つ。`$R $V db build20k "select count(*) from images where deleted_at is null and missing_at is null"` と、`$R $V db build20k "select aspect, count(*) from embeddings group by aspect" features` の件数がそろえば終わり。
+1. `app.log` に `差分を反映しました：登録 …` が出るまで待つ（ダミーの重複と非対応形式はスキップに数えられる）。2026-11-18 は2分23秒で、登録 19,923、合わせて19,953枚。
+2. `$R $V model build20k` と `$R $V model build20k pose` でモデルを置き、設定で ON にする（通信しない）。ステータスバーに「特徴量を計算中 N / M枚」。`pgrep -fl kura-worker` が `.app` の中のワーカーを指す。
+3. 計算が終わるまで待つ。`images`（ゴミ箱と「見つからない」を除く）、`embeddings` の `content`、`poses` の件数がそろえば終わり。2026-11-18 は26分22秒（内容・構図・ポーズの3つ、Apple M5 Max、1スレッド）。ポーズは2（ポーズあり）が10,174枚、1が322枚、0が9,457枚。
 4. `$R $V stop build20k`。`KURA_IN_PLACE` なので `lib20k` はそのまま残る（stop は run の `lib` のリンクだけを消す）。
 
 使うときは `$R $V launch <id> $B/lib20k` で写して開く（2万のサムネイルも写す）。計算中の確認には、写した後に `.kura/features.db` を消してから開く（`cp -R $B/lib20k $B/lib20k-nofeat && rm $B/lib20k-nofeat/.kura/features.db*`）。
@@ -153,6 +155,6 @@ $R $V model photos     # 設定で ON にすると数秒で計算が終わる
   - H-2（ポーズだけを足す）：同じ手順の3と4。`embeddings` の `computed_at` が前と同じで、`poses` の件数が画像の枚数になる
   - H-3〜H-5、H-7：`人物/`、`反転/`、`組/`、`脚/` と `src/` を混ぜたまま、`人物/` の1枚を基準に「写っているもの」「明暗と線の配置」を左端、「体の姿勢」を右端へ。上位に同じ人の `flip-` と `pair-` が来て、`脚/` と `src/` の画像が結果に残り、末尾に固まらない（結果の最後までスクロールして見る）。2026-11-18 は `人物/ahmed-nishaath-wBXibuuhxdk` を基準にし、`pair-` が2位、`flip-` が3位、末尾は姿勢の違う人物だった（`pose-04-pose-only.jpg`、`pose-05-pose-only-tail.jpg`）。基準は検索欄でファイル名を引いて右クリックの「似た画像を探す」で選び、検索欄を空にしてから並びを見る（検索欄は結果も絞る）
   - H-6：`src/` のダミー画像（`status` 0）を基準にする。「体の姿勢」の代わりに「基準の画像に人物がいません」が出る（`pose-06-none-reason.jpg`）
-  - H-8：2万枚のライブラリ（上の節。2026-11-18 の時点でどの作業場所にもない。作るのに約25分）にも `model <id> pose` で置き、ポーズの計算を済ませてから `類似度を計算しました（…ms）` を見る。ポーズの計算は人物のいないダミーで約5分（2026-11-18、タスク13）
+  - H-8：2万枚のライブラリ（上の節）で、ポーズのある画像を基準に探し、`類似度を計算しました（…ms）` を見る。2026-11-18 は106〜119ms（3回）、`relaunch` の直後の1回目が104ms（`runs/build20k/evidence/`）。基準にポーズがないと、ポーズの比べ方を飛ばすので速くなる。測るときは人物の画像を基準にする
 - 「体の姿勢」を右端、ほかを左端（0）に保存した後に、人物のいない画像を基準にすると、残りの2本は真ん中に出る（`fillWeights` が、使える観点が全部0なら初期値で埋める）。`settings.json` の値は0のまま
 - この環境では、背景操作（`app_click`）が WKWebView に届かず断られた（2026-11-18）。全画面操作に移った。Stage Manager でウィンドウの位置が操作のたびに変わるので、毎回撮り直してから押す
