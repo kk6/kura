@@ -22,6 +22,7 @@ test('初期値は OFF で、ON にする前にモデルの大きさを見せ、
   await check.click()
   const confirm = page.getByRole('dialog', { name: '類似画像検索を使う' })
   await expect(confirm).toContainText('441 MB')
+  await expect(confirm).toContainText('OpenMMLab')
   await confirm.screenshot({ path: 'test-results/similarity-confirm.png' })
   await confirm.getByRole('button', { name: 'キャンセル' }).click()
 
@@ -174,6 +175,7 @@ test('ON でポーズのモデルがないときだけ、説明と大きさと�
   const settings = await openUpdated(page)
   await expect(settings).toContainText(POSE_TEXT)
   await expect(settings.getByRole('button', { name: 'ダウンロード', exact: true })).toBeVisible()
+  await expect(settings).toContainText('Kura は配布せず、OpenMMLab の配布先から直接取得します')
   // 押すまで通信しない
   expect(await page.evaluate(() => sessionStorage.getItem('mock.missingPose'))).toBe('1')
   await settings.screenshot({ path: 'test-results/similarity-pose-missing.png' })

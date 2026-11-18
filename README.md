@@ -20,15 +20,14 @@ Kura（蔵）はイラスト制作に使う参考画像をパソコンの中だ�
 - 主な操作のキーボードショートカット
 - アイデアボード：参考画像を専用のウィンドウに自由に並べる。動かす・拡大縮小する・重ねる・反転・回転・グレースケール・トリミングができ、元の画像ファイルは変えない。ほかのアプリの手前に固定し、透かして使える。設定で使わないこともできる
 - ブラウザでダウンロードした画像のダウンロード元（画像URLと掲載ページURL）を記録し、詳細パネルから開く
-- 似た画像を探す：選んだ画像に似た画像を、「写っているもの」と「明暗と線の配置」の2つの見方で比べて並べる。どちらを重く見るかはスライダーで決める。設定で ON にしたときだけ、初回にモデル（約 372 MB）を Kura の GitHub Release からダウンロードする。計算はパソコンの中で行い、画像は外へ送らない
+- 似た画像を探す：選んだ画像に似た画像を、「写っているもの」「明暗と線の配置」「体の姿勢」の3つの見方で比べて並べる。どれを重く見るかはスライダーで決める。左右を反転したポーズも似たポーズとして並ぶ。設定で ON にしたときだけ、初回にモデル（合わせて約 441 MB）をダウンロードする。SigLIP 2 は Kura の GitHub Release から、ポーズのモデルは OpenMMLab の配布先から取得する。計算はパソコンの中で行い、画像は外へ送らない
 
 使い方は [ユーザーガイド](docs/user-guide.md) を見てください。
 
 ## まだできないこと
 
-フェーズ3以降で作る予定です。詳しくは [要件定義書](docs/requirements.md) の「開発フェーズと優先度」を見てください。
+フェーズ4以降で作る予定です。詳しくは [要件定義書](docs/requirements.md) の「開発フェーズと優先度」を見てください。
 
-- フェーズ3の後半：ポーズが似た画像の検索
 - フェーズ4：検索条件の保存（スマートフォルダ）、縦横比や追加した日での絞り込み、クリップボードからの取り込みなどの改善
 - フェーズ5：画像以外の資料（CLIP STUDIO PAINT の .clip、フォント、動画）
 
@@ -110,3 +109,8 @@ KURA_DOCS_PHOTOS=<見本の写真のフォルダ> npm run docs:screenshots
 [MIT](LICENSE)
 
 類似画像検索のモデル（SigLIP 2、Google）は Apache License 2.0 です。ライセンスの写しと表示は、モデルと同じ [GitHub Release（models-1）](https://github.com/kk6/kura/releases/tag/models-1) にあります。
+
+ポーズのモデル（YOLOX-tiny と RTMPose-m、OpenMMLab）は、Kura は配布しません。設定で類似画像検索を ON にしたときに、アプリが OpenMMLab の配布先から zip のまま直接取得します。調べた範囲（2026-11-18）では、次のとおりです。法的な判断ではありません。
+
+- 重みのライセンスの表記は見つかりませんでした。zip の中にもライセンスのファイルはありません。[MMPose](https://github.com/open-mmlab/mmpose) のリポジトリは Apache License 2.0 ですが、この表記はコードと文書についてのものです
+- 学習データには、非商用・研究用の条件が付いたものが含まれます。YOLOX-tiny は COCO と [Human-Art](https://github.com/IDEA-Research/HumanArt) で学習しています。Human-Art は、非商用の目的での利用許可を申請して入手するデータです。RTMPose-m は [body7](https://github.com/open-mmlab/mmpose/tree/main/projects/rtmpose)（AI Challenger、COCO、CrowdPose、MPII、sub-JHMDB、Halpe、PoseTrack18）で学習しています

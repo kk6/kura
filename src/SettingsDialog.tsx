@@ -122,6 +122,10 @@ export default function SettingsDialog({
           オンにすると、初回だけモデルをダウンロードします。オフにしても、ダウンロードしたモデルと計算した結果は消えません。
         </p>
         <p>モデル：SigLIP 2（Google、Apache License 2.0）</p>
+        <p>
+          ポーズのモデル：YOLOX-tiny と RTMPose-m（OpenMMLab）。Kura は配布せず、OpenMMLab
+          の配布先から直接取得します。重みのライセンスの表記はなく、学習データには非商用・研究用の条件が付いたものが含まれます。
+        </p>
         {settings.similarity_enabled && missing?.aspects.includes('pose') && (
           <>
             <p>
@@ -225,8 +229,9 @@ export default function SettingsDialog({
           }}
           onClose={() => setModelSize(null)}
         >
-          類似画像検索に使うモデル（{mb(modelSize)}）を、Kura の GitHub Release
-          からアプリのデータフォルダへダウンロードします。ダウンロード済みのときは通信しません。
+          類似画像検索に使うモデル（合わせて {mb(modelSize)}）を、アプリのデータフォルダへダウンロードします。SigLIP 2
+          は Kura の GitHub Release から、ポーズのモデルは OpenMMLab
+          の配布先から取得します。ダウンロード済みのモデルは取得し直しません。
         </ConfirmDialog>
       )}
     </>

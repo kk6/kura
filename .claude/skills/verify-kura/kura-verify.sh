@@ -224,14 +224,15 @@ SWIFT
   rm -f "$f"
 }
 
-# model <id> : 内容（SigLIP 2）のモデルを、run のアプリのデータフォルダの models/ に置く（ダウンロードの代わり）。
-# ポーズのモデルは置かない。3a から更新した利用者と同じく、ポーズのモデルだけがない状態になる。
+# model <id> [pose] : 内容（SigLIP 2）のモデルを、run のアプリのデータフォルダの models/ に置く（ダウンロードの代わり）。
+# pose を付けなければポーズのモデルは置かない。3a から更新した利用者と同じく、ポーズのモデルだけがない状態になる。
 # 複製元は KURA_MODEL_SRC（既定は本体のリポジトリの spikes/similarity/models/siglip2-b16.onnx。git の管理外）。
 # ml/model.json の名前で置き、SHA-256 が合うことを確かめる。ON にするとアプリは通信せずにこれを使う
 cmd_model() {
   local dir; dir=$(run_dir "$1")
   [ -d "$dir/home" ] || die "$dir は起動していない。先に launch"
   local main; main=$(cd "$(git -C "$REPO" rev-parse --git-common-dir)/.." && pwd)
+  [ "${2:-}" = pose ] && { model_pose "$1" "$main"; return; }
   local src="${KURA_MODEL_SRC:-$main/spikes/similarity/models/siglip2-b16.onnx}"
   [ -f "$src" ] || die "$src がない。KURA_MODEL_SRC にモデルのファイルを渡す"
   local name sha
@@ -245,6 +246,30 @@ for a in json.load(open(sys.argv[1]))["aspects"]:
   [ "$(shasum -a 256 "$models/$name.copy" | cut -d' ' -f1)" = "$sha" ] || { rm -f "$models/$name.copy"; die "$src の SHA-256 が ml/model.json と違う"; }
   mv "$models/$name.copy" "$models/$name"
   echo "placed: $models/$name (sha256 ok)"
+}
+
+# model <id> pose : ポーズのモデル（ml/model.json の pose の files）を、アプリと同じく取得元の zip から取り出して置く。
+# zip は KURA_POSE_ZIPS（既定は本体のリポジトリの .claude/tmp/verify-kura/pose-zips/。git の管理外）に、URL の末尾の名前で置いておく。
+# アプリと同じ順で確かめる：zip の SHA-256 → unzip -p で member を取り出す → 取り出した .onnx の SHA-256
+model_pose() {
+  local zips="${KURA_POSE_ZIPS:-$2/.claude/tmp/verify-kura/pose-zips}"
+  local models; models="$(data_dir "$1")/models"
+  mkdir -p "$models"
+  local name sha member zsha url zip
+  while IFS=$'\t' read -r name sha member zsha url; do
+    zip="$zips/${url##*/}"
+    # 開発側の通信なので自動では取らない。取るなら利用者に断ってから、この1行を流す
+    [ -f "$zip" ] || die "$zip がない。mkdir -p $zips && /usr/bin/curl -fL -o $zip $url"
+    [ "$(shasum -a 256 "$zip" | cut -d' ' -f1)" = "$zsha" ] || die "$zip の SHA-256 が ml/model.json の archive.sha256 と違う"
+    /usr/bin/unzip -p "$zip" "$member" >"$models/$name.copy" || { rm -f "$models/$name.copy"; die "$zip に $member がない"; }
+    [ "$(shasum -a 256 "$models/$name.copy" | cut -d' ' -f1)" = "$sha" ] || { rm -f "$models/$name.copy"; die "取り出した $name の SHA-256 が ml/model.json と違う"; }
+    mv "$models/$name.copy" "$models/$name"
+    echo "placed: $models/$name (zip と .onnx の sha256 ok)"
+  done < <(python3 -I -c 'import json, sys
+for a in json.load(open(sys.argv[1]))["aspects"]:
+    if a["aspect"] == "pose":
+        for f in a["files"]:
+            print(f["name"], f["sha256"], f["archive"]["member"], f["archive"]["sha256"], f["url"], sep="\t")' "$REPO/ml/model.json")
 }
 
 # net <id> up|down : KURA_PROXY=1 で起動した Kura の通信の口を開ける・閉じる。
@@ -278,5 +303,5 @@ case "${1:-}" in
     valid_id "${1:-}" || die "run id は英数字と . _ - だけ（'${1:-}'）"
     "cmd_$c" "$@" ;;
   real-data-mtime) stat -f '%m %N' "$REAL_DATA"/* 2>/dev/null || true ;;
-  *) echo "usage: $0 build | launch <id> [empty|template|<lib>] | relaunch <id> | doctor <id> | src <id> [n] | db <id> <sql> | windows <id> | template <id> | model <id> | net <id> up|down | stop <id> | real-data-mtime"; exit 2 ;;
+  *) echo "usage: $0 build | launch <id> [empty|template|<lib>] | relaunch <id> | doctor <id> | src <id> [n] | db <id> <sql> | windows <id> | template <id> | model <id> [pose] | net <id> up|down | stop <id> | real-data-mtime"; exit 2 ;;
 esac

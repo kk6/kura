@@ -47,15 +47,22 @@ test('似た画像を探す', async ({ page }) => {
         tags_collapsed: false,
         board_enabled: true,
         similarity_enabled: true,
-        similarity_weights: { content: 70, composition: 30 },
+        similarity_weights: { content: 70, composition: 30, pose: 50 },
         board_window: { always_on_top: false, opacity: 100, frame: null },
       }),
     )
   })
   await openGallery(page)
-  await page.getByRole('main', { name: '画像の一覧' }).getByAltText(/^猫_/).first().click()
-  await page.getByRole('complementary', { name: '詳細' }).getByRole('button', { name: '似た画像を探す' }).click()
-  await expect(page.getByRole('group', { name: '観点ごとの重み' })).toBeVisible()
+  // 「体の姿勢」のスライダーを写すため、モックでポーズのある人物の写真を基準にする。結果から選び直すと基準が入れ替わる
+  const people = page.getByRole('main', { name: '画像の一覧' }).getByAltText(/^人物_/)
+  const weights = page.getByRole('group', { name: '観点ごとの重み' })
+  for (let i = 0; !(await weights.getByLabel('体の姿勢').count()); i++) {
+    await people.nth(i).click()
+    await page.getByRole('complementary', { name: '詳細' }).getByRole('button', { name: '似た画像を探す' }).click()
+    await expect(weights).toBeVisible()
+  }
+  // 押したボタンまで詳細パネルが下がっているので、画像の見える位置に戻す
+  await page.getByRole('complementary', { name: '詳細' }).evaluate((e) => e.scrollTo(0, 0))
   await shot(page, 'similarity')
 })
 
