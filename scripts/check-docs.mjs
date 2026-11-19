@@ -4,6 +4,10 @@
 // - Tauri のコマンド名が、Rust、src/mocks/ipc.ts、画面の invoke で揃っているか
 // - アプリのバージョンが package.json、Cargo.toml、tauri.conf.json とロックファイルで揃っているか
 // - 利用者向けの文書に書いたモデルの大きさ（約 N MB）が ml/model.json と合っているか
+// - 終わったフェーズ（要件定義書の9章の「（完了：<版>）」）の記述が、途中のまま残っていないか
+// - 検証のスキル（.claude/skills/verify-*）が CLAUDE.md と開発ガイドに載っているか
+// - docs/ の文書が、ほかの文書からリンクされているか
+import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -95,10 +99,60 @@ for (const file of ['README.md', 'docs/user-guide.md', 'homepage/index.html']) {
   }
 }
 
+// フェーズを閉じたあとに残りやすい古い記述。フェーズを閉じるときに人が手で見直すのは漏れる
+const requirements = read('docs/requirements.md')
+const phases = [...requirements.matchAll(/^\d+\. \*\*フェーズ(\d+)：[^*]+\*\*(（完了：[\d.]+）)?$/gm)]
+const done = new Set(phases.filter((m) => m[2]).map((m) => m[1]))
+const open = phases.filter((m) => !m[2]).map((m) => m[1])
+for (const name of readdirSync('docs/tasks')) {
+  const n = name.match(/^phase(\d+)/)?.[1]
+  if (!done.has(n)) continue
+  for (const word of ['確認待ち', '未着手', 'すべて未確認', 'に使う依頼案']) {
+    if (read(`docs/tasks/${name}`).includes(word))
+      problems.push(`フェーズ${n}は完了したのに、docs/tasks/${name} に「${word}」が残っている`)
+  }
+}
+const notYet = read('README.md').match(/^## まだできないこと\n([\s\S]*?)^## /m)?.[1] ?? ''
+const listed = [...notYet.matchAll(/^- フェーズ(\d+)：/gm)].map((m) => m[1])
+if (listed.join() !== open.join())
+  problems.push(
+    `README の「まだできないこと」のフェーズ（${listed.join('、') || 'なし'}）が、要件定義書の完了していないフェーズ（${open.join('、')}）と合わない`,
+  )
+
+// 過ぎた版や終わったフェーズを期限にした記述
+const semver = (v) => v.split('.').reduce((n, x) => n * 1000 + Number(x), 0)
+const current = semver(versions['package.json'])
+for (const file of ['README.md', 'docs/requirements.md', 'docs/development.md']) {
+  for (const [text, v] of read(file).matchAll(/(\d+\.\d+\.\d+) の次の版/g)) {
+    if (semver(v) < current) problems.push(`${file} の「${text}」は、もう ${versions['package.json']} が出ている`)
+  }
+}
+const pending = requirements.match(/^## 10\. 未決事項\n([\s\S]*)/m)[1]
+for (const [line, n] of pending.matchAll(/^- \[ \] .*（[^）]*フェーズ(\d+)[^）]*）.*$/gm)) {
+  if (done.has(n)) problems.push(`未決事項の「${line.slice(6, 46)}…」の時期が、終わったフェーズ${n}になっている`)
+}
+
+// 検証のスキルは、CLAUDE.md の「検証のスキル」と開発ガイドの両方から使い方を知る
+for (const name of readdirSync('.claude/skills').filter((n) => n.startsWith('verify-'))) {
+  for (const file of ['CLAUDE.md', 'docs/development.md']) {
+    if (!read(file).includes(name)) problems.push(`検証のスキル ${name} が ${file} に載っていない`)
+  }
+}
+
+// どこからもリンクされない文書は、役目を終えても気づかれずに残る。README.md はフォルダの名前で探す
+const markdown = execFileSync('git', ['ls-files', '*.md'], { encoding: 'utf8' }).split('\n').filter(Boolean)
+const texts = new Map(markdown.map((f) => [f, read(f)]))
+for (const file of markdown.filter((f) => f.startsWith('docs/'))) {
+  const parts = file.split('/')
+  const key = parts.at(-1) === 'README.md' ? `${parts.at(-2)}/` : parts.at(-1)
+  if (![...texts].some(([other, text]) => other !== file && text.includes(key)))
+    problems.push(`${file} がどの文書からもリンクされていない（役目を終えたなら消す）`)
+}
+
 if (problems.length) {
   console.error(`ドキュメントの食い違い（${problems.length}件）:\n${problems.join('\n')}`)
   process.exit(1)
 }
 console.log(
-  `ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件、モデルの大きさ、バージョン ${versions['package.json']} を確かめた`,
+  `ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件、モデルの大きさ、バージョン ${versions['package.json']}、完了したフェーズ ${[...done].join('・')} の記述、検証のスキル、文書のリンクを確かめた`,
 )
