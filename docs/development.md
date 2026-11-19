@@ -18,13 +18,13 @@ Claude Code はセッションの始めに [CLAUDE.md](../CLAUDE.md) を読み�
 
 ### フェーズのタスク一覧を作る
 
-フェーズ2の計画は [タスク一覧](tasks/phase2.md)、[通しの確認](tasks/phase2-check.md)、[サブセッションの分割とブリーフ](tasks/phase2-sessions.md) にあります。フェーズ2はそのブリーフを使い、1タスクずつ実装・検証して、マージとpushはメインセッションに任せます。以下は別のフェーズで計画を作る場合の例です。
+これまでのフェーズの計画は `docs/tasks/` にあります。[フェーズ3](tasks/phase3.md) では、タスク一覧、[通しの確認](tasks/phase3-check.md)、[サブセッションの分割とブリーフ](tasks/phase3-sessions.md) を作り、ブリーフを使って1まとまりずつ実装・検証しました。マージと push はメインセッションに任せます。次のフェーズで計画を作るときは、次のように頼みます。
 
 > docs/requirements.md の「開発フェーズと優先度」の対象フェーズを、docs/tasks/phase1.md と同じ形でタスクに分けて、docs/tasks/phase<N>.md に書いてください。通しの確認手順も一緒に作り、未決事項に当たるものは、決める前に質問してください。
 
 ### タスクを進める
 
-> docs/tasks/phase2-sessions.md の共通ブリーフに従い、タスク3を feature/phase2-board-management で進めてください。マージとpushはせず、結果を報告して止まってください。
+> docs/tasks/phase<N>-sessions.md の共通ブリーフに従い、まとまり B を feat/phase<N>-<名前> で進めてください。マージとpushはせず、結果を報告して止まってください。
 
 「終わったと言える状態」はタスク一覧の列にあるので、依頼時に繰り返し書かなくてもかまいません。タスク一覧にない作業なら、ID と終わったと言える状態を書きます。
 
@@ -50,7 +50,7 @@ Claude は `docs/design.md` を読み、モックの画面のスクリーンシ�
 
 ### リリースの準備をする
 
-> 次の版（利用者が指定）のリリースの準備をしてください。CHANGELOG にはフェーズ2でできるようになったことを書いてください。タグの push は自分でします。
+> 次の版（利用者が指定）のリリースの準備をしてください。CHANGELOG には前の版からできるようになったことを書いてください。タグの push は自分でします。
 
 手順は CLAUDE.md の「リリース」にあります。タグを push すると GitHub Release が作成されるため、タグを push してよいかは頼むときにはっきり書きます。
 
@@ -63,6 +63,7 @@ Claude は `docs/design.md` を読み、モックの画面のスクリーンシ�
 | 画面だけ（React） | モックの画面を Playwright で開き、スクリーンショットで見る（`npm run test:e2e`） | 「スクリーンショットで確かめてください」 |
 | Rust のコマンド、取り込み、DB、ファイル操作 | 実アプリを隔離して起動・操作し、画面・ファイル・DB で結果を確かめる | 「/verify-kura で実アプリで確かめてください」 |
 | 移動の手順（`fileops.rs`、`library.rs` の `connect` と `apply_op`、`pending_ops`） | 処理の途中でアプリが終了しても画像を失わないことを TLA+ のモデル検査で確かめる | 「/verify-crash-safe-move を流してください」 |
+| ボードの自動保存（`src/board/saveQueue.ts`、BoardApp の保存のキューの使い方） | 編集を失わず、未保存の変更を「保存済み」と示さないことを TLA+ のモデル検査で確かめる | 「/verify-board-save を流してください」 |
 
 ### /verify-kura（実アプリでの確認）
 
@@ -78,12 +79,16 @@ Claude は `docs/design.md` を読み、モックの画面のスクリーンシ�
 - `DRIFT` が出たら、モデルが表すコードに変更があったことを意味します。Claude はコードを読み、モデルを現在のコードに合わせてから検査を実行します
 - `FAIL` が出て、反例がコードで実際に起こりうるものなら、実際の不具合です。Claude は検証する性質を緩めて検査を通すのではなく、反例を報告します
 
+### /verify-board-save（ボードの自動保存のモデル検査）
+
+- スキルは `.claude/skills/verify-board-save/` にあります。準備と `DRIFT`・`FAIL` の扱いは /verify-crash-safe-move と同じです
+
 ### スキルを最新に保つ
 
 アプリの変更によって、スキルの手順が実際の操作と合わなくなります。次のように頼みます。
 
 - 実アプリの確認の手順：「/pstack:maintain-verification-skill で verify-kura を今のアプリに合わせてください」
-- モデル検査：「/pstack:maintain-formal-verification-skill で verify-crash-safe-move を今のコードに合わせてください」
+- モデル検査：「/pstack:maintain-formal-verification-skill で verify-crash-safe-move（または verify-board-save）を今のコードに合わせてください」
 
 ## 特徴量のワーカー（ml/）
 
