@@ -108,3 +108,14 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 | `coverage.tsv` | モデルが写す関数と、同期したコミットでの指紋 |
 | `check.sh` | 実行 |
 | `fingerprint.py` | 関数の本体の指紋。コメントと文字列の中の波括弧を数えない。`check.sh` が自己テストを流す |
+| `statechart/chart.mmd` | 今のモデルの状態遷移図（Mermaid）。`/pstack:statechart` で描いた |
+| `statechart/view.ts`、`statechart/chart.cfg` | 図の言葉と、図を描く範囲（落ちる回数1回、失敗1回ずつ。約100状態） |
+
+### 図を描き直す
+
+モデルを直したら、図も描き直す。作業用のフォルダで、完了で止まる手順 `Done` を足したモデルの写しを作ってから、`/pstack:statechart` のスクリプトに渡す（`check.sh` の検査には `Done` を入れない）。
+```bash
+W=.claude/tmp/statechart && D=.claude/skills/verify-crash-safe-move && mkdir -p $W
+sed 's/^Next == Progress \\\/ Crash$/Done == pc = "done" \/\\ UNCHANGED vars\nNext == Progress \\\/ Crash \\\/ Done/' $D/CrashSafeMove.tla > $W/CrashSafeMove.tla
+<statechart スキルのフォルダ>/scripts/statechart $W/CrashSafeMove.tla --config $D/statechart/chart.cfg --view $D/statechart/view.ts --out $W/out && cp $W/out/chart.mmd $D/statechart/chart.mmd
+```

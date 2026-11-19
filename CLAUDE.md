@@ -90,6 +90,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 
 - Rust のコマンド、取り込み、DB、ファイル操作を変えたら、`.claude/skills/verify-kura/` の手順で実アプリを隔離して起動し、操作して確かめる。モックの画面は Rust を通らない
 - `fileops.rs` の移動の手順、`library.rs` の `connect` と `apply_op`、`pending_ops` の扱いを変えたら、`.claude/skills/verify-crash-safe-move/check.sh` を流す。`DRIFT` が出たら、その SKILL.md の手順でモデルを合わせ直す
+- `src/board/saveQueue.ts` か、BoardApp の保存のキューの使い方を変えたら、`.claude/skills/verify-board-save/check.sh` を流す
 
 ## 作業の進め方
 
@@ -111,6 +112,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 | 利用者向けの文書に書くモデルの大きさは `ml/model.json` と合わせる | `scripts/check-docs.mjs`（「ポーズのモデル」はポーズの観点、ほかは全体の大きさ） |
 | 整形をそろえる | lefthook（コミットするファイル）と CI の `prettier --check`、`cargo fmt --check`、ruff |
 | 画像を動かす途中で落ちても画像を失わない | 作り（`pending_ops` の3段階）、`fileops` のテスト、`verify-crash-safe-move` の TLA+ と `DRIFT` |
+| ボードの編集を失わず、未保存を「保存済み」と示さない | `saveQueue.test.ts`、`verify-board-save` の TLA+ と `DRIFT` |
 | 開発版が本物のライブラリのアプリのデータを使わない | 作り（開発版は `debug/` のアプリのデータ）。手で本物のライブラリを開いたときは、移行の前に `kura.db` の写しを残す |
 | 3a で計算した特徴量の値を変えない | `ml/tests` の値の比較（構図のエッジの合計は CPU の差を許す） |
 | 見た目を変えない変更で、画面が変わっていない | `npm run screenshots:compare`（手で流す） |

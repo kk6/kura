@@ -9,6 +9,8 @@ export function saveQueue<T>(send: (snapshot: T) => Promise<void>, onState: (sta
   let running: Promise<void> | null = null
   let error: unknown = null
 
+  // running は run() の中で、終わると決めたのと同じ塊で null に戻す。.finally() で戻すと、
+  // 終わってから戻すまでの間に来た push は running を見て送らず、保存済みのまま残るため
   async function run() {
     while (pending) {
       const { snapshot } = pending
@@ -20,16 +22,25 @@ export function saveQueue<T>(send: (snapshot: T) => Promise<void>, onState: (sta
         // 保存中に新しい変更が来ていれば、そちらを残す
         pending ??= { snapshot }
         error = e
+        running = null
         onState({ kind: 'failed', error: String(e) })
         return
       }
     }
     error = null
+    running = null
     onState({ kind: 'saved' })
   }
 
   function kick() {
-    running ??= run().finally(() => (running = null))
+    if (running) return running
+    // 送るものがなければ run() を始めない。始めると await の前に終わり、running を戻した後で代入してしまう
+    if (!pending) {
+      error = null
+      onState({ kind: 'saved' })
+      return Promise.resolve()
+    }
+    running = run()
     return running
   }
 
@@ -47,10 +58,12 @@ export function saveQueue<T>(send: (snapshot: T) => Promise<void>, onState: (sta
       if (!running) onState({ kind: 'saved' })
     },
     // 保存中なら終わるまで待つ。前に失敗して残った変更があれば送り直す。保存できなければ reject する
+    // 待つ間に来た変更も、送り終えるまで待つ
     async flush() {
-      if (running) await running
-      else if (pending) await kick()
-      if (pending) throw error
+      while (running || pending) {
+        await (running ?? kick())
+        if (pending && !running) throw error
+      }
     },
   }
 }
