@@ -1,0 +1,2 @@
+# file<TAB>fingerprint (check.sh rehash): sha256 of the file with all whitespace removed. Confirmed against the model at the sync commit in SKILL.md.
+src/board/saveQueue.ts	eb8699a8f33fb769
