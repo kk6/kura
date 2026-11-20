@@ -585,7 +585,11 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   // from のタグを画像と絞り込みの条件から外す。into があれば代わりに付ける
   function forgetTag(from: number, into: number | null) {
     lib.update((d) => dropTag(d, from, into))
-    setFilter((f) => ({ ...f, tags: swapTag(f.tags, from, into) }))
+    setFilter((f) => {
+      const tags = swapTag(f.tags, from, into)
+      // 統合先を選んでいれば、除くからは外す。選ぶと除くは重ならない
+      return { ...f, tags, excludeTags: swapTag(f.excludeTags, from, into).filter((t) => !tags.includes(t)) }
+    })
   }
   async function mergeTag(from: number, into: number) {
     await invoke('merge_tag', { from, into })

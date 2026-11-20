@@ -60,11 +60,11 @@ export function filterCandidates(
   const match = (label: string) => tagKey(label).includes(key)
   return [
     ...categoryOptions(categories)
-      .filter((c) => c.id !== filter.category && match(c.label))
+      .filter((c) => c.id !== filter.category && !filter.excludeCategories.includes(c.id) && match(c.label))
       .slice(0, limit)
       .map((c) => ({ kind: 'category' as const, ...c })),
     ...tags
-      .filter((t) => !filter.tags.includes(t.id) && match(t.name))
+      .filter((t) => !filter.tags.includes(t.id) && !filter.excludeTags.includes(t.id) && match(t.name))
       .slice(0, limit)
       .map((t) => ({ kind: 'tag' as const, id: t.id, label: t.name })),
   ]
