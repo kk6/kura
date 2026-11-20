@@ -340,7 +340,7 @@ test('右クリックとメニューから開くダイアログは最後のボ�
   expect(second.geometry.x).toBeGreaterThan(first.geometry.x + first.geometry.width * first.geometry.scale)
 })
 
-test('右クリックの「<ボード名>に追加」は最後に追加したボードへダイアログなしで足し、ボードを消すか OFF にすると出ない', async ({
+test('右クリックの「「<ボード名>」に追加」は最後に追加したボードへダイアログなしで足し、ボードを消すか OFF にすると出ない', async ({
   page,
 }) => {
   const opened = boardWindowRequests(page)
@@ -371,13 +371,13 @@ test('右クリックの「<ボード名>に追加」は最後に追加したボ
   await expect(dialog).toHaveCount(0)
   await thumbs.nth(3).click({ button: 'right' })
   await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([
-    '服のしわに追加',
+    '「服のしわ」に追加',
     'ボードに追加…',
     'Finderで表示',
     'ゴミ箱へ移す',
   ])
   await page.screenshot({ path: 'test-results/context-menu-last-board.png' })
-  await page.getByRole('menuitem', { name: '服のしわに追加' }).click()
+  await page.getByRole('menuitem', { name: '「服のしわ」に追加' }).click()
   await expect(page.getByRole('menu')).toHaveCount(0)
   await expect(dialog).toHaveCount(0)
   await expect.poll(async () => (await storedBoards(page)).boards.find((b) => b.id === 2)?.items?.length).toBe(2)

@@ -2,7 +2,7 @@
 export type BoardSummary = { id: number; name: string; placement_count: number; updated_at: number }
 
 // src-tauri/src/main.rs の Boards（list_boards の返り値）。session はボードの操作に添えるライブラリのトークン
-// last_added_board_id は最後に画像を追加したボード。右クリックの「<ボード名>に追加」の追加先（FR-712）
+// last_added_board_id は最後に画像を追加したボード。右クリックの「「<ボード名>」に追加」の追加先（FR-712）
 export type Boards = {
   session: number
   boards: BoardSummary[]

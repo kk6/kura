@@ -380,7 +380,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   )
 
   const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
-  // 最後に画像を追加したボード。右クリックの「<ボード名>に追加」の追加先（FR-712）
+  // 最後に画像を追加したボード。右クリックの「「<ボード名>」に追加」の追加先（FR-712）
   const [lastBoard, setLastBoard] = useState<{ session: number; id: number; name: string } | null>(null)
   // 一覧と拡大表示で同じメニューを出す（FR-515）。拡大表示でも WebKit の標準のメニューは出さない
   async function openContextMenu(id: number, e: React.MouseEvent) {
@@ -852,7 +852,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
                 }
                 onClick={() => runMenu(action)}
               >
-                {action === 'lastBoard' ? `${lastBoard?.name}に追加` : ACTION_LABELS[action]}
+                {action === 'lastBoard' ? `「${lastBoard?.name}」に追加` : ACTION_LABELS[action]}
               </button>
             ),
           )}
