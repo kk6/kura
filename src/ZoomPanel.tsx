@@ -13,14 +13,17 @@ type Props = {
   onPrev?: () => void
   onNext?: () => void
   onClose: () => void
+  // 右クリック。一覧と同じメニューを出す（FR-515）
+  onContextMenu: (e: React.MouseEvent) => void
 }
 
 // 拡大表示（FR-508）。一覧と同じ場所に重ねて出す
-export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onClose }: Props) {
+export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onClose, onContextMenu }: Props) {
   const { view, frame } = zoom
   return (
     <section
       {...zoom.section}
+      onContextMenu={onContextMenu}
       className={
         'gallery__zoom' +
         // 枠からはみ出していて動かせるときだけ、つかめる形のカーソルにする
