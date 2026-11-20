@@ -724,8 +724,34 @@ fn 追加の途中で書けなければ新しいボードも既存の配置も�
     assert_eq!(list(&lib, s).unwrap().boards.len(), 1);
     assert_eq!(load(&lib, s, created.board.id).unwrap(), created.board);
     assert_eq!(last(&lib, s).unwrap(), Some(created.board.clone()));
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, None);
     lib.conn.execute_batch("DROP TRIGGER fail_item").unwrap();
     assert!(add(&mut lib, s, &Target::New("半端".into()), &[image]).is_ok());
+}
+
+#[test]
+fn 最後に画像を追加したボードは追加でだけ変わり削除で空になる() {
+    let (_dir, mut lib) = setup();
+    let image = put(&lib, None, "画像.png", "画像");
+    let s = session(&lib);
+    let a = create(&mut lib, s, "A", &empty()).unwrap().board.id;
+    let draft = snapshot(&lib, image);
+    let b = create(&mut lib, s, "B", &draft).unwrap().board.id;
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, None);
+    add(&mut lib, s, &Target::Board(a), &[image]).unwrap();
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, Some(a));
+    // 開く・作るは最後に使ったボードを変えるが、最後に追加したボードは変えない
+    open(&mut lib, s, b).unwrap();
+    create(&mut lib, s, "D", &empty()).unwrap();
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, Some(a));
+    let c = add(&mut lib, s, &Target::New("C".into()), &[image])
+        .unwrap()
+        .board_id;
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, Some(c));
+    delete(&mut lib, s, b).unwrap();
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, Some(c));
+    delete(&mut lib, s, c).unwrap();
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, None);
 }
 
 #[test]

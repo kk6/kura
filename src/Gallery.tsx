@@ -5,7 +5,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { rememberTag } from './choices'
-import { useContextMenu } from './contextMenu'
+import ConfirmDialog from './ConfirmDialog'
+import { ACTION_LABELS, type ImageAction, imageMenu, useContextMenu } from './contextMenu'
 import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
 import GalleryHeader from './GalleryHeader'
@@ -23,6 +24,7 @@ import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResul
 import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
+import type { Boards } from './board/types'
 import type { Detail as DetailData, Done, Image, Restored, Settings } from './galleryTypes'
 import type {
   Backfill,
@@ -378,12 +380,35 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   )
 
   const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
-  function openContextMenu(id: number, e: React.MouseEvent) {
-    if (!(settings.board_enabled || settings.similarity_enabled) || aside) return
+  // 最後に画像を追加したボード。右クリックの「「<ボード名>」に追加」の追加先（FR-712）
+  const [lastBoard, setLastBoard] = useState<{ session: number; id: number; name: string } | null>(null)
+  // 一覧と拡大表示で同じメニューを出す（FR-515）。拡大表示でも WebKit の標準のメニューは出さない
+  async function openContextMenu(id: number, e: React.MouseEvent) {
     e.preventDefault()
     // 右クリックした画像を選んでいなければ、その画像だけを選ぶ（Finder と同じ）
     if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
-    setMenuAt({ x: e.clientX, y: e.clientY })
+    const at = { x: e.clientX, y: e.clientY }
+    // 開いた後に項目が増えて押す位置がずれないよう、ボードを読んでから開く。名前の変更や削除は開くたびに読み直す
+    let last = null
+    if (settings.board_enabled && !aside) {
+      try {
+        const list = await invoke<Boards>('list_boards')
+        const board = list.boards.find((b) => b.id === list.last_added_board_id)
+        if (board) last = { session: list.session, id: board.id, name: board.name }
+      } catch (err) {
+        console.error(err)
+      }
+    }
+    setLastBoard(last)
+    setMenuAt(at)
+  }
+  async function addToLastBoard() {
+    if (!lastBoard || !canAdd) return
+    try {
+      await invoke('add_to_board', { session: lastBoard.session, target: { board: lastBoard.id }, images: ids })
+    } catch (e) {
+      setResult({ kind: 'error', message: `ボードに追加できません（${e}）` })
+    }
   }
   // 「似た画像を探す」（FR-601）。結果の画像から押すと基準が入れ替わる。戻る履歴は作らない
   const canFindSimilar = settings.similarity_enabled && only !== null && !!shown?.detail?.similar
@@ -560,6 +585,26 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const reveal = (id?: number) =>
     invoke('show_in_finder', { id }).catch((e) => setResult({ kind: 'error', message: `Finder で開けません（${e}）` }))
 
+  // 確認ダイアログで答えを待っている、元に戻せない操作。パネルのボタンと右クリックのどちらからも出す
+  const [asking, setAsking] = useState<'purge' | 'empty' | 'forget' | null>(null)
+  const askedName = selected.length === 1 ? `「${selected[0].file_name}」` : `選んだ画像 ${ids.length}枚`
+  const menu = imageMenu(aside ?? 'gallery', {
+    count: ids.length,
+    board: settings.board_enabled,
+    lastBoard: !!lastBoard,
+    similarity: settings.similarity_enabled,
+  })
+  function runMenu(action: ImageAction) {
+    setMenuAt(null)
+    if (action === 'similar') findSimilar()
+    else if (action === 'board') addToBoard()
+    else if (action === 'lastBoard') addToLastBoard()
+    else if (action === 'reveal') reveal(ids[0])
+    else if (action === 'trash') trashImages(ids)
+    else if (action === 'restore') restoreImages()
+    else setAsking(action)
+  }
+
   const title = similar
     ? '似た画像'
     : inTrash
@@ -707,6 +752,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           onPrev={at > 0 ? () => step(-1) : undefined}
           onNext={at < order.length - 1 ? () => step(1) : undefined}
           onClose={() => setZoom(false)}
+          onContextMenu={(e) => openContextMenu(zoomed.id, e)}
         />
       )}
 
@@ -718,14 +764,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
             selected={ids.length}
             name={selected.length === 1 ? selected[0].file_name : undefined}
             onRestore={restoreImages}
-            onPurge={() => purge(ids)}
-            onEmpty={() => purge()}
+            onPurge={() => setAsking('purge')}
+            onEmpty={() => setAsking('empty')}
           />
         ) : inMissing ? (
           <MissingPanel
             selected={ids.length}
             name={selected.length === 1 ? selected[0].file_name : undefined}
-            onForget={forget}
+            onForget={() => setAsking('forget')}
           />
         ) : (
           <Detail
@@ -789,24 +835,51 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
 
       {menuAt && (
         <div ref={contextMenu} className="menu" role="menu" popover="manual" style={{ top: menuAt.y, left: menuAt.x }}>
-          {settings.similarity_enabled && (
-            <button
-              type="button"
-              role="menuitem"
-              className="menu__item"
-              disabled={!canFindSimilar}
-              title={ids.length === 1 && shown?.detail && !canFindSimilar ? NOT_COMPUTED : undefined}
-              onClick={findSimilar}
-            >
-              似た画像を探す
-            </button>
-          )}
-          {settings.board_enabled && (
-            <button type="button" role="menuitem" className="menu__item" onClick={addToBoard}>
-              ボードに追加…
-            </button>
+          {menu.map((action, i) =>
+            action === 'rule' ? (
+              <hr key={i} className="menu__rule" />
+            ) : (
+              <button
+                key={action}
+                type="button"
+                role="menuitem"
+                className="menu__item"
+                disabled={action === 'similar' && !canFindSimilar}
+                title={
+                  action === 'similar' && ids.length === 1 && shown?.detail && !canFindSimilar
+                    ? NOT_COMPUTED
+                    : undefined
+                }
+                onClick={() => runMenu(action)}
+              >
+                {action === 'lastBoard' ? `「${lastBoard?.name}」に追加` : ACTION_LABELS[action]}
+              </button>
+            ),
           )}
         </div>
+      )}
+      {asking && (
+        <ConfirmDialog
+          title={
+            asking === 'purge'
+              ? '選んだ画像を完全に削除する'
+              : asking === 'empty'
+                ? 'ゴミ箱を空にする'
+                : '選んだ画像を一覧から外す'
+          }
+          confirm={asking === 'purge' ? '削除する' : asking === 'empty' ? '空にする' : '外す'}
+          onConfirm={() => {
+            setAsking(null)
+            if (asking === 'purge') purge(ids)
+            else if (asking === 'empty') purge()
+            else forget()
+          }}
+          onClose={() => setAsking(null)}
+        >
+          {asking === 'forget'
+            ? `${askedName}のタグ、メモ、評価を削除します。元に戻せません。`
+            : `${asking === 'purge' ? askedName : `ゴミ箱の画像 ${trash.length}枚`}を完全に削除します。元に戻せません。`}
+        </ConfirmDialog>
       )}
       {adding && (
         <Suspense fallback={null}>

@@ -340,6 +340,71 @@ test('右クリックとメニューから開くダイアログは最後のボ�
   expect(second.geometry.x).toBeGreaterThan(first.geometry.x + first.geometry.width * first.geometry.scale)
 })
 
+test('右クリックの「「<ボード名>」に追加」は最後に追加したボードへダイアログなしで足し、ボードを消すか OFF にすると出ない', async ({
+  page,
+}) => {
+  const opened = boardWindowRequests(page)
+  await openGallery(page)
+  const thumbs = page.locator('.list__thumb')
+  const dialog = page.getByRole('dialog', { name: 'ボードに追加' })
+  await page.evaluate(() =>
+    sessionStorage.setItem(
+      'mock.boards',
+      JSON.stringify({
+        boards: [
+          { id: 1, name: '構図', placement_count: 0, updated_at: 2 },
+          { id: 2, name: '服のしわ', placement_count: 0, updated_at: 1 },
+        ],
+        // 開いただけのボードは、最後に追加したボードにならない
+        last: 1,
+        next: 3,
+      }),
+    ),
+  )
+  await thumbs.nth(0).click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: /に追加$/ })).toHaveCount(0)
+
+  // 一度ダイアログで追加すると、次からはメニューに出て、ダイアログなしで同じボードに足す
+  await page.getByRole('menuitem', { name: 'ボードに追加…' }).click()
+  await dialog.getByRole('combobox', { name: '追加先' }).selectOption({ label: '服のしわ（0枚）' })
+  await dialog.getByRole('button', { name: '追加' }).click()
+  await expect(dialog).toHaveCount(0)
+  await thumbs.nth(3).click({ button: 'right' })
+  await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([
+    '「服のしわ」に追加',
+    'ボードに追加…',
+    'Finderで表示',
+    'ゴミ箱へ移す',
+  ])
+  await page.screenshot({ path: 'test-results/context-menu-last-board.png' })
+  await page.getByRole('menuitem', { name: '「服のしわ」に追加' }).click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(async () => (await storedBoards(page)).boards.find((b) => b.id === 2)?.items?.length).toBe(2)
+  expect(opened).toHaveLength(2)
+
+  // ボードを消すと出ない
+  await page.evaluate(() =>
+    (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('delete_board', { session: 1, id: 2 }),
+  )
+  await thumbs.nth(0).click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'ボードに追加…' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /に追加$/ })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
+  // アイデアボードが OFF の間は出ない
+  await thumbs.nth(1).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'ボードに追加…' }).click()
+  await dialog.getByRole('button', { name: '追加' }).click()
+  await expect(dialog).toHaveCount(0)
+  await page.getByRole('button', { name: '設定' }).click()
+  await page.getByRole('checkbox', { name: 'アイデアボードを使う' }).uncheck()
+  await page.getByRole('dialog', { name: '設定' }).getByRole('button', { name: '閉じる' }).click()
+  await thumbs.nth(0).click({ button: 'right' })
+  await expect(page.getByRole('menuitem', { name: 'Finderで表示' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /追加/ })).toHaveCount(0)
+})
+
 test('選んでいない時、ゴミ箱、見つからない画像、OFF では追加できず、同じ名前のボードは入力欄の下にエラーを出す', async ({
   page,
 }) => {

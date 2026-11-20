@@ -2,7 +2,13 @@
 export type BoardSummary = { id: number; name: string; placement_count: number; updated_at: number }
 
 // src-tauri/src/main.rs の Boards（list_boards の返り値）。session はボードの操作に添えるライブラリのトークン
-export type Boards = { session: number; boards: BoardSummary[]; last_board_id: number | null }
+// last_added_board_id は最後に画像を追加したボード。右クリックの「「<ボード名>」に追加」の追加先（FR-712）
+export type Boards = {
+  session: number
+  boards: BoardSummary[]
+  last_board_id: number | null
+  last_added_board_id: number | null
+}
 
 // src-tauri/src/board.rs の Viewport。x と y はキャンバスの中央に見えるボード上の点、scale は表示の倍率
 export type Viewport = { x: number; y: number; scale: number }
