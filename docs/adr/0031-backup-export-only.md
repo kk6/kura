@@ -2,7 +2,7 @@
 
 ## Status
 
-accepted
+superseded by [ADR-0032](0032-restore-backup-in-app.md)
 
 ## Date
 

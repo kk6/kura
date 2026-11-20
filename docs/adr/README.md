@@ -37,4 +37,5 @@ ADR は、後から知らないと危ない判断にだけ書く。データの�
 | [0027](0027-backup-before-migration.md) | DB を移行する前に、移行前の `kura.db` の写しを残す |
 | [0028](0028-two-settings-locations.md) | 設定を、アプリ全体の設定とライブラリの DB の2か所に分ける |
 | [0029](0029-auto-tagging-as-suggestions.md) | 自動のタグ付けは、推定したタグを候補として出し、承認したものだけを付ける |
-| [0031](0031-backup-export-only.md) | DB のバックアップは書き出しだけを作り、戻す操作は作らない |
+| [0031](0031-backup-export-only.md) | DB のバックアップは書き出しだけを作り、戻す操作は作らない（0032 で上書き） |
+| [0032](0032-restore-backup-in-app.md) | 書き出した管理情報を、アプリの中で戻せるようにする |
