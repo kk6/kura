@@ -64,6 +64,11 @@ button {
   transform: scale(var(--motion-press));
 }
 
+/* 押して開いている状態のボタン（設定のページを開いている間の歯車） */
+.button[aria-pressed='true'] {
+  background: var(--color-selected);
+}
+
 .button:disabled {
   border-color: var(--color-raise);
   color: var(--color-text-faint);

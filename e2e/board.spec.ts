@@ -60,7 +60,7 @@ test('設定でアイデアボードを OFF にするとボタンとメニュー
   await toggle.uncheck()
   await expect(button).toHaveCount(0)
   await page.screenshot({ path: 'test-results/settings-board-off.png' })
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await menuOpenBoard(page)
 
   // OFF は開き直しても残る
@@ -68,7 +68,7 @@ test('設定でアイデアボードを OFF にするとボタンとメニュー
   await expect(button).toHaveCount(0)
   await page.getByRole('button', { name: '設定' }).click()
   await toggle.check()
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await expect(button).toBeVisible()
   expect(opened).toEqual([])
 
@@ -76,7 +76,7 @@ test('設定でアイデアボードを OFF にするとボタンとメニュー
   await page.getByRole('button', { name: '設定' }).click()
   await toggle.click()
   await expect(toggle).toBeChecked()
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await expect(button).toBeVisible()
   await expect(page.getByRole('contentinfo')).toContainText('エラー：設定を保存できません')
 })
@@ -399,7 +399,7 @@ test('右クリックの「「<ボード名>」に追加」は最後に追加し
   await expect(dialog).toHaveCount(0)
   await page.getByRole('button', { name: '設定' }).click()
   await page.getByRole('switch', { name: 'アイデアボードを使う' }).uncheck()
-  await page.getByRole('region', { name: '設定' }).getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await thumbs.nth(0).click({ button: 'right' })
   await expect(page.getByRole('menuitem', { name: 'Finderで表示' })).toBeVisible()
   await expect(page.getByRole('menuitem', { name: /追加/ })).toHaveCount(0)
@@ -445,7 +445,7 @@ test('選んでいない時、ゴミ箱、見つからない画像、OFF では�
 
   await page.getByRole('button', { name: '設定' }).click()
   await page.getByRole('switch', { name: 'アイデアボードを使う' }).uncheck()
-  await page.getByRole('region', { name: '設定' }).getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await expect(add).toHaveCount(0)
   await menuAddToBoard(page)
   await page.locator('.list__thumb').first().click({ button: 'right' })

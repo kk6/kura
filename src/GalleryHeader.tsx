@@ -18,6 +18,8 @@ type Props = {
   onPick: (directory: boolean) => void
   // アイデアボードを開く。ボードを使わない設定では渡さず、ボタンを出さない
   onOpenBoard?: () => void
+  // 設定のページを開いているか。歯車を押した状態の見た目にし、もう一度押すと閉じる
+  settingsOpen: boolean
   onSettings: () => void
   // path のライブラリへ切り替える。path がなければライブラリ選択画面へ戻る
   onLeave: (path?: string) => void
@@ -88,6 +90,7 @@ export default function GalleryHeader(props: Props) {
         type="button"
         className="button button--icon"
         aria-label="設定"
+        aria-pressed={props.settingsOpen}
         title="設定（⌘,）"
         onClick={props.onSettings}
       >

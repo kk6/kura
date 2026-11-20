@@ -690,7 +690,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         busy={scanning ? 'scan' : progress ? 'import' : null}
         onPick={pick}
         onOpenBoard={settings.board_enabled ? openBoard : undefined}
-        onSettings={() => setSettingsOpen(true)}
+        settingsOpen={settingsOpen}
+        onSettings={() => setSettingsOpen((open) => !open)}
         onLeave={leave}
       />
 
@@ -954,7 +955,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           features={features}
           onFetchModels={fetchModels}
           onRestore={restoreLibrary}
-          onClose={() => setSettingsOpen(false)}
         />
       )}
       {managingTags && (

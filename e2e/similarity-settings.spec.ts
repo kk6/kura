@@ -159,7 +159,7 @@ async function openUpdated(page: Page, extra: Record<string, string> = {}) {
   await settings.getByRole('switch', { name: '類似画像検索を使う' }).click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
   await expect(settings.getByRole('switch', { name: '類似画像検索を使う' })).toBeChecked()
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await page.evaluate((extra) => {
     sessionStorage.setItem('mock.missingPose', '1')
     for (const [k, v] of Object.entries(extra)) sessionStorage.setItem(k, v)

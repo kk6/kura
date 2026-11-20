@@ -15,7 +15,7 @@ test('設定の「元URLを補完」で進み具合と、補完・記録なし�
   await expect(settings.getByRole('button', { name: '元URLを補完' })).toBeDisabled()
   await expect(settings.getByRole('status')).toContainText(/補完中 \d \/ 6枚/)
   // 補完の間も設定を閉じて一覧を使え、ステータスバーに進み具合が出る
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('contentinfo')).toContainText(/元URLを補完中 \d \/ 6枚/)
   await expect(page.getByRole('progressbar', { name: '元URLを補完する進み具合' })).toBeVisible()
 

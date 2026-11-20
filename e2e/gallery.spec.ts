@@ -16,7 +16,7 @@ test('設定ダイアログでカテゴリの移動の確認を戻し、管理�
   await page.getByRole('button', { name: '設定' }).click()
   await expect(confirm).toBeChecked()
   await confirm.uncheck()
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await expect(settings).toHaveCount(0)
 
   // 確認しない設定は開き直しても残り、確認せずに移す
@@ -31,7 +31,7 @@ test('設定ダイアログでカテゴリの移動の確認を戻し、管理�
   await settings.getByRole('button', { name: '管理情報をエクスポート…' }).click()
   await expect(settings).toContainText('完了：/Users/me/Documents/Kura ライブラリ-')
   await page.screenshot({ path: 'test-results/settings.png' })
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
 
   await item('振り返り').dragTo(heading)
   await expect(moveDialog).toBeVisible()
@@ -174,7 +174,7 @@ test('UIのリニューアルで足した、ライブラリのメニュー、一
   expect(errors).toEqual([])
 })
 
-test('設定は一覧の場所にページで出し、サイドバーは残す。ON/OFF はスイッチで、閉じると選択を保ったまま一覧に戻る', async ({
+test('設定は一覧の場所にページで出し、サイドバーは残す。ON/OFF はスイッチで、Escape・歯車・サイドバーで選択を保ったまま一覧に戻る', async ({
   page,
 }) => {
   await openGallery(page)
@@ -206,9 +206,13 @@ test('設定は一覧の場所にページで出し、サイドバーは残す�
   await expect(page.locator('.gallery__main')).not.toHaveAttribute('inert')
   await expect(status).toContainText('1枚を選択')
 
-  await page.getByRole('button', { name: '設定' }).click()
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  // 歯車は開いている間は押した状態で、もう一度押すと閉じる
+  const gear = page.getByRole('button', { name: '設定' })
+  await gear.click()
+  await expect(gear).toHaveAttribute('aria-pressed', 'true')
+  await gear.click()
   await expect(settings).toHaveCount(0)
+  await expect(gear).toHaveAttribute('aria-pressed', 'false')
 
   // サイドバーで絞り込むと、ページを閉じて結果を見せる
   await page.getByRole('button', { name: '設定' }).click()
