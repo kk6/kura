@@ -4,7 +4,7 @@ import type { Category, Image, Tag } from './galleryTypes'
 
 // 絞り込みの条件（FR-504）。並べ替えと同じく、DB に問い合わせ直さず画面側で絞る
 export type Filter = {
-  // all はすべての画像、uncategorized は未分類、数はそのカテゴリと子孫
+  // all はすべての画像、uncategorized は未分類、数はそのカテゴリ（子孫を含めるかは filterImages の children）
   category: 'all' | 'uncategorized' | number
   tags: number[]
   mode: 'and' | 'or'
@@ -17,9 +17,17 @@ export const NO_FILTER: Filter = { category: 'all', tags: [], mode: 'and', text:
 // 正規化（NFC）と大文字・小文字の違いを無視して比べる
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
 
-export function filterImages(images: readonly Image[], categories: Category[], tags: Tag[], filter: Filter): Image[] {
+// children：選んだカテゴリの子孫の画像も出す（FR-516）。アプリ全体の設定なので、保存しない Filter には入れない
+export function filterImages(
+  images: readonly Image[],
+  categories: Category[],
+  tags: Tag[],
+  filter: Filter,
+  children: boolean,
+): Image[] {
   const { category, mode } = filter
-  const inCategory = typeof category === 'number' ? subtree(categories, category) : null
+  const inCategory =
+    typeof category === 'number' ? (children ? subtree(categories, category) : new Set([category])) : null
   const words = fold(filter.text).split(/\s+/).filter(Boolean)
   const tagNames = new Map(tags.map((t) => [t.id, t.name]))
   const paths = new Map(categoryOptions(categories).map((c) => [c.id, c.label]))
@@ -36,13 +44,13 @@ export function filterImages(images: readonly Image[], categories: Category[], t
   })
 }
 
-// サイドバーの件数。カテゴリは子孫のカテゴリの画像を含める（FR-504）
-export function countImages(images: readonly Image[], categories: Category[]) {
+// サイドバーの件数。children なら、カテゴリは子孫のカテゴリの画像を含める（FR-504、FR-516）
+export function countImages(images: readonly Image[], categories: Category[], children: boolean) {
   const parent = new Map(categories.map((c) => [c.id, c.parent_id]))
   const out = { categories: new Map<number, number>(), tags: new Map<number, number>(), uncategorized: 0 }
   for (const i of images) {
     if (i.category_id === null) out.uncategorized++
-    for (let c: number | null = i.category_id; c !== null; c = parent.get(c) ?? null)
+    for (let c: number | null = i.category_id; c !== null; c = children ? (parent.get(c) ?? null) : null)
       out.categories.set(c, (out.categories.get(c) ?? 0) + 1)
     for (const t of i.tags) out.tags.set(t, (out.tags.get(t) ?? 0) + 1)
   }
