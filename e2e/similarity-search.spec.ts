@@ -286,3 +286,19 @@ test('結果をカテゴリ・タグ・検索バーで絞り込め、件数は�
   await toolbar(page).getByRole('button', { name: '閉じる', exact: true }).click()
   await expect(page.getByRole('contentinfo')).toContainText(`4 / ${COUNT}枚`)
 })
+
+test('結果でも ⌥ を押しながら押したタグを除ける（FR-517）', async ({ page }) => {
+  await open(page)
+  await pick(page, 1)
+  await findButton(page).click()
+  const tagged = (id: number) => id === 1 || (id >= 11 && id % 3 === 0)
+  await page
+    .getByRole('navigation', { name: 'サイドバー' })
+    .getByRole('button', { name: /^あおり/ })
+    .click({ modifiers: ['Alt'] })
+  await expectResults(
+    page,
+    expected(1, { content: 50, composition: 50 }, (id) => !tagged(id)),
+  )
+  await expect(page.getByRole('contentinfo')).toContainText('14 / 17枚')
+})

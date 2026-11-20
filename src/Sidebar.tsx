@@ -10,7 +10,7 @@ import { subtree } from './categoryTree'
 import ConfirmDialog from './ConfirmDialog'
 import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
-import type { countImages, Filter } from './filter'
+import { type countImages, type Filter, selectCategory, selectTags, toggleExclude } from './filter'
 import type { Category, Gallery } from './galleryTypes'
 import { Icon, ICONS } from './icons'
 import { select } from './selection'
@@ -72,7 +72,11 @@ export default function Sidebar(props: Props) {
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
-  const scope = (category: Filter['category']) => onFilter({ ...filter, category })
+  const scope = (category: Filter['category']) => onFilter(selectCategory(filter, category))
+  // ⌥ を押しながら押すと除く・戻す（FR-517）
+  const exclude = (kind: 'tag' | 'category', id: number) => onFilter(toggleExclude(filter, kind, id))
+  const excludedTags = new Set(filter.excludeTags)
+  const excludedCategories = new Set(filter.excludeCategories)
 
   // タグは押すたびに選ぶ・外すが切り替わる（FR-504、pickTag）。Shift の範囲は一覧の画像と同じで、選んだタグを先頭へ寄せる前の並び順で決める。
   // 寄せた後の並びで決めると、押すたびに並びが変わり、範囲が予想できなくなるため
@@ -80,11 +84,17 @@ export default function Sidebar(props: Props) {
   const [tagAnchor, setTagAnchor] = useState<number | null>(null)
   const setTags = (tags: number[], anchor: number | null) => {
     setTagAnchor(anchor)
-    onFilter({ ...filter, tags })
+    onFilter(selectTags(filter, tags))
+  }
+  // タグの選択を外す。除くタグも外す。どちらもタグの条件なので、まとめて元に戻せるようにする
+  const clearTags = () => {
+    setTagAnchor(null)
+    onFilter({ ...filter, tags: [], excludeTags: [] })
   }
   const pickTag = (e: MouseEvent<HTMLButtonElement>, id: number) => {
     // macOS の WebKit はクリックでボタンにフォーカスを移さない。続く Escape と ⌘A をタグに効かせるため移す
     e.currentTarget.focus()
+    if (e.altKey) return exclude('tag', id)
     // 修飾キーなしでも ⌘ と同じく、押したタグだけを選ぶ・外す。一覧の画像と違い、タグは押して入れたり切ったりする
     // 部品に見え、マウスだけで複数を選べるようにするため。別のタグ1つへ移るときは Escape か余白で外してから押す
     const s = select({ ids: new Set(filter.tags), anchor: tagAnchor }, tagOrder, id, {
@@ -94,7 +104,7 @@ export default function Sidebar(props: Props) {
     setTags([...s.ids], s.anchor)
   }
   const onTagKey = (e: ReactKeyboardEvent) => {
-    if (e.key === 'Escape') setTags([], null)
+    if (e.key === 'Escape') clearTags()
     else if (e.metaKey && e.key.toLowerCase() === 'a') setTags(tagOrder, tagOrder[0] ?? null)
     else return
     // 一覧の画像の Escape と ⌘A（Gallery が window で受ける）に渡さない
@@ -264,9 +274,10 @@ export default function Sidebar(props: Props) {
               </span>
               <button
                 type="button"
-                className="sidebar__name"
+                className={`sidebar__name${excludedCategories.has(c.id) ? ' sidebar__name--excluded' : ''}`}
                 aria-current={current === c.id}
-                onClick={() => scope(c.id)}
+                aria-label={excludedCategories.has(c.id) ? `${c.name}（除く）` : undefined}
+                onClick={(e) => (e.altKey ? exclude('category', c.id) : scope(c.id))}
               >
                 {c.name}
               </button>
@@ -317,7 +328,8 @@ export default function Sidebar(props: Props) {
       aria-label="サイドバー"
       // 余白（項目のない所）を押すとタグの選択を外す。click だと、カテゴリのドラッグを余白で離したときにも届くので押した時点で見る
       onPointerDown={(e) => {
-        if (e.target === e.currentTarget && e.button === 0 && filter.tags.length) setTags([], null)
+        if (e.target === e.currentTarget && e.button === 0 && (filter.tags.length || filter.excludeTags.length))
+          clearTags()
       }}
     >
       <h2 className="sidebar__heading" id="sidebar-library">
@@ -472,14 +484,21 @@ export default function Sidebar(props: Props) {
         {/* 閉じていても選んでいるタグは出す。何で絞り込んでいるかが見えなくならないように */}
         {/* 選んでいるタグは先頭へ寄せる。スクロールの外で選ばれたままのタグに気づかず、絞り込みを誤解しないように */}
         {gallery.tags
-          .filter((t) => !props.tagsCollapsed || filter.tags.includes(t.id))
-          .sort((a, b) => Number(filter.tags.includes(b.id)) - Number(filter.tags.includes(a.id)))
+          .filter((t) => !props.tagsCollapsed || filter.tags.includes(t.id) || excludedTags.has(t.id))
+          // 除いているタグも、選んでいるタグと同じく先頭へ寄せる
+          .sort(
+            (a, b) =>
+              Number(filter.tags.includes(b.id) || excludedTags.has(b.id)) -
+              Number(filter.tags.includes(a.id) || excludedTags.has(a.id)),
+          )
           .map((t) => (
             <li key={t.id}>
               <button
                 type="button"
-                className={`sidebar__tag${filter.tags.includes(t.id) ? ' sidebar__tag--selected' : ''}`}
+                className={`sidebar__tag${filter.tags.includes(t.id) ? ' sidebar__tag--selected' : ''}${excludedTags.has(t.id) ? ' sidebar__tag--excluded' : ''}`}
                 aria-pressed={filter.tags.includes(t.id)}
+                aria-label={excludedTags.has(t.id) ? `${t.name} ${counts.tags.get(t.id) ?? 0}（除く）` : undefined}
+                title={excludedTags.has(t.id) ? '除いています。⌥ を押しながら押すと戻します' : undefined}
                 onClick={(e) => pickTag(e, t.id)}
               >
                 <span className="sidebar__name">{t.name}</span>

@@ -362,6 +362,12 @@ body.is-dragging * {
   cursor: pointer;
 }
 
+.sidebar__tag--excluded .sidebar__name,
+.sidebar__name--excluded {
+  /* 除いているタグとカテゴリ（FR-517）。色は変えず、取り消し線で示す */
+  text-decoration: line-through;
+}
+
 .sidebar__tag--selected {
   border-color: var(--color-text);
   background: var(--color-text);

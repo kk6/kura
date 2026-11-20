@@ -363,3 +363,79 @@ test('「カテゴリ」の見出しのスイッチで子カテゴリを含め�
   await expect(status).toContainText('900 / 2000枚')
   await expect(row('ポーズ').locator('.sidebar__count')).toHaveText('900')
 })
+
+test('⌥ を押しながら押したタグとカテゴリを除き、取り消し線で示し、選んだ条件と組み合わせ、除いた結果にまとめてタグを付けられる', async ({
+  page,
+}) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const status = page.getByRole('contentinfo')
+  const tags = sidebar.getByRole('list', { name: 'タグ' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const aori = tags.getByRole('button', { name: /^あおり/ })
+  const count = async (tag: string) =>
+    Number(
+      await tags
+        .getByRole('button', { name: new RegExp(`^${tag}`) })
+        .locator('.sidebar__count')
+        .textContent(),
+    )
+  const aoriCount = await count('あおり')
+
+  await aori.click({ modifiers: ['Alt'] })
+  await expect(aori).toHaveAccessibleName(/（除く）$/)
+  await expect(aori).toHaveAttribute('aria-pressed', 'false')
+  await expect(aori.locator('.sidebar__name')).toHaveCSS('text-decoration-line', 'line-through')
+  await expect(status).toContainText(`${2000 - aoriCount} / 2000枚`)
+
+  // ⌥ でもう一度押すと戻る
+  await aori.click({ modifiers: ['Alt'] })
+  await expect(aori).not.toHaveAccessibleName(/（除く）/)
+  await expect(status).not.toContainText('/ 2000枚')
+
+  // 選んだタグと組み合わせる。「座り」から「あおり」も付いた画像を引いた枚数になる
+  const shown = async () => Number((await status.textContent())!.match(/(\d+) \/ 2000枚/)![1])
+  await tags.getByRole('button', { name: /^座り/ }).click()
+  await expect(status).toContainText('/ 2000枚')
+  const sitting = await shown()
+  await aori.click()
+  await expect(status).not.toContainText(`${sitting} / 2000枚`)
+  const both = await shown()
+  // 選んでいたタグを ⌥ で押すと、選択から外して除く
+  await aori.click({ modifiers: ['Alt'] })
+  await expect(aori).toHaveAttribute('aria-pressed', 'false')
+  await expect(status).toContainText(`${sitting - both} / 2000枚`)
+  // 普通に押すと、除くから外して選ぶ
+  await aori.click()
+  await expect(aori).toHaveAttribute('aria-pressed', 'true')
+  await expect(aori).not.toHaveAccessibleName(/（除く）/)
+
+  // Escape でタグの選択と一緒に外す
+  await aori.click({ modifiers: ['Alt'] })
+  await page.keyboard.press('Escape')
+  await expect(aori).not.toHaveAccessibleName(/（除く）/)
+  await expect(status).not.toContainText('/ 2000枚')
+
+  // カテゴリも除ける。ポーズは子を含めて 900枚
+  const pose = categories.getByRole('button', { name: 'ポーズ', exact: true })
+  await pose.click({ modifiers: ['Alt'] })
+  await expect(categories.getByRole('button', { name: 'ポーズ（除く）' })).toHaveCSS(
+    'text-decoration-line',
+    'line-through',
+  )
+  await expect(status).toContainText('1100 / 2000枚')
+  await page.screenshot({ path: 'test-results/filter-exclude.png' })
+
+  // 除いた結果からまとめてタグを付ける（FR-407）
+  await aori.click({ modifiers: ['Alt'] })
+  await expect(status).not.toContainText('1100 / 2000枚')
+  const visible = await shown()
+  await page.locator('.list__thumb').first().click()
+  await page.keyboard.press('Meta+a')
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  await expect(detail.getByRole('heading')).toHaveText(`${visible}枚を選んでいます`)
+  const tagInput = detail.getByRole('combobox', { name: 'タグ' })
+  await tagInput.fill('除いた残り')
+  await tagInput.press('Enter')
+  await expect(tags.getByRole('button', { name: /^除いた残り/ }).locator('.sidebar__count')).toHaveText(String(visible))
+})

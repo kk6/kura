@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { countImages, filterImages, NO_FILTER, type Filter } from './filter'
+import { countImages, filterImages, NO_FILTER, selectCategory, selectTags, toggleExclude, type Filter } from './filter'
 import type { Image } from './galleryTypes'
 
 const image = (id: number, fields: Partial<Image> = {}): Image => ({
@@ -90,6 +90,45 @@ describe('filterImages', () => {
   test('濁点を分けて書いた文字でも合わせた文字と同じに探す', () => {
     const named = [image(1, { file_name: 'ポーズ.jpg' })]
     expect(ids(named, { text: 'ポーズ' })).toEqual([1])
+  })
+})
+
+describe('除く（FR-517）', () => {
+  const images = [
+    image(1, { category_id: 1, tags: [10, 20] }),
+    image(2, { category_id: 2, tags: [10] }),
+    image(3, { category_id: 3, tags: [20] }),
+    image(4, { category_id: 4, tags: [30] }),
+    image(5),
+  ]
+
+  test('除くタグが1つでも付いた画像を外し、選んだ条件と組み合わせる', () => {
+    expect(ids(images, { excludeTags: [20] })).toEqual([2, 4, 5])
+    expect(ids(images, { excludeTags: [20, 30] })).toEqual([2, 5])
+    expect(ids(images, { tags: [10], excludeTags: [20] })).toEqual([2])
+    expect(ids(images, { category: 1, excludeTags: [10] })).toEqual([3])
+  })
+
+  test('除くカテゴリは、子カテゴリを含めるかの切り替えに従って子孫の画像も外す', () => {
+    expect(ids(images, { excludeCategories: [2] })).toEqual([1, 4, 5])
+    expect(ids(images, { excludeCategories: [2] }, false)).toEqual([1, 3, 4, 5])
+    expect(ids(images, { category: 1, excludeCategories: [2] })).toEqual([1])
+    expect(ids(images, { tags: [20], mode: 'or', excludeCategories: [1] })).toEqual([])
+  })
+
+  test('⌥ で押すたびに除く・戻すが切り替わり、選んでいたタグやカテゴリは選択から外す', () => {
+    const picked: Filter = { ...NO_FILTER, category: 2, tags: [10, 20] }
+    expect(toggleExclude(picked, 'tag', 20)).toEqual({ ...picked, tags: [10], excludeTags: [20] })
+    expect(toggleExclude(toggleExclude(picked, 'tag', 20), 'tag', 20)).toEqual({ ...picked, tags: [10] })
+    expect(toggleExclude(picked, 'category', 2)).toEqual({ ...picked, category: 'all', excludeCategories: [2] })
+    expect(toggleExclude(picked, 'category', 4)).toEqual({ ...picked, excludeCategories: [4] })
+  })
+
+  test('除いているタグやカテゴリを普通に選ぶと、除くから外す', () => {
+    const excluded: Filter = { ...NO_FILTER, excludeTags: [10, 20], excludeCategories: [2, 4] }
+    expect(selectTags(excluded, [20])).toEqual({ ...excluded, tags: [20], excludeTags: [10] })
+    expect(selectCategory(excluded, 4)).toEqual({ ...excluded, category: 4, excludeCategories: [2] })
+    expect(selectCategory(excluded, 'all')).toEqual({ ...excluded, category: 'all' })
   })
 })
 
