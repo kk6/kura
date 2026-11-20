@@ -4,7 +4,9 @@ import Gallery from './Gallery'
 import type { Settings } from './galleryTypes'
 import LibrarySelect, { type OpenCommand } from './LibrarySelect'
 
-type Screen = { kind: 'loading' } | { kind: 'select'; error?: string } | { kind: 'gallery'; path: string }
+// opened：開いた時刻。同じライブラリを開き直したときも、画面を作り直すために変える
+type Screen =
+  { kind: 'loading' } | { kind: 'select'; error?: string } | { kind: 'gallery'; path: string; opened: number }
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ kind: 'loading' })
@@ -26,7 +28,7 @@ export default function App() {
 
   async function openLibrary(command: OpenCommand, path: string) {
     try {
-      setScreen({ kind: 'gallery', path: await invoke<string>(command, { path }) })
+      setScreen({ kind: 'gallery', path: await invoke<string>(command, { path }), opened: Date.now() })
     } catch (e) {
       setScreen({ kind: 'select', error: String(e) })
     }
@@ -55,14 +57,15 @@ export default function App() {
   if (screen.kind === 'loading' || !settings) return null
   if (screen.kind === 'gallery')
     return (
-      // key：別のライブラリへ切り替えたら、一覧と選択を作り直す
+      // key：別のライブラリへ切り替えたか、管理情報を戻して開き直したら、一覧と選択を作り直す
       <Gallery
-        key={screen.path}
+        key={`${screen.path}#${screen.opened}`}
         root={screen.path}
         recent={recent}
         settings={settings}
         onSettings={saveSettings}
         onSwitch={(path) => (path ? openLibrary('open_library', path) : setScreen({ kind: 'select' }))}
+        onReopen={() => setScreen({ ...screen, opened: Date.now() })}
       />
     )
   return <LibrarySelect recent={recent} error={screen.error} onOpen={openLibrary} onForget={forgetLibrary} />

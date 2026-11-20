@@ -119,7 +119,8 @@ const importPaths: Handler = async () => {
   const total = REPORT.added + REPORT.skipped.length
   await emit('import-progress', { done: 0, total })
   await emit('import-progress', { done: 240, total })
-  await new Promise((r) => setTimeout(r, 800))
+  // e2e が取り込みの途中の操作を確かめられるように、mock.importDelay で長くできる
+  await new Promise((r) => setTimeout(r, Number(sessionStorage.getItem('mock.importDelay') ?? 800)))
   await emit('import-progress', { done: total, total })
   return REPORT
 }
@@ -845,6 +846,28 @@ const handlers: Record<string, Handler> = {
   scan_library: scanLibrary,
   forget_images: forgetImages,
   backup_library: () => null,
+  // 管理情報を戻す（FR-107）。e2e で失敗と警告を確かめるため、パスの名前で結果を変える
+  inspect_backup: (args) => {
+    const path = String(args?.path)
+    if (path.includes('画像'))
+      throw '管理情報のファイルではありません。「管理情報を書き出す…」で書き出したファイルを選んでください'
+    if (path.includes('新しい版'))
+      throw 'アプリより新しい版で書き出した管理情報です。アプリを更新してから戻してください'
+    const other = path.includes('別のライブラリ')
+    return {
+      exported_at: 1795100000000,
+      images: 1990,
+      current: IMAGES.length,
+      found: other ? 12 : 1985,
+      other_library: other,
+    }
+  },
+  restore_library: (args) => {
+    const path = String(args?.path)
+    if (path.includes('開けない'))
+      throw '戻した管理情報を開けないので、戻す前の管理情報に戻しました（no such table: board_state）'
+    console.info(`restore: ${path}`)
+  },
   backfill_sources: backfillSources,
   cancel_backfill: () => {
     backfillCancelled = true
@@ -875,10 +898,12 @@ const handlers: Record<string, Handler> = {
   'plugin:dialog|save': (args) => `/Users/me/Documents/${(args?.options as { defaultPath?: string })?.defaultPath}`,
   // e2e が中身を確かめられるように、出したダイアログの文をコンソールに出す
   'plugin:dialog|message': (args) => console.info(`dialog: ${args?.message}`),
+  // e2e が選ぶファイルを変えられるように、mock.openPath があればそれを返す
   'plugin:dialog|open': (args) =>
-    (args?.options as { multiple?: boolean })?.multiple
+    sessionStorage.getItem('mock.openPath') ??
+    ((args?.options as { multiple?: boolean })?.multiple
       ? ['/Users/me/Downloads/資料']
-      : '/Users/me/Pictures/新しいライブラリ',
+      : '/Users/me/Pictures/新しいライブラリ'),
 }
 
 export function installMockIPC() {

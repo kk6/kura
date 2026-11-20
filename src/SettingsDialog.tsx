@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
-import { save } from '@tauri-apps/plugin-dialog'
+import { open, save } from '@tauri-apps/plugin-dialog'
 import { useEffect, useRef, useState } from 'react'
-import type { Settings } from './galleryTypes'
+import { dateTime } from './Detail'
+import type { Inspected, Settings } from './galleryTypes'
 import ConfirmDialog from './ConfirmDialog'
 import type { Backfill, BackfillCounts, FeaturesStatus, MissingModels, ModelFetch } from './importTypes'
 import Status from './Status'
@@ -26,6 +27,7 @@ export default function SettingsDialog({
   modelFetch,
   onFetchModels,
   features,
+  onRestore,
   onClose,
 }: {
   root: string
@@ -42,10 +44,14 @@ export default function SettingsDialog({
   onFetchModels: () => void
   // 特徴量の計算の状況（FR-604）
   features: FeaturesStatus
+  // 管理情報を戻す（FR-107）。失敗したら理由の文字列で reject する。成功するとギャラリーごと作り直す
+  onRestore: (path: string) => Promise<void>
   onClose: () => void
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [backup, setBackup] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
+  // 戻す前の確認で答えを待っている管理情報
+  const [restoring, setRestoring] = useState<{ path: string; info: Inspected } | null>(null)
   // ON にする前の確認に出すモデルの大きさ。null は確認を出していない
   const [modelSize, setModelSize] = useState<number | null>(null)
   const [sizeError, setSizeError] = useState<string | null>(null)
@@ -79,6 +85,26 @@ export default function SettingsDialog({
     try {
       await invoke('backup_library', { path })
       setBackup({ kind: 'success', message: `${path} に書き出しました` })
+    } catch (e) {
+      setBackup({ kind: 'error', message: String(e) })
+    }
+  }
+
+  async function pickRestore() {
+    const path = await open({ title: '戻す管理情報を選ぶ', filters: [{ name: 'SQLite', extensions: ['db'] }] })
+    if (!path) return
+    setBackup(null)
+    try {
+      setRestoring({ path, info: await invoke<Inspected>('inspect_backup', { path }) })
+    } catch (e) {
+      setBackup({ kind: 'error', message: String(e) })
+    }
+  }
+
+  async function restore(path: string) {
+    setRestoring(null)
+    try {
+      await onRestore(path)
     } catch (e) {
       setBackup({ kind: 'error', message: String(e) })
     }
@@ -207,10 +233,15 @@ export default function SettingsDialog({
         )}
         {backfill?.error && <Status kind="error">{backfill.error}</Status>}
         <h3 className="dialog__section">バックアップ</h3>
-        <p>ライブラリの管理情報（カテゴリ、タグ、メモなど）を1つのファイルに書き出します。画像ファイルは含みません。</p>
-        <div>
+        <p>
+          ライブラリの管理情報（カテゴリ、タグ、メモなど）を1つのファイルに書き出します。画像ファイルは含みません。書き出したファイルから、管理情報を戻せます。
+        </p>
+        <div className="dialog__row">
           <button type="button" className="button" onClick={exportDb}>
             管理情報を書き出す…
+          </button>
+          <button type="button" className="button" onClick={pickRestore}>
+            管理情報を戻す…
           </button>
         </div>
         {backup && <Status kind={backup.kind}>{backup.message}</Status>}
@@ -219,6 +250,23 @@ export default function SettingsDialog({
         </form>
       </dialog>
       {/* ダイアログの中に置くと、React が close をこのダイアログの onClose にも伝え、設定まで閉じる */}
+      {restoring && (
+        <ConfirmDialog
+          title="管理情報を戻す"
+          confirm="戻す"
+          onConfirm={() => restore(restoring.path)}
+          onClose={() => setRestoring(null)}
+        >
+          {restoring.info.other_library && (
+            <Status kind="warning">
+              {`別のライブラリの管理情報かもしれません。選んだ管理情報の画像のうち、このライブラリに見つかるのは${restoring.info.found}枚だけです`}
+            </Status>
+          )}
+          {dateTime(restoring.info.exported_at)} に書き出した管理情報（{restoring.info.images}
+          枚）で、今の管理情報（{restoring.info.current}
+          枚）を置き換えます。今の管理情報の写しを、ライブラリの .kura/backups に残します。画像ファイルは変えません。
+        </ConfirmDialog>
+      )}
       {modelSize !== null && (
         <ConfirmDialog
           title="類似画像検索を使う"

@@ -57,11 +57,13 @@ type Props = {
   onSettings: (settings: Settings) => Promise<void>
   // path のライブラリへ切り替える。path がなければライブラリ選択画面へ戻る（FR-105）
   onSwitch: (path?: string) => void
+  // Rust が開き直した同じライブラリで、画面を作り直す（FR-107）
+  onReopen: () => void
 }
 
 const FEATURES_IDLE: FeaturesStatus = { running: false, done: 0, total: 0, failed: 0, error: null }
 
-export default function Gallery({ root, recent, settings, onSettings, onSwitch }: Props) {
+export default function Gallery({ root, recent, settings, onSettings, onSwitch, onReopen }: Props) {
   const [sort, setSort] = useState<SortKey>('imported')
   // 詳細パネルの最近使ったタグ。起動の間だけ覚える（ライブラリを開き直すと Gallery ごと作り直すので空に戻る）
   const [recentTags, setRecentTags] = useState<number[]>([])
@@ -326,6 +328,25 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   }
 
   // 取り込みと差分検出の途中では戻らない。どちらも開いているライブラリを1枚ずつ読み書きするため
+  // 管理情報を戻す（FR-107）。ライブラリの切り替えと同じく、取り込みと差分検出の間は断り、メモとボードを
+  // 保存してボードを閉じてから戻す。失敗は理由の文字列で reject し、設定のダイアログに出す
+  async function restoreLibrary(path: string) {
+    if (busy.current) throw '取り込みか Finder での変更の反映が終わってから、もう一度選んでください'
+    try {
+      await flushAll()
+    } catch {
+      throw 'メモを保存できないため、管理情報を戻せません'
+    }
+    try {
+      await invoke('close_board_window')
+    } catch (e) {
+      throw `ボードを保存できないため、管理情報を戻せません（${e}）`
+    }
+    await invoke('restore_library', { path })
+    // 開き直した画面が一覧を読み、差分検出で書き出した後のファイルの変化を反映する
+    onReopen()
+  }
+
   function leave(path?: string) {
     // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
     if (document.querySelector('dialog[open]')) return
@@ -920,6 +941,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
           modelFetch={modelFetch}
           features={features}
           onFetchModels={fetchModels}
+          onRestore={restoreLibrary}
           onClose={() => setSettingsOpen(false)}
         />
       )}
