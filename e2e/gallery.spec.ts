@@ -10,8 +10,8 @@ test('設定ダイアログでカテゴリの移動の確認を戻し、管理�
     sidebar.getByRole('list', { name: 'カテゴリ' }).locator('.sidebar__item--category').getByText(name, { exact: true })
   const heading = sidebar.getByRole('heading', { name: 'カテゴリ' })
   const moveDialog = page.getByRole('dialog', { name: 'カテゴリを移す' })
-  const settings = page.getByRole('dialog', { name: '設定' })
-  const confirm = settings.getByRole('checkbox', { name: 'サイドバーでカテゴリを移すときに確認する' })
+  const settings = page.getByRole('region', { name: '設定' })
+  const confirm = settings.getByRole('switch', { name: 'サイドバーでカテゴリを移すときに確認する' })
 
   await page.getByRole('button', { name: '設定' }).click()
   await expect(confirm).toBeChecked()
@@ -103,7 +103,7 @@ test('検索・選択・拡大表示・タグ付け・ゴミ箱・設定をキ�
 
   // ⌘, で設定を開く
   await page.keyboard.press('Meta+,')
-  await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '設定' })).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -172,4 +172,47 @@ test('UIのリニューアルで足した、ライブラリのメニュー、一
   await library.selectOption({ label: 'ほかのライブラリを開く…' })
   await expect(screen.getByRole('alert')).toHaveCount(0)
   expect(errors).toEqual([])
+})
+
+test('設定は一覧の場所にページで出し、サイドバーは残す。ON/OFF はスイッチで、閉じると選択を保ったまま一覧に戻る', async ({
+  page,
+}) => {
+  await openGallery(page)
+  await page.locator('.list__thumb').nth(2).click()
+  const status = page.getByRole('contentinfo')
+  await expect(status).toContainText('1枚を選択')
+  const settings = page.getByRole('region', { name: '設定' })
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+
+  await page.keyboard.press('Meta+,')
+  await expect(settings).toBeVisible()
+  await expect(sidebar).toBeVisible()
+  await expect(page.locator('.gallery__main')).toHaveAttribute('inert', '')
+  // ページの間は、下の一覧に効くキーを受けない
+  await page.keyboard.press('Meta+a')
+  await expect(status).toContainText('1枚を選択')
+
+  const board = settings.getByRole('switch', { name: 'アイデアボードを使う' })
+  await expect(board).toBeChecked()
+  await page.screenshot({ path: 'test-results/settings-page.png' })
+  await board.click()
+  await expect(board).not.toBeChecked()
+  await expect(page.getByRole('banner').getByRole('button', { name: 'アイデアボード' })).toHaveCount(0)
+  await board.click()
+  await expect(board).toBeChecked()
+
+  await page.keyboard.press('Escape')
+  await expect(settings).toHaveCount(0)
+  await expect(page.locator('.gallery__main')).not.toHaveAttribute('inert')
+  await expect(status).toContainText('1枚を選択')
+
+  await page.getByRole('button', { name: '設定' }).click()
+  await settings.getByRole('button', { name: '閉じる' }).click()
+  await expect(settings).toHaveCount(0)
+
+  // サイドバーで絞り込むと、ページを閉じて結果を見せる
+  await page.getByRole('button', { name: '設定' }).click()
+  await sidebar.getByRole('button', { name: /^未分類/ }).click()
+  await expect(settings).toHaveCount(0)
+  await expect(status).toContainText('500 / 2000枚')
 })

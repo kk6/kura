@@ -5,7 +5,7 @@ async function openSettings(page: Page) {
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
   await page.getByRole('button', { name: '設定' }).click()
-  return page.getByRole('dialog', { name: '設定' })
+  return page.getByRole('region', { name: '設定' })
 }
 
 test('設定の「元URLを補完」で進み具合と、補完・記録なし・読み取り失敗・対象外の件数を出す', async ({ page }) => {

@@ -1,0 +1,45 @@
+/* 設定のページ（docs/design.md「画面の配置」）。帯・一覧・詳細パネルの場所に重ねる。
+   類似画像検索の結果のモードは行が1段多いので、行と列は両端から数える */
+.gallery__settings {
+  grid-row: 2 / -2;
+  grid-column: 2 / -1;
+  z-index: 1;
+  overflow-y: auto;
+  padding: var(--space-5);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.settings__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: var(--size-dialog);
+  margin-bottom: var(--space-3);
+}
+
+.settings__title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  /* 開いたときにフォーカスを移すだけで、枠は出さない */
+  outline: none;
+}
+
+.settings__body {
+  max-width: var(--size-dialog);
+}
+
+.settings__body > p {
+  margin: 0 0 var(--space-3);
+}
+
+/* ON/OFF の項目。名前を左に、スイッチを右に置く */
+.settings__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-sub);
+}

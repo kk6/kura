@@ -458,7 +458,7 @@ export default function Sidebar(props: Props) {
         <span className="sidebar__actions">
           {/* 選んだタグをすべて含む（AND）か、どれかを含む（OR）か。つまみ（::before）が選んだ側へ滑る */}
           <span
-            className={`sidebar__switch sidebar__switch--${filter.mode}`}
+            className={`switch${filter.mode === 'or' ? ' switch--right' : ''}`}
             role="group"
             aria-label="タグの組み合わせ"
           >
@@ -466,7 +466,7 @@ export default function Sidebar(props: Props) {
               <button
                 key={mode}
                 type="button"
-                className={`sidebar__mode${filter.mode === mode ? ' sidebar__mode--on' : ''}`}
+                className={`switch__option${filter.mode === mode ? ' switch__option--on' : ''}`}
                 aria-pressed={filter.mode === mode}
                 title={mode === 'and' ? '選んだタグをすべて含む画像' : '選んだタグのどれかを含む画像'}
                 onClick={() => onFilter({ ...filter, mode })}
