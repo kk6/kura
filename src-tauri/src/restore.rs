@@ -25,7 +25,7 @@ pub struct Inspected {
 }
 
 const NOT_BACKUP: &str =
-    "管理情報のファイルではありません。「管理情報を書き出す…」で書き出したファイルを選んでください";
+    "管理情報のファイルではありません。「管理情報をエクスポート…」でエクスポートしたファイルを選んでください";
 
 /// 選んだファイルを読み取り専用で開き、戻せる管理情報かを確かめる
 fn open_source(src: &Path) -> Result<Connection, String> {
@@ -48,7 +48,7 @@ fn open_source(src: &Path) -> Result<Connection, String> {
     }
     if version as usize > MIGRATIONS.len() {
         return Err(
-            "アプリより新しい版で書き出した管理情報です。アプリを更新してから戻してください".into(),
+            "アプリより新しい版でエクスポートした管理情報です。アプリを更新してからインポートしてください".into(),
         );
     }
     Ok(conn)
@@ -143,7 +143,11 @@ pub fn restore(slot: &mut Option<Library>, src: &Path) -> Result<(), String> {
             fs::create_dir_all(root.join(BACKUP_DIR))
                 .map_err(err)
                 .and_then(|()| library::write_copy(&lib.conn, &before))
-                .map_err(|e| format!("戻す前の管理情報の写しを書けないので、戻しません（{e}）"))
+                .map_err(|e| {
+                    format!(
+                        "インポートする前の管理情報の写しを書けないので、インポートしません（{e}）"
+                    )
+                })
         })
         // WAL を本体に書き戻して空にする。閉じた後に残った WAL が、置き換えた DB に当てられないように
         .and_then(|()| {
@@ -161,7 +165,9 @@ pub fn restore(slot: &mut Option<Library>, src: &Path) -> Result<(), String> {
     if let Err(e) = swapped {
         let _ = fs::remove_file(&staged);
         *slot = library::open(&root).ok();
-        return Err(format!("管理情報を置き換えられないので、戻しません（{e}）"));
+        return Err(format!(
+            "管理情報を置き換えられないので、インポートしません（{e}）"
+        ));
     }
     match library::open(&root) {
         Ok(lib) => {
@@ -175,10 +181,10 @@ pub fn restore(slot: &mut Option<Library>, src: &Path) -> Result<(), String> {
             *slot = back.as_ref().ok().and_then(|()| library::open(&root).ok());
             match (back, slot.is_some()) {
                 (Ok(()), true) => Err(format!(
-                    "戻した管理情報を開けないので、戻す前の管理情報に戻しました（{e}）"
+                    "インポートした管理情報を開けないので、インポートする前の管理情報に戻しました（{e}）"
                 )),
                 _ => Err(format!(
-                    "戻した管理情報を開けず、戻す前の管理情報にも戻せませんでした。{} の写しを確かめてください（{e}）",
+                    "インポートした管理情報を開けず、インポートする前の管理情報にも戻せませんでした。{} の写しを確かめてください（{e}）",
                     before.display()
                 )),
             }
@@ -465,7 +471,7 @@ mod tests {
 
         let e = restore(&mut slot, &bad).unwrap_err();
 
-        assert!(e.contains("戻す前の管理情報に戻しました"), "{e}");
+        assert!(e.contains("インポートする前の管理情報に戻しました"), "{e}");
         assert_eq!(memo(slot.as_ref().unwrap(), image), "今");
         assert_eq!(backups(&root, "kura-before-restore-").len(), 1);
     }

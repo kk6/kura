@@ -850,9 +850,9 @@ const handlers: Record<string, Handler> = {
   inspect_backup: (args) => {
     const path = String(args?.path)
     if (path.includes('画像'))
-      throw '管理情報のファイルではありません。「管理情報を書き出す…」で書き出したファイルを選んでください'
+      throw '管理情報のファイルではありません。「管理情報をエクスポート…」でエクスポートしたファイルを選んでください'
     if (path.includes('新しい版'))
-      throw 'アプリより新しい版で書き出した管理情報です。アプリを更新してから戻してください'
+      throw 'アプリより新しい版でエクスポートした管理情報です。アプリを更新してからインポートしてください'
     const other = path.includes('別のライブラリ')
     return {
       exported_at: 1795100000000,
@@ -865,7 +865,7 @@ const handlers: Record<string, Handler> = {
   restore_library: (args) => {
     const path = String(args?.path)
     if (path.includes('開けない'))
-      throw '戻した管理情報を開けないので、戻す前の管理情報に戻しました（no such table: board_state）'
+      throw 'インポートした管理情報を開けないので、インポートする前の管理情報に戻しました（no such table: board_state）'
     console.info(`restore: ${path}`)
   },
   backfill_sources: backfillSources,

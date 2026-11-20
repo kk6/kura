@@ -359,7 +359,7 @@ pub(crate) fn stamp(conn: &Connection) -> Result<String, String> {
 /// DB を dst に書き出す（NFR-07）。SQLite のバックアップ機能を使うので、開いたままでも整った写しになる。
 /// 別名に書いてから置き換え、途中で失敗しても dst にあった前のファイルを壊さない
 pub fn backup(lib: &Library, dst: &Path) -> Result<(), String> {
-    write_copy(&lib.conn, dst).map_err(|e| format!("バックアップを書き出せません（{e}）"))
+    write_copy(&lib.conn, dst).map_err(|e| format!("管理情報をエクスポートできません（{e}）"))
 }
 
 pub(crate) fn write_copy(conn: &Connection, dst: &Path) -> Result<(), String> {

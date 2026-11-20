@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures'
 import { columnCount, openGallery, selectedNames, thumb } from './gallery-helpers'
 
-test('設定ダイアログでカテゴリの移動の確認を戻し、管理情報を書き出す', async ({ page }) => {
+test('設定ダイアログでカテゴリの移動の確認を戻し、管理情報をエクスポートする', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await openGallery(page)
@@ -28,7 +28,7 @@ test('設定ダイアログでカテゴリの移動の確認を戻し、管理�
   await page.getByRole('button', { name: '設定' }).click()
   await expect(confirm).not.toBeChecked()
   await confirm.check()
-  await settings.getByRole('button', { name: '管理情報を書き出す…' }).click()
+  await settings.getByRole('button', { name: '管理情報をエクスポート…' }).click()
   await expect(settings).toContainText('完了：/Users/me/Documents/Kura ライブラリ-')
   await page.screenshot({ path: 'test-results/settings.png' })
   await settings.getByRole('button', { name: '閉じる' }).click()

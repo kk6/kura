@@ -84,14 +84,17 @@ export default function SettingsDialog({
     if (!path) return
     try {
       await invoke('backup_library', { path })
-      setBackup({ kind: 'success', message: `${path} に書き出しました` })
+      setBackup({ kind: 'success', message: `${path} にエクスポートしました` })
     } catch (e) {
       setBackup({ kind: 'error', message: String(e) })
     }
   }
 
   async function pickRestore() {
-    const path = await open({ title: '戻す管理情報を選ぶ', filters: [{ name: 'SQLite', extensions: ['db'] }] })
+    const path = await open({
+      title: 'インポートする管理情報を選ぶ',
+      filters: [{ name: 'SQLite', extensions: ['db'] }],
+    })
     if (!path) return
     setBackup(null)
     try {
@@ -234,14 +237,14 @@ export default function SettingsDialog({
         {backfill?.error && <Status kind="error">{backfill.error}</Status>}
         <h3 className="dialog__section">バックアップ</h3>
         <p>
-          ライブラリの管理情報（カテゴリ、タグ、メモなど）を1つのファイルに書き出します。画像ファイルは含みません。書き出したファイルから、管理情報を戻せます。
+          ライブラリの管理情報（カテゴリ、タグ、メモなど）を1つのファイルにエクスポートします。画像ファイルは含みません。エクスポートしたファイルをインポートすると、その時点の管理情報に戻せます。
         </p>
         <div className="dialog__row">
           <button type="button" className="button" onClick={exportDb}>
-            管理情報を書き出す…
+            管理情報をエクスポート…
           </button>
           <button type="button" className="button" onClick={pickRestore}>
-            管理情報を戻す…
+            管理情報をインポート…
           </button>
         </div>
         {backup && <Status kind={backup.kind}>{backup.message}</Status>}
@@ -252,8 +255,8 @@ export default function SettingsDialog({
       {/* ダイアログの中に置くと、React が close をこのダイアログの onClose にも伝え、設定まで閉じる */}
       {restoring && (
         <ConfirmDialog
-          title="管理情報を戻す"
-          confirm="戻す"
+          title="管理情報をインポート"
+          confirm="インポート"
           onConfirm={() => restore(restoring.path)}
           onClose={() => setRestoring(null)}
         >
@@ -262,7 +265,7 @@ export default function SettingsDialog({
               {`別のライブラリの管理情報かもしれません。選んだ管理情報の画像のうち、このライブラリに見つかるのは${restoring.info.found}枚だけです`}
             </Status>
           )}
-          {dateTime(restoring.info.exported_at)} に書き出した管理情報（{restoring.info.images}
+          {dateTime(restoring.info.exported_at)} にエクスポートした管理情報（{restoring.info.images}
           枚）で、今の管理情報（{restoring.info.current}
           枚）を置き換えます。今の管理情報の写しを、ライブラリの .kura/backups に残します。画像ファイルは変えません。
         </ConfirmDialog>

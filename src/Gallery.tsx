@@ -335,12 +335,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     try {
       await flushAll()
     } catch {
-      throw 'メモを保存できないため、管理情報を戻せません'
+      throw 'メモを保存できないため、管理情報をインポートできません'
     }
     try {
       await invoke('close_board_window')
     } catch (e) {
-      throw `ボードを保存できないため、管理情報を戻せません（${e}）`
+      throw `ボードを保存できないため、管理情報をインポートできません（${e}）`
     }
     await invoke('restore_library', { path })
     // 開き直した画面が一覧を読み、差分検出で書き出した後のファイルの変化を反映する
