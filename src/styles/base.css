@@ -236,19 +236,51 @@ textarea[aria-invalid='true']:focus-visible {
   transform: scale(var(--motion-press));
 }
 
-/* 設定のページでは、スイッチ全体が1つのボタン */
-button.switch {
+/* 設定のページの ON/OFF のトグル（docs/design.md「設定のページ」）。字は入れず、ON は黒、OFF はグレーの土台に白いつまみ */
+.toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--size-toggle);
+  height: var(--size-control-sm);
   padding: 0;
-  font: inherit;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-line);
   cursor: pointer;
+  transition: background var(--duration-base) ease-out;
 }
 
-button.switch:disabled {
+.toggle::before {
+  position: absolute;
+  top: calc(var(--space-1) / 2);
+  left: calc(var(--space-1) / 2);
+  width: calc(var(--size-control-sm) - var(--space-1));
+  height: calc(var(--size-control-sm) - var(--space-1));
+  border-radius: var(--radius-full);
+  background: var(--color-input);
+  transition: transform var(--duration-base) ease-out;
+  content: '';
+}
+
+.toggle[aria-checked='true'] {
+  background: var(--color-text);
+}
+
+.toggle[aria-checked='true']::before {
+  transform: translateX(calc(var(--size-toggle) - var(--size-control-sm)));
+}
+
+.toggle:active {
+  transform: scale(var(--motion-press));
+}
+
+.toggle:disabled {
+  background: var(--color-raise);
   cursor: default;
 }
 
-button.switch:disabled::before {
-  background: var(--color-text-faint);
+.toggle:disabled::before {
+  background: var(--color-selected);
 }
 
 /* ギャラリーのサムネイルの大きさと、ボードの不透明度で使う */

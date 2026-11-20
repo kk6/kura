@@ -49,6 +49,7 @@
   --size-sidebar-item: 32px;
   --size-control: 32px;
   --size-control-sm: 24px;
+  --size-toggle: 40px;
   /* 処理中のアイコンが1回転する時間 */
   --duration-spin: 1s;
   --duration-fast: 120ms;

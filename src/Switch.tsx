@@ -1,4 +1,4 @@
-// 設定のページの ON/OFF（8章）。見た目はサイドバーの AND と OR のスイッチと同じで、全体を1つのボタンにし、押すたびに切り替わる
+// 設定のページの ON/OFF（8章）。字のないトグルで、押すたびに切り替わる（docs/design.md「設定のページ」）
 export default function Switch({
   label,
   checked,
@@ -18,14 +18,8 @@ export default function Switch({
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
-      className={`switch${checked ? ' switch--right' : ''}`}
+      className="toggle"
       onClick={() => onChange(!checked)}
-    >
-      {['OFF', 'ON'].map((text, i) => (
-        <span key={text} className={`switch__option${(i === 1) === checked ? ' switch__option--on' : ''}`}>
-          {text}
-        </span>
-      ))}
-    </button>
+    />
   )
 }
