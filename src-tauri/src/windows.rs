@@ -156,6 +156,7 @@ pub(crate) async fn show_board_window(app: AppHandle) -> Result<(), String> {
             .min_inner_size(480.0, 320.0)
             .always_on_top(pinned(&app, display.always_on_top))
             .visible(false)
+            .disable_drag_drop_handler()
             .build()?;
         if let Err(e) = place_board(&app, &w, display.frame) {
             log::warn!("アイデアボードの位置と大きさを戻せません：{e}");

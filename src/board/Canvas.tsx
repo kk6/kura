@@ -23,6 +23,7 @@ import {
   type Point,
 } from './geometry'
 import { restack, type Restack } from './stack'
+import { IMAGE_DRAG, readDragged } from '../imageDrag'
 import type { Board, Geometry, Item, Viewport } from './types'
 
 // 状態ごとの枠の文言。元画像がないので、画像やサムネイルの代わりに出す（FR-701）
@@ -96,6 +97,7 @@ export default function Canvas({
   onRedo,
   onRestack,
   onReveal,
+  onDropImages,
 }: {
   board: Board
   // 画像 ID から元画像のパス。読み込むまでは枠だけを出す
@@ -121,6 +123,8 @@ export default function Canvas({
   onRestack: (to: Restack) => void
   // 元画像をギャラリーで選んで見せる。渡すのは画像 ID
   onReveal: (imageId: number) => void
+  // 一覧から運んだ画像を、落とした点（ボード上の座標）に置く（FR-713）
+  onDropImages: (imageIds: number[], at: Point) => void
 }) {
   const ref = useRef<HTMLElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -407,6 +411,18 @@ export default function Canvas({
         onPointerUp={(e) => up(e)}
         onPointerCancel={(e) => up(e, true)}
         onContextMenu={context}
+        // 一覧から運んだ画像だけを受ける（FR-713）。ボードを編集できない間は受けない
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes(IMAGE_DRAG) || locked()) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+        }}
+        onDrop={(e) => {
+          const ids = readDragged(e.dataTransfer.getData(IMAGE_DRAG))
+          if (!ids) return
+          e.preventDefault()
+          onDropImages(ids, toBoard(viewport, size, local(e)))
+        }}
       >
         <div className="board__items">
           {board.items.map((item) => {

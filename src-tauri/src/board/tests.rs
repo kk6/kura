@@ -755,6 +755,76 @@ fn 最後に画像を追加したボードは追加でだけ変わり削除で�
 }
 
 #[test]
+fn ドロップは落とした点を中心に並べ既存の配置を動かさず編集を続けられる() {
+    let (dir, mut lib) = setup();
+    let image = sized(&lib, "画像.png", 800, 600);
+    let other = sized(&lib, "別.png", 300, 900);
+    let s = session(&lib);
+    let draft = snapshot(&lib, image);
+    let created = create(&mut lib, s, "既存", &draft).unwrap();
+    let existing = created.board.items[0].clone();
+    let before = files(dir.path());
+    let at = Point {
+        x: 500.0,
+        y: -300.0,
+    };
+    let dropped = drop_images(&mut lib, created.edit, 1, &[other, image], at).unwrap();
+    assert_eq!(dropped.edit, created.edit);
+    assert_eq!(dropped.board.revision, 1);
+    assert_eq!(dropped.board.items.len(), 3);
+    assert_eq!(dropped.board.items[0], existing);
+    let new = &dropped.board.items[1..];
+    let (l, t, r, b) = new.iter().fold(
+        (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+        |(l, t, r, b), i| {
+            let (il, it, ir, ib) = rect(&i.geometry);
+            (l.min(il), t.min(it), r.max(ir), b.max(ib))
+        },
+    );
+    assert!(((l + r) / 2.0 - at.x).abs() < CELL);
+    assert!(((t + b) / 2.0 - at.y).abs() < CELL);
+    for i in new {
+        assert!(i.geometry.stack_order > existing.geometry.stack_order);
+    }
+    assert!(!overlaps(&new[0].geometry, &new[1].geometry));
+    assert_eq!(
+        list(&lib, s).unwrap().last_added_board_id,
+        Some(created.board.id)
+    );
+    assert_eq!(load(&lib, s, created.board.id).unwrap(), dropped.board);
+    // 同じ編集のまま次の保存ができる。取り消しはドロップした配置を外して保存する
+    let undone = save(&mut lib, created.edit, 2, &created.board.snapshot()).unwrap();
+    assert_eq!(undone.board.items, vec![existing]);
+    assert_eq!(files(dir.path()), before);
+}
+
+#[test]
+fn 失効した編集と古いrevisionと追加できない画像ではドロップしない() {
+    let (_dir, mut lib) = setup();
+    let ok = put(&lib, None, "ok.png", "ok");
+    let trashed = put(&lib, None, "trashed.png", "trashed");
+    lib.conn
+        .execute("UPDATE images SET deleted_at = 1 WHERE id = ?1", [trashed])
+        .unwrap();
+    let s = session(&lib);
+    let created = create(&mut lib, s, "既存", &empty()).unwrap();
+    let at = Point { x: 0.0, y: 0.0 };
+    let reopened = open(&mut lib, s, created.board.id).unwrap();
+    assert!(drop_images(&mut lib, created.edit, 1, &[ok], at).is_err());
+    assert!(drop_images(&mut lib, reopened.edit, 0, &[ok], at).is_err());
+    assert!(drop_images(&mut lib, reopened.edit, 1, &[ok, trashed], at).is_err());
+    assert!(drop_images(&mut lib, reopened.edit, 1, &[], at).is_err());
+    let nan = Point {
+        x: f64::NAN,
+        y: 0.0,
+    };
+    assert!(drop_images(&mut lib, reopened.edit, 1, &[ok], nan).is_err());
+    assert_eq!(load(&lib, s, created.board.id).unwrap(), created.board);
+    assert_eq!(list(&lib, s).unwrap().last_added_board_id, None);
+    assert!(drop_images(&mut lib, reopened.edit, 1, &[ok], at).is_ok());
+}
+
+#[test]
 fn 読み取り専用dbでは追加せずロック解除後に追加できる() {
     let (dir, mut lib) = setup();
     let image = put(&lib, None, "画像.png", "画像");
