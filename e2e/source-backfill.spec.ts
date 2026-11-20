@@ -5,7 +5,7 @@ async function openSettings(page: Page) {
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
   await page.getByRole('button', { name: '設定' }).click()
-  return page.getByRole('dialog', { name: '設定' })
+  return page.getByRole('region', { name: '設定' })
 }
 
 test('設定の「元URLを補完」で進み具合と、補完・記録なし・読み取り失敗・対象外の件数を出す', async ({ page }) => {
@@ -15,7 +15,7 @@ test('設定の「元URLを補完」で進み具合と、補完・記録なし�
   await expect(settings.getByRole('button', { name: '元URLを補完' })).toBeDisabled()
   await expect(settings.getByRole('status')).toContainText(/補完中 \d \/ 6枚/)
   // 補完の間も設定を閉じて一覧を使え、ステータスバーに進み具合が出る
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('contentinfo')).toContainText(/元URLを補完中 \d \/ 6枚/)
   await expect(page.getByRole('progressbar', { name: '元URLを補完する進み具合' })).toBeVisible()
 

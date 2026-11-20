@@ -80,9 +80,9 @@ test('ライブラリを切り替えると選択画面に戻り、入力中の�
   await memo.fill('切り替える前に書いたメモ')
 
   // ダイアログを開いている間は、ほかのショートカットと同じく効かない
-  await page.getByRole('button', { name: '設定' }).click()
+  await page.getByRole('button', { name: 'タグを管理する' }).click()
   await switchLibrary(page)
-  await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'タグを管理する' })).toBeVisible()
   await page.keyboard.press('Escape')
   await memo.click()
 

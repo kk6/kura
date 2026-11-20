@@ -80,7 +80,7 @@
   overflow-wrap: anywhere;
 }
 
-/* 設定ダイアログの区切りの見出し */
+/* 設定のページの区切りの見出し */
 /* ボタンや進み具合のバーを横に並べる */
 .dialog__row {
   display: flex;

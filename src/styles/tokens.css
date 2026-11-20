@@ -30,8 +30,11 @@
   --space-3: 8px;
   --space-4: 12px;
   --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
   --radius-sm: 2px;
   --radius-md: 4px;
+  --radius-lg: 8px;
   --radius-full: 999px;
   --border: 1px solid var(--color-line);
   --focus-ring: 2px solid var(--color-text);
@@ -46,6 +49,7 @@
   --size-sidebar-item: 32px;
   --size-control: 32px;
   --size-control-sm: 24px;
+  --size-toggle: 40px;
   /* 処理中のアイコンが1回転する時間 */
   --duration-spin: 1s;
   --duration-fast: 120ms;
@@ -60,6 +64,7 @@
   --size-progress: 3px;
   --size-progress-bar: 160px;
   --size-dialog: 560px;
+  --size-settings: 720px;
   --size-choices: 240px;
   --size-icon: 15px;
   --size-slider-thumb: 12px;

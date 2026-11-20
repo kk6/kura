@@ -52,8 +52,8 @@ test('ギャラリーでは、すべてを選択が一覧の画像に効き、�
   await expect(memo).toHaveValue('')
   await expect(selected).toHaveCount(1)
 
-  await page.keyboard.press('Meta+,')
-  await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
+  await page.getByRole('button', { name: 'タグを管理する' }).click()
+  await expect(page.getByRole('dialog', { name: 'タグを管理する' })).toBeVisible()
   await expect.poll(() => reports.at(-1)).toBe('report_gallery: true true')
   await page.keyboard.press('Escape')
   await expect.poll(() => reports.at(-1)).toBe('report_gallery: true false')

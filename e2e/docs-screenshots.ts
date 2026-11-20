@@ -104,7 +104,7 @@ test('ゴミ箱', async ({ page }) => {
 test('設定', async ({ page }) => {
   await openGallery(page)
   await page.getByRole('button', { name: '設定' }).click()
-  await expect(page.getByRole('dialog', { name: '設定' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '設定' })).toBeVisible()
   await shot(page, 'settings')
 })
 

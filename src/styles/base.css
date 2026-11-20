@@ -64,6 +64,11 @@ button {
   transform: scale(var(--motion-press));
 }
 
+/* 押して開いている状態のボタン（設定のページを開いている間の歯車） */
+.button[aria-pressed='true'] {
+  background: var(--color-selected);
+}
+
 .button:disabled {
   border-color: var(--color-raise);
   color: var(--color-text-faint);
@@ -178,6 +183,104 @@ textarea[aria-invalid='true']:focus-visible {
 .menu__item:disabled {
   background: none;
   color: var(--color-text-faint);
+}
+
+/* 2つの文字の下を、黒いつまみが選んだ側へ滑るスイッチ。サイドバーのタグの AND と OR、設定のページの オフ と オン で使う。
+   四角いタグと見分けられるよう両端を丸くする */
+.switch {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  height: var(--size-control-sm);
+  border: var(--border);
+  border-radius: var(--radius-full);
+  background: var(--color-input);
+  transition: transform var(--duration-fast) ease-out;
+}
+
+.switch::before {
+  position: absolute;
+  inset: 0 50% 0 0;
+  border-radius: var(--radius-full);
+  background: var(--color-text);
+  transition: transform var(--duration-base) ease-out;
+  content: '';
+}
+
+.switch--right::before {
+  transform: translateX(100%);
+}
+
+.switch__option {
+  position: relative;
+  padding: 0 var(--space-3);
+  border: none;
+  background: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text-sub);
+  cursor: pointer;
+  transition: color var(--duration-base) ease-out;
+}
+
+.switch__option:not(.switch__option--on):hover {
+  color: var(--color-text);
+}
+
+.switch__option--on {
+  font-weight: var(--font-weight-bold);
+  color: var(--color-on-text);
+}
+
+.switch:active {
+  transform: scale(var(--motion-press));
+}
+
+/* 設定のページの ON/OFF のトグル（docs/design.md「設定のページ」）。字は入れず、ON は黒、OFF はグレーの土台に白いつまみ */
+.toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--size-toggle);
+  height: var(--size-control-sm);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-line);
+  cursor: pointer;
+  transition: background var(--duration-base) ease-out;
+}
+
+.toggle::before {
+  position: absolute;
+  top: calc(var(--space-1) / 2);
+  left: calc(var(--space-1) / 2);
+  width: calc(var(--size-control-sm) - var(--space-1));
+  height: calc(var(--size-control-sm) - var(--space-1));
+  border-radius: var(--radius-full);
+  background: var(--color-input);
+  transition: transform var(--duration-base) ease-out;
+  content: '';
+}
+
+.toggle[aria-checked='true'] {
+  background: var(--color-text);
+}
+
+.toggle[aria-checked='true']::before {
+  transform: translateX(calc(var(--size-toggle) - var(--size-control-sm)));
+}
+
+.toggle:active {
+  transform: scale(var(--motion-press));
+}
+
+.toggle:disabled {
+  background: var(--color-raise);
+  cursor: default;
+}
+
+.toggle:disabled::before {
+  background: var(--color-selected);
 }
 
 /* ギャラリーのサムネイルの大きさと、ボードの不透明度で使う */

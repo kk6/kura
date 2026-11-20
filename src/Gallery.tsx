@@ -16,7 +16,7 @@ import Detail, { NOT_COMPUTED } from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
-import SettingsDialog from './SettingsDialog'
+import SettingsPage from './SettingsPage'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
@@ -169,6 +169,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   // 絞り込みで見えなくなった画像の選択は、下の effect が外す。見えない画像までまとめて変えないため
   function changeFilter(next: Filter) {
     setFilter(next)
+    // サイドバーで絞り込んだら、設定のページを閉じて結果を見せる
+    setSettingsOpen(false)
     if (aside) {
       setAside(null)
       setSelection(EMPTY_SELECTION)
@@ -236,6 +238,13 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     if (e.metaKey && key === ',') {
       e.preventDefault()
       setSettingsOpen(true)
+      return
+    }
+    // 設定のページの間は、下の一覧に効くキーを受けない。Escape で一覧に戻る
+    if (settingsOpen) {
+      if (e.key === 'Escape') setSettingsOpen(false)
+      // ページの文字をすべて選ばせない。検索欄など入力欄の中の ⌘A は、文字の全選択のまま残す
+      else if (e.metaKey && key === 'a' && !(e.target as Element).closest('input, textarea, select')) e.preventDefault()
       return
     }
     // 入力中の文字の操作は奪わない
@@ -329,7 +338,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
 
   // 取り込みと差分検出の途中では戻らない。どちらも開いているライブラリを1枚ずつ読み書きするため
   // 管理情報を戻す（FR-107）。ライブラリの切り替えと同じく、取り込みと差分検出の間は断り、メモとボードを
-  // 保存してボードを閉じてから戻す。失敗は理由の文字列で reject し、設定のダイアログに出す
+  // 保存してボードを閉じてから戻す。失敗は理由の文字列で reject し、設定のページに出す
   async function restoreLibrary(path: string) {
     if (busy.current) throw '取り込みか Finder での変更の反映が終わってから、もう一度選んでください'
     try {
@@ -384,7 +393,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
 
   // 「ボードに追加」の追加先ダイアログに渡す画像（FR-701）。ゴミ箱と見つからない画像は追加できない
   const [adding, setAdding] = useState<number[] | null>(null)
-  const canAdd = settings.board_enabled && !aside && ids.length > 0
+  // 設定のページの間は、下に隠れた選択をボードへ送らない
+  const canAdd = settings.board_enabled && !aside && !settingsOpen && ids.length > 0
   function addToBoard() {
     // メニューのショートカットはダイアログの間も届く。ほかのショートカットと同じく、ダイアログの間は効かせない
     if (!canAdd || document.querySelector('dialog[open]')) return
@@ -545,6 +555,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   }
 
   function openAside(next: 'trash' | 'missing') {
+    setSettingsOpen(false)
     setAside(next)
     setZoom(false)
     setSimilar(null)
@@ -681,7 +692,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         busy={scanning ? 'scan' : progress ? 'import' : null}
         onPick={pick}
         onOpenBoard={settings.board_enabled ? openBoard : undefined}
-        onSettings={() => setSettingsOpen(true)}
+        settingsOpen={settingsOpen}
+        onSettings={() => setSettingsOpen((open) => !open)}
         onLeave={leave}
       />
 
@@ -712,143 +724,146 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         onCategoryChildren={(category_children) => changeSettings({ category_children })}
       />
 
-      <GalleryToolbar
-        title={title}
-        count={listed.length}
-        sort={aside || similar ? undefined : sort}
-        onSort={setSort}
-        lead={
-          similar && (
-            <img
-              className="toolbar__base"
-              src={convertFileSrc(`${root}/.kura/thumbs/${similar.image.hash}.jpg`)}
-              alt={`基準の画像 ${similar.image.file_name}`}
-              style={{
-                aspectRatio: `${similar.image.width} / ${similar.image.height}`,
-                background: similar.image.color,
-              }}
-            />
-          )
-        }
-        note={similar?.uncomputed ? `未計算 ${similar.uncomputed}枚` : undefined}
-        detailShown={detailShown}
-        onToggleDetail={() => toggleDetail()}
-      >
-        {/* 拡大表示の間は、サムネイルの大きさの代わりに画像の倍率を出す。後ろに隠れたサムネイルを変えても見えないため */}
-        {zoomed && zoomView.frame ? (
-          <ZoomSlider zoom={zoomView} image={zoomed} frame={zoomView.frame} />
-        ) : (
-          !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
-        )}
+      {/* 設定のページの間は、下に残した帯・一覧・詳細パネルを操作させない（display: contents の入れ物） */}
+      <div className="gallery__main" inert={settingsOpen}>
+        <GalleryToolbar
+          title={title}
+          count={listed.length}
+          sort={aside || similar ? undefined : sort}
+          onSort={setSort}
+          lead={
+            similar && (
+              <img
+                className="toolbar__base"
+                src={convertFileSrc(`${root}/.kura/thumbs/${similar.image.hash}.jpg`)}
+                alt={`基準の画像 ${similar.image.file_name}`}
+                style={{
+                  aspectRatio: `${similar.image.width} / ${similar.image.height}`,
+                  background: similar.image.color,
+                }}
+              />
+            )
+          }
+          note={similar?.uncomputed ? `未計算 ${similar.uncomputed}枚` : undefined}
+          detailShown={detailShown}
+          onToggleDetail={() => toggleDetail()}
+        >
+          {/* 拡大表示の間は、サムネイルの大きさの代わりに画像の倍率を出す。後ろに隠れたサムネイルを変えても見えないため */}
+          {zoomed && zoomView.frame ? (
+            <ZoomSlider zoom={zoomView} image={zoomed} frame={zoomView.frame} />
+          ) : (
+            !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
+          )}
+          {similar && (
+            <button type="button" className="button" title="閉じる（esc）" onClick={closeSimilar}>
+              <Icon d={ICONS.x} />
+              閉じる
+            </button>
+          )}
+        </GalleryToolbar>
         {similar && (
-          <button type="button" className="button" title="閉じる（esc）" onClick={closeSimilar}>
-            <Icon d={ICONS.x} />
-            閉じる
-          </button>
-        )}
-      </GalleryToolbar>
-      {similar && (
-        <WeightSliders
-          aspects={similar.aspects}
-          skipped={similar.skipped}
-          weights={weights}
-          onChange={(a, v) => setWeights((w) => changeWeight(w, a, v))}
-          onCommit={saveWeights}
-        />
-      )}
-
-      <Masonry
-        root={root}
-        images={listed}
-        scrollKey={listKey}
-        scrollTo={restoreTop.current}
-        onScrolled={(top) => (scrolled.current = top)}
-        empty={
-          !aside && filtered
-            ? '条件に合う画像がありません'
-            : '画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください'
-        }
-        thumbWidth={thumbWidth}
-        selected={selection.ids}
-        onSelect={(id, e) =>
-          setSelection((s) =>
-            id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey }),
-          )
-        }
-        // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
-        onOpen={() => !aside && setZoom(true)}
-        onContextMenu={openContextMenu}
-        onDragStart={startDrag}
-        active={selection.anchor}
-        reveal={revealed}
-        keys={!zoomed}
-        onMove={moveTo}
-      />
-
-      {zoomed && (
-        <ZoomPanel
-          zoom={zoomView}
-          image={zoomed}
-          // 元の画像のパスがわかるまではサムネイルを出す
-          src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
-          onPrev={at > 0 ? () => step(-1) : undefined}
-          onNext={at < order.length - 1 ? () => step(1) : undefined}
-          onClose={() => setZoom(false)}
-          onContextMenu={(e) => openContextMenu(zoomed.id, e)}
-        />
-      )}
-
-      {/* 閉じる動きの間は、フォーカスもクリックも受けない */}
-      <div className="gallery__detail-slot" inert={detailMotion === 'closing'}>
-        {!detailOpen ? null : inTrash ? (
-          <TrashPanel
-            count={trash.length}
-            selected={ids.length}
-            name={selected.length === 1 ? selected[0].file_name : undefined}
-            onRestore={restoreImages}
-            onPurge={() => setAsking('purge')}
-            onEmpty={() => setAsking('empty')}
-          />
-        ) : inMissing ? (
-          <MissingPanel
-            selected={ids.length}
-            name={selected.length === 1 ? selected[0].file_name : undefined}
-            onForget={() => setAsking('forget')}
-          />
-        ) : (
-          <Detail
-            root={root}
-            categories={data.categories}
-            tags={data.tags}
-            ids={ids}
-            selected={selected}
-            image={selectedImage}
-            detail={shown?.detail ?? null}
-            error={shown?.error ?? null}
-            onRate={lib.rate}
-            onAssign={lib.assign}
-            onRename={lib.renameImage}
-            onTagCreated={(tag) => lib.update((d) => addTag(d, tag))}
-            recentTags={recentTags}
-            onTagged={(tag, ids) => {
-              setRecentTags((r) => rememberTag(r, tag))
-              lib.update((d) =>
-                editImages(d, ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] })),
-              )
-            }}
-            onUntagged={(tag, ids) =>
-              lib.update((d) => editImages(d, ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) })))
-            }
-            onMemo={(id, memo) => lib.update((d) => editImages(d, [id], (i) => ({ ...i, memo })))}
-            onTrash={trashImages}
-            onReveal={reveal}
-            // ゴミ箱と見つからない画像を開いている間は、この詳細パネルを出さない
-            onOpen={() => setZoom(true)}
-            onAddToBoard={settings.board_enabled ? addToBoard : undefined}
-            onFindSimilar={settings.similarity_enabled ? findSimilar : undefined}
-            onClose={() => toggleDetail(false)}
+          <WeightSliders
+            aspects={similar.aspects}
+            skipped={similar.skipped}
+            weights={weights}
+            onChange={(a, v) => setWeights((w) => changeWeight(w, a, v))}
+            onCommit={saveWeights}
           />
         )}
+
+        <Masonry
+          root={root}
+          images={listed}
+          scrollKey={listKey}
+          scrollTo={restoreTop.current}
+          onScrolled={(top) => (scrolled.current = top)}
+          empty={
+            !aside && filtered
+              ? '条件に合う画像がありません'
+              : '画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください'
+          }
+          thumbWidth={thumbWidth}
+          selected={selection.ids}
+          onSelect={(id, e) =>
+            setSelection((s) =>
+              id === null ? EMPTY_SELECTION : select(s, order, id, { shift: e.shiftKey, meta: e.metaKey }),
+            )
+          }
+          // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
+          onOpen={() => !aside && setZoom(true)}
+          onContextMenu={openContextMenu}
+          onDragStart={startDrag}
+          active={selection.anchor}
+          reveal={revealed}
+          keys={!zoomed && !settingsOpen}
+          onMove={moveTo}
+        />
+
+        {zoomed && (
+          <ZoomPanel
+            zoom={zoomView}
+            image={zoomed}
+            // 元の画像のパスがわかるまではサムネイルを出す
+            src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
+            onPrev={at > 0 ? () => step(-1) : undefined}
+            onNext={at < order.length - 1 ? () => step(1) : undefined}
+            onClose={() => setZoom(false)}
+            onContextMenu={(e) => openContextMenu(zoomed.id, e)}
+          />
+        )}
+
+        {/* 閉じる動きの間は、フォーカスもクリックも受けない */}
+        <div className="gallery__detail-slot" inert={detailMotion === 'closing'}>
+          {!detailOpen ? null : inTrash ? (
+            <TrashPanel
+              count={trash.length}
+              selected={ids.length}
+              name={selected.length === 1 ? selected[0].file_name : undefined}
+              onRestore={restoreImages}
+              onPurge={() => setAsking('purge')}
+              onEmpty={() => setAsking('empty')}
+            />
+          ) : inMissing ? (
+            <MissingPanel
+              selected={ids.length}
+              name={selected.length === 1 ? selected[0].file_name : undefined}
+              onForget={() => setAsking('forget')}
+            />
+          ) : (
+            <Detail
+              root={root}
+              categories={data.categories}
+              tags={data.tags}
+              ids={ids}
+              selected={selected}
+              image={selectedImage}
+              detail={shown?.detail ?? null}
+              error={shown?.error ?? null}
+              onRate={lib.rate}
+              onAssign={lib.assign}
+              onRename={lib.renameImage}
+              onTagCreated={(tag) => lib.update((d) => addTag(d, tag))}
+              recentTags={recentTags}
+              onTagged={(tag, ids) => {
+                setRecentTags((r) => rememberTag(r, tag))
+                lib.update((d) =>
+                  editImages(d, ids, (i) => (i.tags.includes(tag) ? i : { ...i, tags: [...i.tags, tag] })),
+                )
+              }}
+              onUntagged={(tag, ids) =>
+                lib.update((d) => editImages(d, ids, (i) => ({ ...i, tags: i.tags.filter((t) => t !== tag) })))
+              }
+              onMemo={(id, memo) => lib.update((d) => editImages(d, [id], (i) => ({ ...i, memo })))}
+              onTrash={trashImages}
+              onReveal={reveal}
+              // ゴミ箱と見つからない画像を開いている間は、この詳細パネルを出さない
+              onOpen={() => setZoom(true)}
+              onAddToBoard={settings.board_enabled ? addToBoard : undefined}
+              onFindSimilar={settings.similarity_enabled ? findSimilar : undefined}
+              onClose={() => toggleDetail(false)}
+            />
+          )}
+        </div>
       </div>
 
       <footer className="gallery__statusbar">
@@ -930,7 +945,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       )}
 
       {settingsOpen && (
-        <SettingsDialog
+        <SettingsPage
           root={root}
           settings={settings}
           onSettings={changeSettings}
@@ -942,7 +957,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           features={features}
           onFetchModels={fetchModels}
           onRestore={restoreLibrary}
-          onClose={() => setSettingsOpen(false)}
         />
       )}
       {managingTags && (

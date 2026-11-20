@@ -31,6 +31,11 @@
   display: contents;
 }
 
+/* 設定のページの間に inert にする入れ物。中身はそのまま grid に並べる */
+.gallery__main {
+  display: contents;
+}
+
 .gallery--detail-opening .gallery__detail {
   animation: detail-in var(--duration-panel) ease-out;
 }

@@ -5,7 +5,7 @@ async function openSettings(page: Page) {
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
   await page.getByRole('button', { name: '設定' }).click()
-  return page.getByRole('dialog', { name: '設定' })
+  return page.getByRole('region', { name: '設定' })
 }
 
 const saved = (page: Page) =>
@@ -16,7 +16,7 @@ test('初期値は OFF で、ON にする前にモデルの大きさを見せ、
   page,
 }) => {
   const settings = await openSettings(page)
-  const check = settings.getByRole('checkbox', { name: '類似画像検索を使う' })
+  const check = settings.getByRole('switch', { name: '類似画像検索を使う' })
   await expect(check).not.toBeChecked()
 
   await check.click()
@@ -34,7 +34,7 @@ test('初期値は OFF で、ON にする前にモデルの大きさを見せ、
 
 test('確認して進めると進み具合を出し、そろってから ON を保存する', async ({ page }) => {
   const settings = await openSettings(page)
-  const check = settings.getByRole('checkbox', { name: '類似画像検索を使う' })
+  const check = settings.getByRole('switch', { name: '類似画像検索を使う' })
   await check.click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
 
@@ -53,7 +53,7 @@ test('ダウンロードに失敗するとエラーと「再試行」を出し�
   await page.goto('/')
   await page.evaluate(() => sessionStorage.setItem('mock.failModel', '1'))
   const settings = await openSettings(page)
-  const check = settings.getByRole('checkbox', { name: '類似画像検索を使う' })
+  const check = settings.getByRole('switch', { name: '類似画像検索を使う' })
   await check.click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
 
@@ -74,7 +74,7 @@ test('OFF に戻してもう一度 ON にすると、ダウンロードし直さ
   await page.goto('/')
   await page.evaluate(() => sessionStorage.setItem('mock.modelReady', '1'))
   const settings = await openSettings(page)
-  const check = settings.getByRole('checkbox', { name: '類似画像検索を使う' })
+  const check = settings.getByRole('switch', { name: '類似画像検索を使う' })
   await check.click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
   await expect(check).toBeChecked()
@@ -98,7 +98,7 @@ test('ON にすると特徴量の計算がステータスバーに進み、設�
   await page.evaluate(() => sessionStorage.setItem('mock.modelReady', '1'))
   const settings = await openSettings(page)
   await expect(settings).not.toContainText('計算済み')
-  await settings.getByRole('checkbox', { name: '類似画像検索を使う' }).click()
+  await settings.getByRole('switch', { name: '類似画像検索を使う' }).click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
 
   const bar = page.getByRole('contentinfo')
@@ -118,7 +118,7 @@ test('計算が止まるとエラーを出し、「再計算」で残りを計�
     sessionStorage.setItem('mock.stopFeatures', '1')
   })
   const settings = await openSettings(page)
-  await settings.getByRole('checkbox', { name: '類似画像検索を使う' }).click()
+  await settings.getByRole('switch', { name: '類似画像検索を使う' }).click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
 
   const stopped = 'エラー：特徴量の計算が止まりました'
@@ -139,7 +139,7 @@ test('OFF に戻すと計算の状況を出さない', async ({ page }) => {
   await page.goto('/')
   await page.evaluate(() => sessionStorage.setItem('mock.modelReady', '1'))
   const settings = await openSettings(page)
-  const check = settings.getByRole('checkbox', { name: '類似画像検索を使う' })
+  const check = settings.getByRole('switch', { name: '類似画像検索を使う' })
   await check.click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
   await expect(settings).toContainText('計算済み')
@@ -156,16 +156,16 @@ async function openUpdated(page: Page, extra: Record<string, string> = {}) {
   await page.goto('/')
   await page.evaluate(() => sessionStorage.setItem('mock.modelReady', '1'))
   let settings = await openSettings(page)
-  await settings.getByRole('checkbox', { name: '類似画像検索を使う' }).click()
+  await settings.getByRole('switch', { name: '類似画像検索を使う' }).click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
-  await expect(settings.getByRole('checkbox', { name: '類似画像検索を使う' })).toBeChecked()
-  await settings.getByRole('button', { name: '閉じる' }).click()
+  await expect(settings.getByRole('switch', { name: '類似画像検索を使う' })).toBeChecked()
+  await page.keyboard.press('Escape')
   await page.evaluate((extra) => {
     sessionStorage.setItem('mock.missingPose', '1')
     for (const [k, v] of Object.entries(extra)) sessionStorage.setItem(k, v)
   }, extra)
   await page.getByRole('button', { name: '設定' }).click()
-  settings = page.getByRole('dialog', { name: '設定' })
+  settings = page.getByRole('region', { name: '設定' })
   return settings
 }
 
@@ -180,7 +180,7 @@ test('ON でポーズのモデルがないときだけ、説明と大きさと�
   expect(await page.evaluate(() => sessionStorage.getItem('mock.missingPose'))).toBe('1')
   await settings.screenshot({ path: 'test-results/similarity-pose-missing.png' })
 
-  await settings.getByRole('checkbox', { name: '類似画像検索を使う' }).click()
+  await settings.getByRole('switch', { name: '類似画像検索を使う' }).click()
   await expect(settings).not.toContainText(POSE_TEXT)
   await expect(settings.getByRole('button', { name: 'ダウンロード', exact: true })).toHaveCount(0)
 })
@@ -189,7 +189,7 @@ test('モデルがそろっていれば「ダウンロード」を出さない',
   await page.goto('/')
   await page.evaluate(() => sessionStorage.setItem('mock.modelReady', '1'))
   const settings = await openSettings(page)
-  await settings.getByRole('checkbox', { name: '類似画像検索を使う' }).click()
+  await settings.getByRole('switch', { name: '類似画像検索を使う' }).click()
   await page.getByRole('button', { name: 'ダウンロードして使う' }).click()
   await expect(settings).toContainText('計算済み')
 
@@ -206,7 +206,7 @@ test('「ダウンロード」を押すと進み具合を出し、そろうと�
 
   await expect(settings).not.toContainText(POSE_TEXT)
   await expect(settings.getByRole('status')).toHaveCount(0)
-  await expect(settings.getByRole('checkbox', { name: '類似画像検索を使う' })).toBeChecked()
+  await expect(settings.getByRole('switch', { name: '類似画像検索を使う' })).toBeChecked()
   expect(await saved(page)).toBe(true)
 })
 
@@ -215,7 +215,7 @@ test('ポーズのモデルのダウンロードに失敗するとエラーと�
   await settings.getByRole('button', { name: 'ダウンロード', exact: true }).click()
 
   await expect(settings).toContainText('エラー：モデルをダウンロードできません')
-  await expect(settings.getByRole('checkbox', { name: '類似画像検索を使う' })).toBeChecked()
+  await expect(settings.getByRole('switch', { name: '類似画像検索を使う' })).toBeChecked()
   expect(await saved(page)).toBe(true)
   await expect(settings).toContainText(POSE_TEXT)
   await expect(settings.getByRole('button', { name: 'ダウンロード', exact: true })).toHaveCount(0)
