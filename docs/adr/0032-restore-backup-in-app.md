@@ -2,7 +2,7 @@
 
 ## Status
 
-proposed — supersedes [ADR-0031](0031-backup-export-only.md)
+accepted — supersedes [ADR-0031](0031-backup-export-only.md)
 
 ## Date
 
