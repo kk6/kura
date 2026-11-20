@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { CategorySelect, TagEditor } from './Classify'
 import { useFlush } from './flush'
 import { Icon, ICONS } from './icons'
+import { dateTime } from './dateTime'
 import Status from './Status'
 import type { Category, Detail as DetailData, Image, Tag } from './galleryTypes'
 import './Detail.css'
@@ -54,12 +55,6 @@ function fileSize(bytes: number): string {
 const format = (fileName: string) => {
   const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toUpperCase()
   return ext === 'JPG' ? 'JPEG' : ext
-}
-
-const pad = (n: number) => String(n).padStart(2, '0')
-export const dateTime = (ms: number) => {
-  const d = new Date(ms)
-  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 // 詳細パネル（FR-507）。1枚だけ選んでいるときに詳細を出す

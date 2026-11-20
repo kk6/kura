@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { useEffect, useRef, useState } from 'react'
-import { dateTime } from './Detail'
+import { dateTime } from './dateTime'
 import type { Inspected, Settings } from './galleryTypes'
 import ConfirmDialog from './ConfirmDialog'
 import type { Backfill, BackfillCounts, FeaturesStatus, MissingModels, ModelFetch } from './importTypes'
