@@ -243,6 +243,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     // 設定のページの間は、下の一覧に効くキーを受けない。Escape で一覧に戻る
     if (settingsOpen) {
       if (e.key === 'Escape') setSettingsOpen(false)
+      // ページの文字をすべて選ばせない。検索欄など入力欄の中の ⌘A は、文字の全選択のまま残す
+      else if (e.metaKey && key === 'a' && !(e.target as Element).closest('input, textarea, select')) e.preventDefault()
       return
     }
     // 入力中の文字の操作は奪わない

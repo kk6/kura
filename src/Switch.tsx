@@ -21,7 +21,7 @@ export default function Switch({
       className={`switch${checked ? ' switch--right' : ''}`}
       onClick={() => onChange(!checked)}
     >
-      {['オフ', 'オン'].map((text, i) => (
+      {['OFF', 'ON'].map((text, i) => (
         <span key={text} className={`switch__option${(i === 1) === checked ? ' switch__option--on' : ''}`}>
           {text}
         </span>
