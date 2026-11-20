@@ -66,6 +66,9 @@ impl Compute for worker::Worker {
     }
 }
 
+/// 計画の前に止められた回。エラーではないので、状態に出さずに抜ける
+const PAUSED: &str = "計画の前に止められました";
+
 /// 計算のスレッドへの合図と、画面に見せる状態。Tauri の State に入れる
 #[derive(Clone)]
 pub struct Calc(Arc<Inner>);
@@ -179,6 +182,10 @@ impl Calc {
         }
         let planning = std::time::Instant::now();
         let plan = lib.with(|l| {
+            // ロックを待つ間に止められていれば、入れ替わったライブラリで sweep しない（pause）
+            if self.generation() != gen {
+                return Err(PAUSED.into());
+            }
             let root = l.root.clone();
             let hashes_all = hashes(l, "SELECT hash FROM images")?;
             let targets = hashes(
@@ -198,6 +205,7 @@ impl Calc {
                 self.update(|s| *s = Status::default());
                 return;
             }
+            Err(e) if e == PAUSED => return,
             Err(e) => return self.fail_library(&e),
         };
         // 画像ごとに、usable のうち行がない観点
@@ -324,6 +332,14 @@ impl Calc {
     pub fn halt(&self) {
         self.0.generation.fetch_add(1, Ordering::SeqCst);
         self.wake();
+    }
+
+    /// 今の回を止め、たまっている合図も消す。次の wake まで計算しない。管理情報を戻す間に使う（FR-107）。
+    /// halt は止めた後にすぐ次の回を計画するので、戻した管理情報にまだない画像（書き出した後に取り込み、
+    /// 差分検出が登録し直す前の画像）の特徴量を sweep が消してしまう
+    pub fn pause(&self) {
+        self.0.generation.fetch_add(1, Ordering::SeqCst);
+        *lock(&self.0.wake.0) = false;
     }
 
     /// failed と error を消して wake する（「再計算」）
@@ -748,6 +764,73 @@ mod tests {
 
         assert!(lock(&during).is_empty());
         assert_eq!(r.computed(), set(["A"]));
+    }
+
+    /// 計画がライブラリを使う直前に pause を呼ぶ。管理情報を戻す間、計画がロックを待っていた場合にあたる
+    struct PausedOnPlan<'a> {
+        lib: &'a Mutex<Option<Library>>,
+        calc: &'a Calc,
+    }
+
+    impl Access for PausedOnPlan<'_> {
+        fn with<T>(&self, f: impl FnOnce(&mut Library) -> Result<T, String>) -> Result<T, String> {
+            self.calc.pause();
+            self.lib.with(f)
+        }
+    }
+
+    #[test]
+    fn 計画の前に止められた回はkura_dbにない画像の行を消さず計算しない() {
+        let r = rig();
+        r.add("A", 1);
+        let a = aspects();
+        r.lib
+            .with(|l| {
+                l.with_features(|s| {
+                    s.put_vectors("Z", &[(&a[0], &[1.0, 0.0]), (&a[1], &[1.0, 0.0, 0.0])], 1)
+                })
+            })
+            .unwrap();
+
+        r.calc.pass(&PausedOnPlan {
+            lib: &r.lib,
+            calc: &r.calc,
+        });
+
+        let kept = r
+            .lib
+            .with(|l| l.with_features(|s| s.computed(&a[..2])))
+            .unwrap();
+        assert!(kept.iter().all(|done| done.contains("Z")), "{kept:?}");
+        assert!(r.seen().is_empty());
+        assert_eq!(r.calc.status().error, None);
+    }
+
+    #[test]
+    fn 止めるとたまっていた合図を消し次の合図まで計算しない() {
+        let r = rig_with(true);
+        r.add("A", 1);
+        let me = r.me.clone();
+        r.behave(move |h| {
+            if h == "A" {
+                // 計算の途中に合図が届き、その後に止められる
+                me.get().unwrap().wake();
+                me.get().unwrap().pause();
+            }
+            good()
+        });
+
+        r.calc.wake();
+
+        wait_until("A を計算し始める", || r.seen() == strings(["A"]));
+        wait_until("計算中でなくなる", || !r.calc.status().running);
+        thread::sleep(Duration::from_millis(200));
+        assert_eq!(r.seen(), strings(["A"]));
+        assert!(r.computed().is_empty());
+
+        r.behave(|_| good());
+        r.calc.wake();
+        wait_until("次の合図で計算する", || r.computed() == set(["A"]));
     }
 
     #[test]

@@ -42,7 +42,7 @@ pub const BACKUP_DIR: &str = ".kura/backups";
 pub const TRASH_DIR: &str = ".kura/trash";
 
 // 1つが1つの版。後のタスクでテーブルを足すときは末尾に足し、既存の要素は書き換えない
-const MIGRATIONS: &[&str] = &[
+pub(crate) const MIGRATIONS: &[&str] = &[
     // src と dst はライブラリのルートからの相対パス。外付けドライブのマウント先が変わっても後始末できるようにするため
     "CREATE TABLE pending_ops(
         id INTEGER PRIMARY KEY,
@@ -329,14 +329,7 @@ fn migrate(conn: &mut Connection, migrations: &[&str], backups: &Path) -> Result
     }
     // 版 0 は作ったばかりの空の DB なので、戻す先として残す意味がない
     if current > 0 && current < migrations.len() {
-        // 日時は SQLite で作る。日時のためだけにクレートを足さないため
-        let stamp: String = conn
-            .query_row(
-                "SELECT strftime('%Y%m%d-%H%M%S', 'now', 'localtime')",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(err)?;
+        let stamp = stamp(conn)?;
         fs::create_dir_all(backups)
             .map_err(err)
             .and_then(|()| write_copy(conn, &backups.join(format!("kura-v{current}-{stamp}.db"))))
@@ -353,13 +346,23 @@ fn migrate(conn: &mut Connection, migrations: &[&str], backups: &Path) -> Result
     Ok(())
 }
 
+/// 写しのファイル名に付ける今の日時。日時は SQLite で作る。日時のためだけにクレートを足さないため
+pub(crate) fn stamp(conn: &Connection) -> Result<String, String> {
+    conn.query_row(
+        "SELECT strftime('%Y%m%d-%H%M%S', 'now', 'localtime')",
+        [],
+        |r| r.get(0),
+    )
+    .map_err(err)
+}
+
 /// DB を dst に書き出す（NFR-07）。SQLite のバックアップ機能を使うので、開いたままでも整った写しになる。
 /// 別名に書いてから置き換え、途中で失敗しても dst にあった前のファイルを壊さない
 pub fn backup(lib: &Library, dst: &Path) -> Result<(), String> {
-    write_copy(&lib.conn, dst).map_err(|e| format!("バックアップを書き出せません（{e}）"))
+    write_copy(&lib.conn, dst).map_err(|e| format!("管理情報をエクスポートできません（{e}）"))
 }
 
-fn write_copy(conn: &Connection, dst: &Path) -> Result<(), String> {
+pub(crate) fn write_copy(conn: &Connection, dst: &Path) -> Result<(), String> {
     let mut name = dst
         .file_name()
         .ok_or("保存先のファイル名がありません")?

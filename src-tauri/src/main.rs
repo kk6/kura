@@ -11,6 +11,7 @@ mod manifest;
 mod menu;
 mod model;
 mod recent;
+mod restore;
 mod settings;
 mod settle;
 mod similar;
@@ -756,6 +757,39 @@ async fn backup_library(app: AppHandle, path: PathBuf) -> Result<(), String> {
     .await
 }
 
+/// 選んだ管理情報を確かめる（FR-107）。戻す前の確認ダイアログに、日時と枚数と警告を出すため
+#[tauri::command]
+async fn inspect_backup(app: AppHandle, path: PathBuf) -> Result<restore::Inspected, String> {
+    with_library(app, move |lib| restore::inspect(lib, &path)).await
+}
+
+/// 管理情報を戻す（FR-107、ADR-0032）。画面がメモとボードを保存してボードを閉じてから呼ぶ（ライブラリの
+/// 切り替えと同じ）。元URLの補完が終わるのを待ち、特徴量の計算を止めてから置き換え、同じライブラリを開き直す
+#[tauri::command]
+async fn restore_library(app: AppHandle, path: PathBuf) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _wait = app.state::<backfill::Gate>().inner().wait();
+        let calc = app.state::<calc::Calc>();
+        // halt ではなく pause で止める。halt は止めた直後に次の回を計画するため（Calc::pause）
+        calc.pause();
+        let current = app.state::<Current>();
+        let mut slot = current.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let result = restore::restore(&mut slot, &path);
+        match &result {
+            Ok(()) => log::info!("管理情報を戻しました：{}", path.display()),
+            Err(e) => log::warn!("管理情報を戻せません：{e}"),
+        }
+        // 戻せたときは計算を起こさない。開き直した画面の差分検出が画像を登録し直し、終わったときに起こす。
+        // 戻せなかったときは画面を作り直さないので、ここで起こす
+        if result.is_err() && slot.is_some() {
+            calc.wake();
+        }
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 見つからない画像を DB から外す（FR-104）
 #[tauri::command]
 async fn forget_images(app: AppHandle, ids: Vec<i64>) -> Result<trash::Done, String> {
@@ -973,6 +1007,8 @@ fn main() {
             scan_library,
             forget_images,
             backup_library,
+            inspect_backup,
+            restore_library,
             backfill_sources,
             cancel_backfill,
             windows::show_board_window,
