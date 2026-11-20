@@ -46,6 +46,9 @@ type Props = {
   onReveal: () => void
   // タグ一覧を閉じているか（アプリ全体の設定）。閉じていても、選んでいるタグは出す
   tagsCollapsed: boolean
+  // カテゴリで絞り込むときとカテゴリの件数に、子カテゴリの画像を含めるか（FR-516）
+  categoryChildren: boolean
+  onCategoryChildren: (children: boolean) => void
   onTagsCollapse: (collapsed: boolean) => void
 }
 
@@ -397,6 +400,21 @@ export default function Sidebar(props: Props) {
             }
           >
             <Icon d="M7 11l5-5 5 5M7 18l5-5 5 5" />
+          </button>
+          <button
+            type="button"
+            role="switch"
+            className="sidebar__add"
+            aria-label="子カテゴリの画像を含める"
+            aria-checked={props.categoryChildren}
+            title={
+              props.categoryChildren
+                ? '子カテゴリの画像を含めています。押すと、選んだカテゴリの直下の画像だけを出します'
+                : '選んだカテゴリの直下の画像だけを出しています。押すと、子カテゴリの画像も含めます'
+            }
+            onClick={() => props.onCategoryChildren(!props.categoryChildren)}
+          >
+            <Icon d={props.categoryChildren ? ICONS.listTree : ICONS.listFlat} />
           </button>
           <button
             type="button"

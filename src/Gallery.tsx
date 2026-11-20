@@ -153,10 +153,13 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
   // 結果のモードでも、サイドバーのカテゴリ・タグと検索バーで絞り込む（FR-603）
   const images = useMemo(
-    () => filterImages(ranked ?? sorted, data.categories, data.tags, filter),
-    [ranked, sorted, data.categories, data.tags, filter],
+    () => filterImages(ranked ?? sorted, data.categories, data.tags, filter, settings.category_children),
+    [ranked, sorted, data.categories, data.tags, filter, settings.category_children],
   )
-  const counts = useMemo(() => countImages(data.images, data.categories), [data.images, data.categories])
+  const counts = useMemo(
+    () => countImages(data.images, data.categories, settings.category_children),
+    [data.images, data.categories, settings.category_children],
+  )
   // 全体の枚数。結果のモードでは、結果の枚数（特徴量のある画像）
   const whole = ranked ?? data.images
   const filtered = images.length !== whole.length
@@ -680,6 +683,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         onReveal={() => reveal()}
         tagsCollapsed={settings.tags_collapsed}
         onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
+        categoryChildren={settings.category_children}
+        onCategoryChildren={(category_children) => changeSettings({ category_children })}
       />
 
       <GalleryToolbar

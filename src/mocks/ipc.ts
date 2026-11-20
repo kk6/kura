@@ -436,6 +436,7 @@ const DEFAULT_SETTINGS: Settings = {
   confirm_category_move: true,
   thumb_width: 200,
   tags_collapsed: false,
+  category_children: true,
   board_enabled: true,
   similarity_enabled: false,
   similarity_weights: {},

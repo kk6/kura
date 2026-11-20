@@ -30,8 +30,8 @@ const tags = [
   { id: 20, name: 'Sitting' },
 ]
 
-const ids = (images: Image[], filter: Partial<Filter>) =>
-  filterImages(images, categories, tags, { ...NO_FILTER, ...filter }).map((i) => i.id)
+const ids = (images: Image[], filter: Partial<Filter>, children = true) =>
+  filterImages(images, categories, tags, { ...NO_FILTER, ...filter }, children).map((i) => i.id)
 
 describe('filterImages', () => {
   const images = [
@@ -50,6 +50,14 @@ describe('filterImages', () => {
     expect(ids(images, { category: 1 })).toEqual([1, 2, 3])
     expect(ids(images, { category: 2 })).toEqual([2, 3])
     expect(ids(images, { category: 'uncategorized' })).toEqual([5])
+  })
+
+  test('子カテゴリを含めないときは、そのカテゴリの直下の画像だけに絞る（FR-516）', () => {
+    expect(ids(images, { category: 1 }, false)).toEqual([1])
+    expect(ids(images, { category: 2 }, false)).toEqual([2])
+    expect(ids(images, { category: 'uncategorized' }, false)).toEqual([5])
+    // 文字で探すカテゴリ名は親からの道筋のままにする。切り替えはサイドバーで選んだカテゴリにだけ効く
+    expect(ids(images, { text: 'ポーズ' }, false)).toEqual([1, 2, 3])
   })
 
   test('タグは AND ならすべてが付いた画像、OR ならどれかが付いた画像に絞る', () => {
@@ -95,9 +103,21 @@ describe('countImages', () => {
         image(4),
       ],
       categories,
+      true,
     )
     expect(Object.fromEntries(c.categories)).toEqual({ 1: 2, 2: 1, 3: 1, 4: 1 })
     expect(Object.fromEntries(c.tags)).toEqual({ 10: 2, 20: 1 })
+    expect(c.uncategorized).toBe(1)
+  })
+
+  test('子カテゴリを含めないときは、カテゴリの件数を直下の画像だけで数える（FR-516）', () => {
+    const c = countImages(
+      [image(1, { category_id: 1, tags: [10] }), image(2, { category_id: 3, tags: [10] }), image(3)],
+      categories,
+      false,
+    )
+    expect(Object.fromEntries(c.categories)).toEqual({ 1: 1, 3: 1 })
+    expect(Object.fromEntries(c.tags)).toEqual({ 10: 2 })
     expect(c.uncategorized).toBe(1)
   })
 })

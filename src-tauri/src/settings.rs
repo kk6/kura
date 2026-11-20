@@ -17,6 +17,8 @@ pub struct Settings {
     pub thumb_width: u32,
     /// サイドバーのタグ一覧を閉じている（FR-503）。タグが多いとサイドバーのスクロールが長くなるため
     pub tags_collapsed: bool,
+    /// カテゴリで絞り込むときとカテゴリの件数に、子カテゴリの画像を含める（FR-516）
+    pub category_children: bool,
     /// アイデアボードを使う（FR-711）。前の版の設定ファイルにはないので、更新した人も ON で始まる
     pub board_enabled: bool,
     /// 類似画像検索を使う（5.6）。true にするのは、モデルのファイルをそろえた後の画面だけ。
@@ -121,6 +123,7 @@ impl Default for Settings {
             confirm_category_move: true,
             thumb_width: 200,
             tags_collapsed: false,
+            category_children: true,
             board_enabled: true,
             similarity_enabled: false,
             similarity_weights: BTreeMap::new(),
@@ -206,6 +209,7 @@ mod tests {
         assert_eq!(s.thumb_width, 200);
         assert!(s.board_enabled);
         assert!(!s.similarity_enabled);
+        assert!(s.category_children);
     }
 
     #[test]
@@ -216,6 +220,7 @@ mod tests {
             confirm_category_move: false,
             thumb_width: 140,
             tags_collapsed: true,
+            category_children: false,
             board_enabled: false,
             similarity_enabled: true,
             similarity_weights: BTreeMap::from([
@@ -261,6 +266,8 @@ mod tests {
         assert!(!s.similarity_enabled);
         // 重みもフェーズ3で足した。無い観点は画面が初期値で埋める
         assert!(s.similarity_weights.is_empty());
+        // 子カテゴリを含めるかはフェーズ4で足した。前の版と同じく含めて始める（FR-516）
+        assert!(s.category_children);
     }
 
     #[test]
@@ -348,6 +355,7 @@ mod tests {
             confirm_category_move: false,
             thumb_width: 120,
             tags_collapsed: false,
+            category_children: true,
             board_enabled: true,
             similarity_enabled: false,
             similarity_weights: BTreeMap::new(),

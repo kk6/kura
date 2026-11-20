@@ -54,6 +54,8 @@ export type Settings = {
   confirm_category_move: boolean
   thumb_width: number
   tags_collapsed: boolean
+  // カテゴリで絞り込むときとカテゴリの件数に、子カテゴリの画像を含める（FR-516）
+  category_children: boolean
   // アイデアボードを使う（FR-711）
   board_enabled: boolean
   // 類似画像検索を使う（5.6）。true にするのは prepare_models でモデルをそろえた後だけ

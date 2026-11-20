@@ -327,3 +327,39 @@ test('サイドバーのタグ一覧を閉じても選んでいるタグは残�
   await toggle.click()
   await expect(tags).toHaveCount(3)
 })
+
+test('「カテゴリ」の見出しのスイッチで子カテゴリを含めないと、一覧と件数が直下の画像だけになり、開き直しても残る', async ({
+  page,
+}) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const status = page.getByRole('contentinfo')
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const row = (name: string) =>
+    categories.locator('.sidebar__item').filter({ has: page.getByRole('button', { name, exact: true }) })
+  const toggle = sidebar.getByRole('switch', { name: '子カテゴリの画像を含める' })
+
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await categories.getByRole('button', { name: 'ポーズ', exact: true }).click()
+  await expect(status).toContainText('900 / 2000枚')
+
+  // ポーズの直下は 300枚。子の座りは子を持たないので変わらない
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(status).toContainText('300 / 2000枚')
+  await expect(row('ポーズ').locator('.sidebar__count')).toHaveText('300')
+  await expect(row('座り').locator('.sidebar__count')).toHaveText('300')
+  await page.screenshot({ path: 'test-results/filter-category-children.png' })
+
+  // アプリ全体の設定に残る。絞り込みの条件は残さないので、すべての画像に戻る
+  await page.reload()
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await expect(row('ポーズ').locator('.sidebar__count')).toHaveText('300')
+  await categories.getByRole('button', { name: 'ポーズ', exact: true }).click()
+  await expect(status).toContainText('300 / 2000枚')
+
+  await toggle.click()
+  await expect(status).toContainText('900 / 2000枚')
+  await expect(row('ポーズ').locator('.sidebar__count')).toHaveText('900')
+})
