@@ -33,9 +33,10 @@ export function useContextMenu() {
 }
 
 // 画像の右クリックのメニューに出す操作（FR-515）。'rule' は区切り線
-export type ImageAction = 'similar' | 'board' | 'reveal' | 'trash' | 'restore' | 'purge' | 'forget'
+export type ImageAction = 'similar' | 'lastBoard' | 'board' | 'reveal' | 'trash' | 'restore' | 'purge' | 'forget'
 
-export const ACTION_LABELS: Record<ImageAction, string> = {
+// lastBoard の名前はボードの名前から作る
+export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = {
   similar: '似た画像を探す',
   board: 'ボードに追加…',
   reveal: 'Finderで表示',
@@ -48,12 +49,17 @@ export const ACTION_LABELS: Record<ImageAction, string> = {
 // 一覧と拡大表示で同じメニューにし、詳細パネルの操作を出す。ゴミ箱と見つからない画像は、その画面のパネルの操作だけ
 export function imageMenu(
   place: 'gallery' | 'trash' | 'missing',
-  o: { count: number; board: boolean; similarity: boolean },
+  // lastBoard：最後に画像を追加したボードが残っているか（FR-712）
+  o: { count: number; board: boolean; lastBoard?: boolean; similarity: boolean },
 ): (ImageAction | 'rule')[] {
   if (place === 'trash') return ['restore', 'purge']
   if (place === 'missing') return ['forget']
   const groups: ImageAction[][] = [
-    [...(o.similarity ? ['similar' as const] : []), ...(o.board ? ['board' as const] : [])],
+    [
+      ...(o.similarity ? ['similar' as const] : []),
+      ...(o.board && o.lastBoard ? ['lastBoard' as const] : []),
+      ...(o.board ? ['board' as const] : []),
+    ],
     o.count === 1 ? ['reveal'] : [],
     ['trash'],
   ]

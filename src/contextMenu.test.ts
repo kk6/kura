@@ -17,6 +17,25 @@ describe('imageMenu', () => {
     expect(imageMenu('gallery', { count: 2, board: false, similarity: true })).toEqual(['similar', 'rule', 'trash'])
   })
 
+  it('最後に画像を追加したボードが残っていれば、「ボードに追加…」の前に出す。アイデアボードが OFF なら出さない', () => {
+    expect(imageMenu('gallery', { ...ALL_ON, lastBoard: true })).toEqual([
+      'similar',
+      'lastBoard',
+      'board',
+      'rule',
+      'reveal',
+      'rule',
+      'trash',
+    ])
+    expect(imageMenu('gallery', { ...ALL_ON, board: false, lastBoard: true })).toEqual([
+      'similar',
+      'rule',
+      'reveal',
+      'rule',
+      'trash',
+    ])
+  })
+
   it('ゴミ箱と見つからない画像では、その画面の操作だけを出す', () => {
     expect(imageMenu('trash', ALL_ON)).toEqual(['restore', 'purge'])
     expect(imageMenu('missing', ALL_ON)).toEqual(['forget'])

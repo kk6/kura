@@ -24,6 +24,7 @@ import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResul
 import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
+import type { Boards } from './board/types'
 import type { Detail as DetailData, Done, Image, Restored, Settings } from './galleryTypes'
 import type {
   Backfill,
@@ -379,12 +380,35 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   )
 
   const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
+  // 最後に画像を追加したボード。右クリックの「<ボード名>に追加」の追加先（FR-712）
+  const [lastBoard, setLastBoard] = useState<{ session: number; id: number; name: string } | null>(null)
   // 一覧と拡大表示で同じメニューを出す（FR-515）。拡大表示でも WebKit の標準のメニューは出さない
-  function openContextMenu(id: number, e: React.MouseEvent) {
+  async function openContextMenu(id: number, e: React.MouseEvent) {
     e.preventDefault()
     // 右クリックした画像を選んでいなければ、その画像だけを選ぶ（Finder と同じ）
     if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
-    setMenuAt({ x: e.clientX, y: e.clientY })
+    const at = { x: e.clientX, y: e.clientY }
+    // 開いた後に項目が増えて押す位置がずれないよう、ボードを読んでから開く。名前の変更や削除は開くたびに読み直す
+    let last = null
+    if (settings.board_enabled && !aside) {
+      try {
+        const list = await invoke<Boards>('list_boards')
+        const board = list.boards.find((b) => b.id === list.last_added_board_id)
+        if (board) last = { session: list.session, id: board.id, name: board.name }
+      } catch (err) {
+        console.error(err)
+      }
+    }
+    setLastBoard(last)
+    setMenuAt(at)
+  }
+  async function addToLastBoard() {
+    if (!lastBoard || !canAdd) return
+    try {
+      await invoke('add_to_board', { session: lastBoard.session, target: { board: lastBoard.id }, images: ids })
+    } catch (e) {
+      setResult({ kind: 'error', message: `ボードに追加できません（${e}）` })
+    }
   }
   // 「似た画像を探す」（FR-601）。結果の画像から押すと基準が入れ替わる。戻る履歴は作らない
   const canFindSimilar = settings.similarity_enabled && only !== null && !!shown?.detail?.similar
@@ -567,12 +591,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
   const menu = imageMenu(aside ?? 'gallery', {
     count: ids.length,
     board: settings.board_enabled,
+    lastBoard: !!lastBoard,
     similarity: settings.similarity_enabled,
   })
   function runMenu(action: ImageAction) {
     setMenuAt(null)
     if (action === 'similar') findSimilar()
     else if (action === 'board') addToBoard()
+    else if (action === 'lastBoard') addToLastBoard()
     else if (action === 'reveal') reveal(ids[0])
     else if (action === 'trash') trashImages(ids)
     else if (action === 'restore') restoreImages()
@@ -826,7 +852,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
                 }
                 onClick={() => runMenu(action)}
               >
-                {ACTION_LABELS[action]}
+                {action === 'lastBoard' ? `${lastBoard?.name}に追加` : ACTION_LABELS[action]}
               </button>
             ),
           )}

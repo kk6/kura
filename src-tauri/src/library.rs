@@ -172,6 +172,8 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO image_sources_new SELECT image_id, image_url, page_url, fetched_at FROM image_sources;
     DROP TABLE image_sources;
     ALTER TABLE image_sources_new RENAME TO image_sources",
+    // 右クリックの「<ボード名>に追加」の追加先（FR-712）。最後に使ったボードは開くだけでも変わるので、別に持つ
+    "ALTER TABLE board_state ADD COLUMN last_added_board_id INTEGER REFERENCES boards(id) ON DELETE SET NULL",
 ];
 
 pub struct Library {

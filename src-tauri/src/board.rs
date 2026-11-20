@@ -179,6 +179,8 @@ pub struct Summary {
 pub struct List {
     pub boards: Vec<Summary>,
     pub last_board_id: Option<BoardId>,
+    /// 最後に画像を追加したボード（FR-712）
+    pub last_added_board_id: Option<BoardId>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -219,9 +221,18 @@ pub fn list(lib: &Library, expected: LibrarySession) -> Result<List, String> {
         .map_err(err)?
         .collect::<Result<_, _>>()
         .map_err(err)?;
+    let last_added_board_id = lib
+        .conn
+        .query_row(
+            "SELECT last_added_board_id FROM board_state WHERE id = 1",
+            [],
+            |r| Ok(r.get::<_, Option<i64>>(0)?.map(BoardId)),
+        )
+        .map_err(err)?;
     Ok(List {
         boards,
         last_board_id: last_id(&lib.conn)?,
+        last_added_board_id,
     })
 }
 
@@ -436,6 +447,17 @@ pub fn create(
     input_name: &str,
     snapshot: &Snapshot,
 ) -> Result<EditingBoard, String> {
+    create_with(lib, expected, input_name, snapshot, false)
+}
+
+/// added なら、最後に画像を追加したボードも同じトランザクションで変える
+fn create_with(
+    lib: &mut Library,
+    expected: LibrarySession,
+    input_name: &str,
+    snapshot: &Snapshot,
+    added: bool,
+) -> Result<EditingBoard, String> {
     check_session(lib, expected)?;
     validate(snapshot)?;
     let (name, key) = name(input_name)?;
@@ -449,8 +471,9 @@ pub fn create(
     let id = BoardId(tx.last_insert_rowid());
     write_snapshot(&tx, id, 0, snapshot)?;
     tx.execute(
-        "UPDATE board_state SET last_board_id = ?1 WHERE id = 1",
-        [id.0],
+        "UPDATE board_state SET last_board_id = ?1,
+         last_added_board_id = CASE WHEN ?2 THEN ?1 ELSE last_added_board_id END WHERE id = 1",
+        params![id.0, added],
     )
     .map_err(err)?;
     let board = load_from(&tx, id)?;
@@ -517,7 +540,10 @@ pub fn delete(lib: &mut Library, expected: LibrarySession, id: BoardId) -> Resul
     check_session(lib, expected)?;
     let tx = lib.conn.transaction().map_err(err)?;
     tx.execute(
-        "UPDATE board_state SET last_board_id = NULL WHERE last_board_id = ?1",
+        "UPDATE board_state SET
+         last_board_id = CASE WHEN last_board_id = ?1 THEN NULL ELSE last_board_id END,
+         last_added_board_id = CASE WHEN last_added_board_id = ?1 THEN NULL ELSE last_added_board_id END
+         WHERE id = 1",
         [id.0],
     )
     .map_err(err)?;
@@ -580,7 +606,7 @@ pub fn add(
                 viewport: Viewport::default(),
                 items: place(&[], &sources),
             };
-            let created = create(lib, expected, name, &snapshot)?;
+            let created = create_with(lib, expected, name, &snapshot, true)?;
             Ok(Added {
                 board_id: created.board.id,
                 placements: created.board.items.iter().map(|i| i.id).collect(),
@@ -593,7 +619,7 @@ pub fn add(
             snapshot.items.extend(place(&board.items, &sources));
             write_snapshot(&tx, *id, board.revision + 1, &snapshot)?;
             tx.execute(
-                "UPDATE board_state SET last_board_id = ?1 WHERE id = 1",
+                "UPDATE board_state SET last_board_id = ?1, last_added_board_id = ?1 WHERE id = 1",
                 [id.0],
             )
             .map_err(err)?;

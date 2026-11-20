@@ -536,7 +536,13 @@ const similarImages: Handler = (args) => {
 // 「保存できない」という名前のボードは配置を保存できない
 // removed は外した配置。本物の DB も非表示の行として残し、取り消しで同じ配置 ID を表示に戻す
 type MockBoard = BoardSummary & { items?: Item[]; removed?: Item[]; viewport?: Viewport; revision?: number }
-type MockBoards = { boards: MockBoard[]; last: number | null; next: number; reveal?: Added | null }
+type MockBoards = {
+  boards: MockBoard[]
+  last: number | null
+  added?: number | null
+  next: number
+  reveal?: Added | null
+}
 const boardStore = () => stored<MockBoards>('mock.boards', { boards: [], last: null, next: 1 })
 const SESSION = 1
 
@@ -580,7 +586,7 @@ const editing = (b: MockBoard): EditingBoard => ({
 const listBoards: Handler = () => {
   const data = boardStore()
   const boards = [...data.boards].sort((a, b) => b.updated_at - a.updated_at || b.id - a.id).map(summary)
-  return { session: SESSION, boards, last_board_id: data.last }
+  return { session: SESSION, boards, last_board_id: data.last, last_added_board_id: data.added ?? null }
 }
 
 const openBoard: Handler = (args) => {
@@ -622,6 +628,7 @@ const deleteBoard: Handler = (args) => {
     ...data,
     boards: data.boards.filter((b) => b !== board),
     last: data.last === board.id ? null : data.last,
+    added: data.added === board.id ? null : data.added,
   })
 }
 
@@ -704,7 +711,13 @@ const addToBoard: Handler = (args) => {
   board.revision = (board.revision ?? 0) + 1
   const boards = 'new' in target ? [...data.boards, board] : data.boards
   const reveal = { board_id: board.id, placements: added.map((i) => i.id) }
-  store('mock.boards', { boards, last: board.id, next: 'new' in target ? data.next + 1 : data.next, reveal })
+  store('mock.boards', {
+    boards,
+    last: board.id,
+    added: board.id,
+    next: 'new' in target ? data.next + 1 : data.next,
+    reveal,
+  })
   // 本物はここで専用ウィンドウを開く。モックは e2e が確かめられるようにコンソールに出す
   console.info('board window')
 }
