@@ -658,26 +658,24 @@ const saveBoard: Handler = (args) => {
 const CELL = 240
 const GAP = 24
 const MARGIN = 96
-const addToBoard: Handler = (args) => {
-  const data = boardStore()
-  checkSession(args)
-  const ids = args?.images as number[]
+// 画像を格子状に並べて board に足し、足した配置を返す。at があればその点を中心に、なければ既存の配置の右に置く
+const placeImages = (data: MockBoards, board: MockBoard, ids: number[], at?: { x: number; y: number }) => {
   if (!ids.length) throw 'ボードに追加する画像を選んでください'
   const images = ids.map((id) => {
     const image = IMAGES.find((i) => i.id === id)
     if (!image) throw 'ゴミ箱・見つからない・削除された画像はボードに追加できません'
     return image
   })
-  const target = args?.target as Target
-  const board = 'new' in target ? newBoard(data, target.new) : data.boards.find((b) => b.id === target.board)
-  if (!board) throw `ボードが見つかりません（${(target as { board: number }).board}）`
   const items = board.items ?? []
   const columns = Math.ceil(Math.sqrt(images.length))
   const span = (n: number) => n * CELL + (n - 1) * GAP
-  const left = items.length
-    ? Math.max(...items.map((i) => i.geometry.x + i.geometry.width * i.geometry.scale)) + MARGIN
-    : -span(columns) / 2
-  const top = items.length ? Math.min(...items.map((i) => i.geometry.y)) : -span(Math.ceil(images.length / columns)) / 2
+  const rows = Math.ceil(images.length / columns)
+  const left = at
+    ? at.x - span(columns) / 2
+    : items.length
+      ? Math.max(...items.map((i) => i.geometry.x + i.geometry.width * i.geometry.scale)) + MARGIN
+      : -span(columns) / 2
+  const top = at ? at.y - span(rows) / 2 : items.length ? Math.min(...items.map((i) => i.geometry.y)) : -span(rows) / 2
   // 外した配置の ID も使い直さない
   let next = Math.max(0, ...data.boards.flatMap((b) => [...(b.items ?? []), ...(b.removed ?? [])].map((i) => i.id))) + 1
   const order = Math.max(-1, ...items.map((i) => i.geometry.stack_order)) + 1
@@ -709,6 +707,16 @@ const addToBoard: Handler = (args) => {
   })
   board.items = [...items, ...added]
   board.revision = (board.revision ?? 0) + 1
+  return added
+}
+
+const addToBoard: Handler = (args) => {
+  const data = boardStore()
+  checkSession(args)
+  const target = args?.target as Target
+  const board = 'new' in target ? newBoard(data, target.new) : data.boards.find((b) => b.id === target.board)
+  if (!board) throw `ボードが見つかりません（${(target as { board: number }).board}）`
+  const added = placeImages(data, board, args?.images as number[])
   const boards = 'new' in target ? [...data.boards, board] : data.boards
   const reveal = { board_id: board.id, placements: added.map((i) => i.id) }
   store('mock.boards', {
@@ -720,6 +728,18 @@ const addToBoard: Handler = (args) => {
   })
   // 本物はここで専用ウィンドウを開く。モックは e2e が確かめられるようにコンソールに出す
   console.info('board window')
+}
+
+// 一覧からドラッグした画像を、開いているボードの落とした点に置く（FR-713）。本物と同じく編集は続く
+const dropOnBoard: Handler = (args) => {
+  const data = boardStore()
+  const board = data.boards.find((b) => b.id === (args?.edit as EditingBoard['edit']).board_id)
+  if (!board) throw 'このボードの編集は終了しています'
+  if ((args?.revision as number) <= (board.revision ?? 0)) throw '古いボードの保存要求のため、保存を中止しました'
+  placeImages(data, board, args?.images as number[], args?.at as { x: number; y: number })
+  board.revision = args?.revision as number
+  store('mock.boards', { ...data, added: board.id })
+  return editing(board)
 }
 
 const takeBoardReveal: Handler = () => {
@@ -835,6 +855,7 @@ const handlers: Record<string, Handler> = {
   delete_board: deleteBoard,
   save_board: saveBoard,
   add_to_board: addToBoard,
+  drop_on_board: dropOnBoard,
   take_board_reveal: takeBoardReveal,
   // 元画像の状態は、e2e が sessionStorage の配置の source を書き換えて変える
   board_sources: (args) => {

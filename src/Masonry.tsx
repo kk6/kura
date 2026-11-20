@@ -24,6 +24,8 @@ type Props = {
   onOpen: () => void
   // 画像の右クリック。なければ WebView の初期のメニューを出す
   onContextMenu?: (id: number, e: MouseEvent) => void
+  // 画像をドラッグし始めた（FR-713）。運ぶ画像を決めるのは呼ぶ側
+  onDragStart?: (id: number, e: React.DragEvent) => void
   // 矢印キーで選択を動かす（NFR-12）。active は動かす元の画像。keys が false の間（拡大表示中など）は受けない
   active: number | null
   // この画像が見える所までスクロールする。同じ画像でももう一度スクロールできるよう、毎回新しいオブジェクトで受ける
@@ -45,6 +47,7 @@ export default function Masonry({
   selected,
   onSelect,
   onContextMenu,
+  onDragStart,
   onOpen,
   active,
   reveal,
@@ -148,6 +151,10 @@ export default function Masonry({
       onContextMenu={(e) => {
         const id = (e.target as HTMLElement).dataset.id
         if (id && onContextMenu) onContextMenu(Number(id), e)
+      }}
+      onDragStart={(e) => {
+        const id = (e.target as HTMLElement).dataset.id
+        if (id && onDragStart) onDragStart(Number(id), e)
       }}
       onDoubleClick={(e) => (e.target as HTMLElement).dataset.id && !e.shiftKey && !e.metaKey && onOpen()}
     >

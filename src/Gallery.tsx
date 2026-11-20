@@ -40,6 +40,7 @@ import { changeWeight, fillWeights, rankSimilar, type Similar, type Weights } fr
 import { type SortKey, sortImages } from './sort'
 import { useLibrary } from './useLibrary'
 import { useZoom, ZOOM_STEP } from './useZoom'
+import { IMAGE_DRAG } from './imageDrag'
 import { actualSize, FIT } from './zoomView'
 import ZoomPanel, { ZoomSlider } from './ZoomPanel'
 import './Gallery.css'
@@ -402,6 +403,16 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
     setLastBoard(last)
     setMenuAt(at)
   }
+  // 開いているボードのウィンドウへ運ぶ（FR-713）。選んでいない画像をつかんだら、その画像だけを選んで運ぶ（Finder と同じ）
+  function startDrag(id: number, e: React.DragEvent) {
+    // ゴミ箱と見つからない画像はボードに置けないので、つかませない
+    if (aside) return e.preventDefault()
+    if (!settings.board_enabled) return
+    const dragged = selection.ids.has(id) ? order.filter((i) => selection.ids.has(i)) : [id]
+    if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
+    e.dataTransfer.setData(IMAGE_DRAG, JSON.stringify(dragged))
+    e.dataTransfer.effectAllowed = 'copy'
+  }
   async function addToLastBoard() {
     if (!lastBoard || !canAdd) return
     try {
@@ -737,6 +748,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch }
         // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
         onOpen={() => !aside && setZoom(true)}
         onContextMenu={openContextMenu}
+        onDragStart={startDrag}
         active={selection.anchor}
         reveal={revealed}
         keys={!zoomed}

@@ -604,7 +604,7 @@ pub fn add(
         Target::New(name) => {
             let snapshot = Snapshot {
                 viewport: Viewport::default(),
-                items: place(&[], &sources),
+                items: place(&[], &sources, None),
             };
             let created = create_with(lib, expected, name, &snapshot, true)?;
             Ok(Added {
@@ -616,7 +616,7 @@ pub fn add(
             let tx = lib.conn.transaction().map_err(err)?;
             let board = load_from(&tx, *id)?;
             let mut snapshot = board.snapshot();
-            snapshot.items.extend(place(&board.items, &sources));
+            snapshot.items.extend(place(&board.items, &sources, None));
             write_snapshot(&tx, *id, board.revision + 1, &snapshot)?;
             tx.execute(
                 "UPDATE board_state SET last_board_id = ?1, last_added_board_id = ?1 WHERE id = 1",
@@ -647,13 +647,15 @@ pub fn add(
 }
 
 /// 既存の配置を動かさないよう、追加分はその右に並べる。空のボードでは原点を中心にする（FR-701）
-fn place(existing: &[Item], sources: &[Source]) -> Vec<ItemDraft> {
+/// at があればその点を中心に、なければ既存の配置の右（空なら原点を中心）に格子状に並べる
+fn place(existing: &[Item], sources: &[Source], at: Option<Point>) -> Vec<ItemDraft> {
     let columns = (sources.len() as f64).sqrt().ceil() as usize;
     let rows = sources.len().div_ceil(columns);
     let span = |n: usize| n as f64 * CELL + (n.saturating_sub(1)) as f64 * GAP;
-    let (left, top) = match bounds(existing) {
-        Some((_, top, right, _)) => (right + MARGIN, top),
-        None => (-span(columns) / 2.0, -span(rows) / 2.0),
+    let (left, top) = match (at, bounds(existing)) {
+        (Some(at), _) => (at.x - span(columns) / 2.0, at.y - span(rows) / 2.0),
+        (None, Some((_, top, right, _))) => (right + MARGIN, top),
+        (None, None) => (-span(columns) / 2.0, -span(rows) / 2.0),
     };
     let order = existing
         .iter()
@@ -714,6 +716,51 @@ pub fn save(
     revision: u64,
     snapshot: &Snapshot,
 ) -> Result<EditingBoard, String> {
+    validate(snapshot)?;
+    write_edit(lib, edit, revision, false, |_| Ok(snapshot.clone()))
+}
+
+/// ボードに落とした点。ボード上の座標
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// 一覧からボードのウィンドウへドラッグした画像を、落とした点を中心に並べて保存する（FR-713）。
+/// 「ボードに追加」と違い編集を終わらせない。画面が追加を取り消しの1操作として履歴に積むため
+pub fn drop_images(
+    lib: &mut Library,
+    edit: Edit,
+    revision: u64,
+    image_ids: &[i64],
+    at: Point,
+) -> Result<EditingBoard, String> {
+    if image_ids.is_empty() {
+        return Err("ボードに追加する画像を選んでください".into());
+    }
+    if !at.x.is_finite() || !at.y.is_finite() {
+        return Err("ボードに落とした位置が不正です".into());
+    }
+    let sources = sources(lib, edit.library_session, image_ids)?;
+    write_edit(lib, edit, revision, true, |board| {
+        let mut snapshot = board.snapshot();
+        snapshot
+            .items
+            .extend(place(&board.items, &sources, Some(at)));
+        Ok(snapshot)
+    })
+}
+
+/// 今の編集から revision の保存として、build が保存済みのボードから作った配置を書く。
+/// added なら、最後に画像を追加したボードもこのボードにする
+fn write_edit(
+    lib: &mut Library,
+    edit: Edit,
+    revision: u64,
+    added: bool,
+    build: impl FnOnce(&Board) -> Result<Snapshot, String>,
+) -> Result<EditingBoard, String> {
     check_session(lib, edit.library_session)?;
     let Some((current, saved_revision)) = lib.board_session.editing else {
         return Err("このボードの編集は終了しています".into());
@@ -721,13 +768,20 @@ pub fn save(
     if current != edit || revision <= saved_revision || revision > i64::MAX as u64 {
         return Err("古いボードの保存要求のため、保存を中止しました".into());
     }
-    validate(snapshot)?;
     let tx = lib.conn.transaction().map_err(err)?;
     let persisted = load_from(&tx, edit.board_id)?;
     if revision <= persisted.revision {
         return Err("古いボードの保存要求のため、保存を中止しました".into());
     }
-    write_snapshot(&tx, edit.board_id, revision, snapshot)?;
+    let snapshot = build(&persisted)?;
+    write_snapshot(&tx, edit.board_id, revision, &snapshot)?;
+    if added {
+        tx.execute(
+            "UPDATE board_state SET last_added_board_id = ?1 WHERE id = 1",
+            [edit.board_id.0],
+        )
+        .map_err(err)?;
+    }
     let board = load_from(&tx, edit.board_id)?;
     tx.commit().map_err(err)?;
     lib.board_session.editing = Some((edit, revision));

@@ -384,6 +384,26 @@ fn save_board(
         .with(|lib| board::save(lib, edit, revision, &snapshot))
 }
 
+/// 一覧からドラッグした画像を、開いているボードの落とした点に置く（FR-713）。編集は続く
+#[tauri::command]
+fn drop_on_board(
+    current: State<Current>,
+    edit: board::Edit,
+    revision: u64,
+    images: Vec<i64>,
+    at: board::Point,
+) -> Result<board::EditingBoard, String> {
+    let dropped = current
+        .0
+        .with(|lib| board::drop_images(lib, edit, revision, &images, at))?;
+    log::info!(
+        "ボードにドロップしました：ボード {}、{}枚",
+        edit.board_id.0,
+        images.len()
+    );
+    Ok(dropped)
+}
+
 /// ギャラリーから追加した結果。ボードのウィンドウが開いて読み取り、追加分を選んで表示する（FR-701）。
 /// ウィンドウを新しく作るときはイベントが画面の準備より先に届くので、ここに残して取りに来させる
 #[derive(Default)]
@@ -964,6 +984,7 @@ fn main() {
             delete_board,
             save_board,
             add_to_board,
+            drop_on_board,
             take_board_reveal,
             board_sources,
             show_in_gallery,

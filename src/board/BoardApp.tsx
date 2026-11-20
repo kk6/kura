@@ -8,6 +8,7 @@ import Status from '../Status'
 import Canvas from './Canvas'
 import NameDialog from './NameDialog'
 import { defaultName } from './names'
+import type { Point } from './geometry'
 import { saveQueue, type SaveState } from './saveQueue'
 import { restack, type Restack } from './stack'
 import type { BoardDisplay, Settings } from '../galleryTypes'
@@ -102,7 +103,7 @@ export default function BoardApp() {
       )
     }, setSave),
   ).current
-  // 閉じる・終了・追加の保存待ちの間（held）と、追加の後に開き直す間（revealing）は編集を受け付けない。
+  // 閉じる・終了・追加の保存待ちの間（held）と、追加の後に開き直す間・ドロップを保存する間（revealing）は編集を受け付けない。
   // 受け付けると、Rust が保存を確かめた後の変更が、閉じたボードや終わった編集へ送られて消える
   const held = useRef(false)
   const revealing = useRef(0)
@@ -346,6 +347,49 @@ export default function BoardApp() {
     setSelected(moment.selected)
   }
 
+  // 一覧から運んだ画像を、落とした点を中心に置く（FR-713）。Rust が今の編集のまま保存して配置 ID を返すので、
+  // 先に保存待ちを流し切り、その間とコマンドの間は編集を止める。追加の前の配置を履歴に積み、取り消しの1操作にする
+  async function dropImages(images: number[], at: Point) {
+    const v = latest.current
+    if (v.kind !== 'board' || locked()) return
+    revealing.current++
+    try {
+      setError(null)
+      settleView()
+      try {
+        await queue.flush()
+      } catch {
+        // 保存の失敗は保存の状態に出ている
+        return
+      }
+      const before = latest.current
+      if (before.kind !== 'board' || before.board.board.id !== v.board.board.id) return
+      let dropped: EditingBoard
+      try {
+        dropped = await invoke<EditingBoard>('drop_on_board', {
+          edit: before.board.edit,
+          revision: revision.current + 1,
+          images,
+          at,
+        })
+      } catch (e) {
+        setError(`ボードに追加できません（${e}）`)
+        return
+      }
+      revision.current = dropped.board.revision
+      const old = new Set(before.board.board.items.map((i) => i.id))
+      history.current.past.push({ items: before.board.board.items, selected })
+      history.current.future = []
+      setView({ kind: 'board', board: dropped })
+      setSelected(new Set(dropped.board.items.filter((i) => !old.has(i.id)).map((i) => i.id)))
+      setBoards((list) =>
+        list.map((b) => (b.id === dropped.board.id ? { ...b, placement_count: dropped.board.items.length } : b)),
+      )
+    } finally {
+      revealing.current--
+    }
+  }
+
   // 移動と拡大・縮小。ドラッグを終えたときに1度だけ届く
   function reshape(changed: Map<number, Geometry>) {
     apply((items) => items.map((i) => (changed.has(i.id) ? { ...i, geometry: changed.get(i.id)! } : i)))
@@ -578,6 +622,7 @@ export default function BoardApp() {
               onRedo={() => travel('future')}
               onRestack={reorder}
               onReveal={(id) => invoke('show_in_gallery', { id }).catch((e) => setError(String(e)))}
+              onDropImages={dropImages}
             />
           ) : (
             <main className="board__choose" aria-label="ボードを選ぶ">
