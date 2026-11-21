@@ -33,12 +33,6 @@
   color: var(--color-text-sub);
 }
 
-.zoom__close {
-  position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
-}
-
 /* 画像の左右の端を押す場所にし、乗せたときだけ < > を出す。画像の色を変えないよう、出すまでは何も描かない */
 .zoom__nav {
   position: absolute;

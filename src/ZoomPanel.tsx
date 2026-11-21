@@ -12,13 +12,12 @@ type Props = {
   // 前後の画像へ移る。端の画像では渡さず、< > を出さない
   onPrev?: () => void
   onNext?: () => void
-  onClose: () => void
   // 右クリック。一覧と同じメニューを出す（FR-515）
   onContextMenu: (e: React.MouseEvent) => void
 }
 
 // 拡大表示（FR-508）。一覧と同じ場所に重ねて出す
-export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onClose, onContextMenu }: Props) {
+export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onContextMenu }: Props) {
   const { view, frame } = zoom
   return (
     <section
@@ -70,9 +69,6 @@ export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onClose, o
           </span>
         </button>
       )}
-      <button type="button" className="button zoom__close" onClick={onClose}>
-        閉じる
-      </button>
     </section>
   )
 }
