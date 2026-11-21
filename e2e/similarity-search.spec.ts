@@ -188,6 +188,30 @@ test('Escape は拡大表示、選択の順に外し、何もなければ結果�
   await expect(toolbar(page).getByRole('heading')).toHaveText('すべての画像')
 })
 
+test('結果を拡大表示している間、帯の「閉じる」は1つで、押すと拡大表示だけを閉じて結果のモードに残る', async ({
+  page,
+}) => {
+  await open(page)
+  await pick(page, 3)
+  await findButton(page).click()
+  await expect(toolbar(page).getByRole('heading')).toHaveText('似た画像')
+  const close = toolbar(page).getByRole('button', { name: '閉じる', exact: true })
+  await expect(close).toHaveCount(1)
+
+  await pick(page, 3)
+  await page.keyboard.press(' ')
+  const zoom = page.getByRole('region', { name: '拡大表示' })
+  await expect(zoom).toBeVisible()
+  await expect(close).toHaveCount(1)
+
+  await close.click()
+  await expect(zoom).toHaveCount(0)
+  await expect(toolbar(page).getByRole('heading')).toHaveText('似た画像')
+  // 結果のモードの「閉じる」に戻る
+  await close.click()
+  await expect(toolbar(page).getByRole('heading')).toHaveText('すべての画像')
+})
+
 test('重みで並びが変わり、全部は0にできず、手を離すと保存して次の検索でも使う', async ({ page }) => {
   await open(page)
   await pick(page, 7)

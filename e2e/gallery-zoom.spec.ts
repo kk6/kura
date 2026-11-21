@@ -52,9 +52,12 @@ test('ダブルクリックで拡大し、左右キーで前後の画像に移�
   await expect(zoom).toHaveCount(0)
   expect(await selectedNames(page)).toEqual(['ref_00001.jpg'])
 
+  // 「閉じる」は画像の上ではなく、一覧の上の帯に出す
   await thumb(page, 1).dblclick()
-  await zoom.getByRole('button', { name: '閉じる' }).click()
+  await expect(zoom.getByRole('button', { name: '閉じる' })).toHaveCount(0)
+  await page.locator('.gallery__toolbar').getByRole('button', { name: '閉じる', exact: true }).click()
   await expect(zoom).toHaveCount(0)
+  await expect(page.locator('.gallery__toolbar').getByRole('button', { name: '閉じる', exact: true })).toHaveCount(0)
 
   // 詳細パネルのサムネイルをダブルクリックしても開く（Finder と同じ）
   await detail.getByRole('img', { name: 'ref_00001.jpg のプレビュー' }).dblclick()

@@ -754,8 +754,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           ) : (
             !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
           )}
-          {similar && (
-            <button type="button" className="button" title="閉じる（esc）" onClick={closeSimilar}>
+          {/* 拡大表示の間は、結果のモードの「閉じる」の代わりに拡大表示の「閉じる」を出す。Escape も拡大表示を先に閉じる */}
+          {(zoomed || similar) && (
+            <button
+              type="button"
+              className="button"
+              title="閉じる（esc）"
+              onClick={zoomed ? () => setZoom(false) : closeSimilar}
+            >
               <Icon d={ICONS.x} />
               閉じる
             </button>
@@ -807,7 +813,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
             src={convertFileSrc(shown?.detail?.path ?? `${root}/.kura/thumbs/${zoomed.hash}.jpg`)}
             onPrev={at > 0 ? () => step(-1) : undefined}
             onNext={at < order.length - 1 ? () => step(1) : undefined}
-            onClose={() => setZoom(false)}
             onContextMenu={(e) => openContextMenu(zoomed.id, e)}
           />
         )}
