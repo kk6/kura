@@ -177,7 +177,7 @@ test('2万枚でも、タグ・カテゴリ・文字の絞り込みの結果が0
   for (const [name, ms] of Object.entries(times)) expect(ms, name).toBeLessThan(500)
 })
 
-test('タグ管理ダイアログで名前を変え、統合すると両方が付いていた画像も1つのタグになり、削除すると全部から外れる', async ({
+test('サイドバーのボタンで設定の「タグ」を開き、名前で絞り込み、名前を変え、統合すると両方が付いていた画像も1つのタグになり、削除すると全部から外れる', async ({
   page,
 }) => {
   const errors: string[] = []
@@ -196,10 +196,24 @@ test('タグ管理ダイアログで名前を変え、統合すると両方が�
   await expect(status).toContainText('399 / 2000枚')
 
   await sidebar.getByRole('button', { name: 'タグを管理する' }).click()
-  const dialog = page.getByRole('dialog', { name: 'タグを管理する' })
+  const dialog = page.getByRole('region', { name: '設定' })
+  await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('タグ')
   const rows = dialog.getByRole('list', { name: 'タグ' }).locator('.tags__name')
   await expect(rows).toHaveText(['あおり', '座り', '振り返り'])
+
+  // 名前で絞り込む。比べ方は検索バーの候補と同じで、大文字・小文字と正規化を無視する
+  const search = dialog.getByRole('searchbox', { name: 'タグを名前で絞り込む' })
+  await search.fill('振')
+  await expect(rows).toHaveText(['振り返り'])
+  await search.fill('なし')
+  await expect(dialog).toContainText('「なし」を名前に含むタグはありません')
+  // 文字があれば Escape は文字だけを消し、設定は閉じない
+  await search.press('Escape')
+  await expect(search).toHaveValue('')
+  await expect(rows).toHaveText(['あおり', '座り', '振り返り'])
   await expect(dialog.getByRole('listitem').filter({ hasText: 'あおり' })).toContainText('664枚')
+
+  await page.screenshot({ path: 'test-results/settings-tags.png' })
 
   // 名前の変更。ほかのタグと同じ名前はエラーにし、入力欄を残す
   await dialog.getByRole('button', { name: '「振り返り」の名前を変える' }).click()
@@ -208,18 +222,21 @@ test('タグ管理ダイアログで名前を変え、統合すると両方が�
   await input.press('Enter')
   await expect(dialog).toContainText('エラー：同じ名前のタグがあります（あおり）')
   await expect(input).toHaveAttribute('aria-invalid', 'true')
-  await page.screenshot({ path: 'test-results/tag-dialog-rename-error.png' })
+  await page.screenshot({ path: 'test-results/settings-tags-rename-error.png' })
+  // Escape は名前の入力だけをやめ、設定は閉じない
+  await input.press('Escape')
+  await expect(input).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '「振り返り」の名前を変える' }).click()
   await input.fill('振り向き')
   await input.press('Enter')
   await expect(rows).toHaveText(['あおり', '座り', '振り向き'])
-  // サイドバーでは、選んでいる「座り」が先頭に来る
-  await expect(sideTags.locator('.sidebar__name')).toHaveText(['座り', 'あおり', '振り向き'])
 
   // 統合。「あおり」を「座り」にまとめる。1枚目は両方が付いているが「座り」1つになる
   await dialog.getByRole('button', { name: '「あおり」を統合する' }).click()
-  await dialog.getByRole('combobox').selectOption({ label: '座り' })
+  await dialog.getByRole('combobox', { name: '統合先' }).selectOption({ label: '座り' })
   await expect(dialog).toContainText('「あおり」の 664枚に「座り」を付け、「あおり」を削除します')
-  await page.screenshot({ path: 'test-results/tag-dialog-merge.png' })
+  await page.screenshot({ path: 'test-results/settings-tags-merge.png' })
   await dialog.getByRole('button', { name: '統合する', exact: true }).click()
   await expect(rows).toHaveText(['座り', '振り向き'])
   // 3 か 5 の倍数と1枚目
@@ -231,7 +248,7 @@ test('タグ管理ダイアログで名前を変え、統合すると両方が�
   await dialog.getByRole('button', { name: '削除する', exact: true }).click()
   await expect(rows).toHaveText(['座り'])
 
-  await dialog.getByRole('button', { name: '閉じる' }).click()
+  await page.getByRole('navigation', { name: '設定の種類' }).getByRole('button', { name: 'ギャラリーに戻る' }).click()
   await expect(dialog).toHaveCount(0)
   // 絞り込みの「座り」は残り、統合した分が増える。詳細パネルの1枚目のタグも読み直す
   await expect(sideTags.locator('.sidebar__name')).toHaveText(['座り'])

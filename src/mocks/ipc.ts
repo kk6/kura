@@ -438,6 +438,8 @@ const DEFAULT_SETTINGS: Settings = {
   thumb_width: 200,
   tags_collapsed: false,
   category_children: true,
+  recent_tags: true,
+  recent_tags_count: 5,
   board_enabled: true,
   similarity_enabled: false,
   similarity_weights: {},

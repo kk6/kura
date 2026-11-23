@@ -69,6 +69,9 @@ export type Settings = {
   tags_collapsed: boolean
   // カテゴリで絞り込むときとカテゴリの件数に、子カテゴリの画像を含める（FR-516）
   category_children: boolean
+  // 詳細パネルに最近使ったタグを出すかと、出す件数（RECENT_TAG_COUNTS のどれか。FR-419）
+  recent_tags: boolean
+  recent_tags_count: number
   // アイデアボードを使う（FR-711）
   board_enabled: boolean
   // 類似画像検索を使う（5.6）。true にするのは prepare_models でモデルをそろえた後だけ

@@ -34,3 +34,7 @@ export const thumb = (page: import('@playwright/test').Page, n: number) =>
 
 export const selectedNames = (page: import('@playwright/test').Page) =>
   page.locator('.list__thumb--selected').evaluateAll((imgs) => imgs.map((i) => i.getAttribute('alt')).sort())
+
+// 設定を開いている間のサイドバーで、設定の種類を選ぶ（8章）
+export const settingsKind = (page: import('@playwright/test').Page, name: string) =>
+  page.getByRole('navigation', { name: '設定の種類' }).getByRole('button', { name, exact: true }).click()

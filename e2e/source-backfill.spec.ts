@@ -1,3 +1,4 @@
+import { settingsKind } from './gallery-helpers'
 import { expect, test, type Page } from './fixtures'
 
 async function openSettings(page: Page) {
@@ -5,6 +6,7 @@ async function openSettings(page: Page) {
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, '元URL')
   return page.getByRole('region', { name: '設定' })
 }
 
@@ -21,6 +23,7 @@ test('設定の「元URLを補完」で進み具合と、補完・記録なし�
 
   await expect(page.getByRole('contentinfo')).not.toContainText('元URLを補完中', { timeout: 5000 })
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, '元URL')
   await expect(settings).toContainText('完了：補完 3枚、記録なし 2枚、読み取り失敗 1枚、対象外 1994枚')
   await expect(settings.getByRole('button', { name: '元URLを補完' })).toBeEnabled()
   await settings.screenshot({ path: 'test-results/source-backfill.png' })

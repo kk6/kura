@@ -1,3 +1,4 @@
+import { settingsKind } from './gallery-helpers'
 import { expect, test, type Page } from './fixtures'
 
 type TauriWindow = { __TAURI_INTERNALS__: { invoke(cmd: string, args?: unknown): Promise<unknown> } }
@@ -56,6 +57,7 @@ test('設定でアイデアボードを OFF にするとボタンとメニュー
   const toggle = settings.getByRole('switch', { name: 'アイデアボードを使う' })
 
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, 'アイデアボード')
   await expect(toggle).toBeChecked()
   await toggle.uncheck()
   await expect(button).toHaveCount(0)
@@ -67,6 +69,7 @@ test('設定でアイデアボードを OFF にするとボタンとメニュー
   await openGallery(page)
   await expect(button).toHaveCount(0)
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, 'アイデアボード')
   await toggle.check()
   await page.keyboard.press('Escape')
   await expect(button).toBeVisible()
@@ -74,6 +77,7 @@ test('設定でアイデアボードを OFF にするとボタンとメニュー
 
   await page.evaluate(() => sessionStorage.setItem('mock.failSettings', '1'))
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, 'アイデアボード')
   await toggle.click()
   await expect(toggle).toBeChecked()
   await page.keyboard.press('Escape')
@@ -400,6 +404,7 @@ test('右クリックの「「<ボード名>」に追加」は最後に追加し
   await dialog.getByRole('button', { name: '追加' }).click()
   await expect(dialog).toHaveCount(0)
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, 'アイデアボード')
   await page.getByRole('switch', { name: 'アイデアボードを使う' }).uncheck()
   await page.keyboard.press('Escape')
   await thumbs.nth(0).click({ button: 'right' })
@@ -446,6 +451,7 @@ test('選んでいない時、ゴミ箱、見つからない画像、OFF では�
   expect((await storedBoards(page)).boards.map((b) => b.name)).toEqual(['構図'])
 
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, 'アイデアボード')
   await page.getByRole('switch', { name: 'アイデアボードを使う' }).uncheck()
   await page.keyboard.press('Escape')
   await expect(add).toHaveCount(0)

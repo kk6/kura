@@ -69,3 +69,22 @@
   justify-content: flex-end;
   gap: var(--space-3);
 }
+
+/* 設定の「タグ」の枠の中。検索欄と一覧（docs/design.md「設定のページ」） */
+.tags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6);
+}
+
+.tags__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: var(--border);
+}
+
+.tags__item:last-child {
+  border-bottom: none;
+}

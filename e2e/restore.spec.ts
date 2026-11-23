@@ -1,11 +1,12 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
-import { openGallery } from './gallery-helpers'
+import { openGallery, settingsKind } from './gallery-helpers'
 
 // 設定から「管理情報をインポート…」で path のファイルを選ぶ（FR-107）。モックのファイル選択は mock.openPath を返す
 async function pick(page: Page, path: string) {
   await page.evaluate((path) => sessionStorage.setItem('mock.openPath', path), path)
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, 'バックアップ')
   await page.getByRole('region', { name: '設定' }).getByRole('button', { name: '管理情報をインポート…' }).click()
 }
 

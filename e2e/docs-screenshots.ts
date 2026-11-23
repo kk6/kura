@@ -45,6 +45,8 @@ test('似た画像を探す', async ({ page }) => {
         confirm_category_move: true,
         thumb_width: 200,
         tags_collapsed: false,
+        recent_tags: true,
+        recent_tags_count: 5,
         board_enabled: true,
         similarity_enabled: true,
         similarity_weights: { content: 70, composition: 30, pose: 50 },
@@ -84,10 +86,13 @@ test('拡大表示', async ({ page }) => {
   await shot(page, 'zoom')
 })
 
+// 設定の「タグ」（8章）。画像の名前は、ダイアログだった頃の tag-dialog のまま残す（README と紹介ページが参照する）
 test('タグ管理', async ({ page }) => {
   await openGallery(page)
   await page.getByRole('button', { name: 'タグを管理する' }).click()
-  await expect(page.getByRole('dialog', { name: 'タグを管理する' })).toBeVisible()
+  await expect(
+    page.getByRole('region', { name: '設定' }).getByRole('heading', { name: 'タグ', level: 2 }),
+  ).toBeVisible()
   await shot(page, 'tag-dialog')
 })
 

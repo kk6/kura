@@ -80,9 +80,10 @@ test('ライブラリを切り替えると選択画面に戻り、入力中の�
   await memo.fill('切り替える前に書いたメモ')
 
   // ダイアログを開いている間は、ほかのショートカットと同じく効かない
-  await page.getByRole('button', { name: 'タグを管理する' }).click()
+  await thumb(page, 2).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'カテゴリを変える…' }).click()
   await switchLibrary(page)
-  await expect(page.getByRole('dialog', { name: 'タグを管理する' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '1枚の画像のカテゴリを変える' })).toBeVisible()
   await page.keyboard.press('Escape')
   await memo.click()
 
