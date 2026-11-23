@@ -136,3 +136,9 @@
   border-radius: var(--radius-md);
   background: var(--color-input);
 }
+
+/* 最近使ったタグを出さない間は、件数を選べないことが分かるようにする */
+.settings__select:disabled {
+  color: var(--color-text-faint);
+  background: var(--color-raise);
+}
