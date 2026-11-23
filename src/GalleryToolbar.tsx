@@ -12,6 +12,8 @@ const THUMB_STEP = 10
 type Props = {
   title: string
   count: number
+  // 数の単位。元が同じ画像の組（FR-611）では「組」
+  unit?: string
   // 見出しの前に置くもの（類似画像検索の基準画像のサムネイル）
   lead?: ReactNode
   // 枚数の右に出す補足（「未計算 N枚」）
@@ -29,6 +31,7 @@ type Props = {
 export default function GalleryToolbar({
   title,
   count,
+  unit = '枚',
   lead,
   note,
   sort,
@@ -41,7 +44,10 @@ export default function GalleryToolbar({
     <div className="gallery__toolbar">
       {lead}
       <h1 className="toolbar__title">{title}</h1>
-      <span className="toolbar__count">{count}枚</span>
+      <span className="toolbar__count">
+        {count}
+        {unit}
+      </span>
       {note && <span className="toolbar__count">{note}</span>}
       <span className="toolbar__spacer" />
       {sort && (

@@ -1,6 +1,6 @@
 import { Icon, ICONS } from './icons'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { Image } from './galleryTypes'
 import { type Arrow, layout, neighbor, visible } from './layout'
 import './Masonry.css'
@@ -18,6 +18,8 @@ type Props = {
   // 1枚もないときに出す文言
   empty: string
   thumbWidth: number
+  // 一覧を区切る見出しの行（元が同じ画像の組。FR-611）。start は区切りの後の最初の画像の番号
+  sections?: { start: number; header: ReactNode }[]
   selected: Set<number>
   // id が null のときは画像のない所を押した
   onSelect: (id: number | null, e: MouseEvent) => void
@@ -44,6 +46,7 @@ export default function Masonry({
   onScrolled,
   empty,
   thumbWidth,
+  sections,
   selected,
   onSelect,
   onContextMenu,
@@ -56,7 +59,7 @@ export default function Masonry({
 }: Props) {
   const ref = useRef<HTMLElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
-  const [viewport, setViewport] = useState({ width: 0, height: 0, gap: 0 })
+  const [viewport, setViewport] = useState({ width: 0, height: 0, gap: 0, header: 0 })
 
   useEffect(() => {
     const el = ref.current!
@@ -66,6 +69,8 @@ export default function Masonry({
         height: el.clientHeight,
         // 配置の計算に数値が要るので、サムネイルの間隔のトークンを読む
         gap: parseFloat(getComputedStyle(el).getPropertyValue('--space-2')),
+        // 区切りの見出しの行は、一覧の上の帯と同じ高さ（docs/design.md）
+        header: parseFloat(getComputedStyle(el).getPropertyValue('--size-toolbar')),
       })
     measure()
     const observer = new ResizeObserver(measure)
@@ -79,10 +84,11 @@ export default function Masonry({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollKey])
 
-  const { width, height, gap } = viewport
+  const { width, height, gap, header } = viewport
+  const starts = useMemo(() => sections?.map((s) => s.start), [sections])
   const l = useMemo(
-    () => (width ? layout(images, width - gap * 2, thumbWidth, gap) : undefined),
-    [images, width, gap, thumbWidth],
+    () => (width ? layout(images, width - gap * 2, thumbWidth, gap, starts && { starts, header }) : undefined),
+    [images, width, gap, thumbWidth, starts, header],
   )
 
   // 「ギャラリーで表示」の画像が見える所までスクロールする。選ぶと詳細パネルが開いて幅が変わり、並べ直しで
@@ -163,6 +169,21 @@ export default function Masonry({
       ) : (
         l && (
           <div className="list__canvas" style={{ height: l.height + gap * 2 }}>
+            {sections?.map(
+              (section, k) =>
+                // 見出しは組の数だけなので、見える範囲の上下1画面分だけ描く
+                Math.abs(l.headers[k] - scrollTop) < height * 2 && (
+                  <div
+                    key={section.start}
+                    className={k ? 'list__section' : 'list__section list__section--first'}
+                    style={{ width: width - gap * 2, transform: `translate(${gap}px, ${l.headers[k] + gap}px)` }}
+                    // 見出しの中を押しても、画像のない所を押したとして選択を外さない
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {section.header}
+                  </div>
+                ),
+            )}
             {shown.map((i) => [
               <img
                 key={images[i].id}

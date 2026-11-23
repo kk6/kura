@@ -9,14 +9,19 @@ export type Layout = {
   // 列ごとの画像の番号。各列の中では y の昇順なので、二分探索できる
   columns: number[][]
   height: number
+  // 区切りの見出しの行の上端（sections の starts と同じ並び）
+  headers: Float64Array
 }
 
-/** 画像を並び順のとおりに、一番短い列へ順に置く。列の数は targetWidth に一番近い幅になる数 */
+/** 画像を並び順のとおりに、一番短い列へ順に置く。列の数は targetWidth に一番近い幅になる数。
+ *  sections があれば、starts の番号の画像の前で区切り、一覧の幅いっぱいの高さ header の見出しの行を置く。
+ *  区切りの後は全部の列を見出しの下からそろえて始める（元が同じ画像の組。FR-611） */
 export function layout(
   sizes: readonly { width: number; height: number }[],
   width: number,
   targetWidth: number,
   gap: number,
+  sections?: { starts: readonly number[]; header: number },
 ): Layout {
   const count = Math.max(1, Math.round((width + gap) / (targetWidth + gap)))
   const columnWidth = (width - gap * (count - 1)) / count
@@ -26,7 +31,13 @@ export function layout(
   const h = new Float64Array(n)
   const bottoms = new Array<number>(count).fill(0)
   const columns: number[][] = Array.from({ length: count }, () => [])
+  const headers = new Float64Array(sections?.starts.length ?? 0)
+  let next = 0
   for (let i = 0; i < n; i++) {
+    if (sections && sections.starts[next] === i) {
+      headers[next++] = Math.max(...bottoms)
+      bottoms.fill(headers[next - 1] + sections.header)
+    }
     let c = 0
     for (let k = 1; k < count; k++) if (bottoms[k] < bottoms[c]) c = k
     x[i] = c * (columnWidth + gap)
@@ -35,7 +46,7 @@ export function layout(
     bottoms[c] += h[i] + gap
     columns[c].push(i)
   }
-  return { columnWidth, x, y, h, columns, height: Math.max(0, Math.max(...bottoms) - gap) }
+  return { columnWidth, x, y, h, columns, headers, height: Math.max(0, Math.max(...bottoms) - gap) }
 }
 
 /** top〜bottom に一部でもかかる画像の番号 */

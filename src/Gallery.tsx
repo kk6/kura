@@ -38,6 +38,7 @@ import type {
   ScanReport,
   Skipped,
 } from './importTypes'
+import { showGroups } from './origin'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { changeWeight, fillWeights, rankSimilar, type Similar, type Weights } from './similarity'
 import { type SortKey, sortImages } from './sort'
@@ -164,17 +165,24 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   const ranked = useMemo(() => rankedIds?.flatMap((id) => byId.get(id) ?? []), [rankedIds, byId])
 
   const sorted = useMemo(() => sortImages(data.images, sort), [data.images, sort])
-  // 結果のモードでも、サイドバーのカテゴリ・タグと検索バーで絞り込む（FR-603）
-  const images = useMemo(
+  // 結果のモードでも、サイドバーのカテゴリ・タグと検索バーで絞り込む（FR-603）。
+  // 元が同じ画像の組は、条件に合う画像を1枚でも含む組を組ごと出す（FR-611）
+  const matched = useMemo(
     () => filterImages(ranked ?? sorted, data.categories, data.tags, filter, settings.category_children),
     [ranked, sorted, data.categories, data.tags, filter, settings.category_children],
   )
+  const allGroups = useMemo(() => groups && showGroups(groups, byId, null), [groups, byId])
+  const shownGroups = useMemo(
+    () => groups && showGroups(groups, byId, new Set(matched.map((i) => i.id))),
+    [groups, byId, matched],
+  )
+  const images = useMemo(() => shownGroups?.flat() ?? matched, [shownGroups, matched])
   const counts = useMemo(
     () => countImages(data.images, data.categories, settings.category_children),
     [data.images, data.categories, settings.category_children],
   )
-  // 全体の枚数。結果のモードでは、結果の枚数（特徴量のある画像）
-  const whole = ranked ?? data.images
+  // 全体の枚数。結果のモードでは、結果の枚数（特徴量のある画像、組の画像）
+  const whole = useMemo(() => allGroups?.flat() ?? ranked ?? data.images, [allGroups, ranked, data.images])
   const filtered = images.length !== whole.length
 
   // 絞り込みで見えなくなった画像の選択は、下の effect が外す。見えない画像までまとめて変えないため
@@ -191,7 +199,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
   const listed = inTrash ? trash : inMissing ? missing : images
   // 一覧のスクロールを先頭に戻す契機。画像の中身（タグ・メモなど）の変化では戻さない
-  const listKey = JSON.stringify([sort, filter, aside, similar?.base ?? null])
+  // 組を外したりまとめたりしても戻さない
+  const listKey = JSON.stringify([sort, filter, aside, similar?.base ?? null, groups !== null])
   // 結果のモードに入る前の一覧のスクロールの位置。閉じたときに Masonry が読み、読んだら捨てる
   const scrolled = useRef(0)
   const entryTop = useRef(0)
@@ -278,6 +287,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     if (e.key === 'Escape') {
       if (zoomed) setZoom(false)
       else if (selection.ids.size) setSelection(EMPTY_SELECTION)
+      else if (groups) closeGroups()
       else closeSimilar()
     } else if (by && zoomed) {
       e.preventDefault()
@@ -482,9 +492,11 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       setResult({ kind: 'error', message: `似た画像を探せません（${e}）` })
       return
     }
-    if (!similar) entryTop.current = scrolled.current
+    if (!similar && !groups) entryTop.current = scrolled.current
     setWeights(fillWeights(r.aspects, settings.similarity_weights))
     setSimilar({ ...r, base: image.id, image })
+    // 組の結果は保存しないので、似た画像の結果に入れ替える
+    setGroups(null)
     setZoom(false)
   }
   function closeSimilar() {
@@ -510,12 +522,23 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       found = null
     }
     setOriginSearch(null)
-    if (found) setGroups(found)
+    if (!found) return
+    if (!similar && !groups && !aside) entryTop.current = scrolled.current
+    setGroups(found)
+    setSimilar(null)
+    setAside(null)
+    setZoom(false)
+    setSelection(EMPTY_SELECTION)
+  }
+  function closeGroups() {
+    restoreTop.current = entryTop.current
+    setGroups(null)
   }
   // 知らない観点（後の版で足した観点）の保存した値は残す
   const saveWeights = () => changeSettings({ similarity_weights: { ...settings.similarity_weights, ...weights } })
   // OFF にしたら結果のモードを閉じる
   if (similar && !settings.similarity_enabled) setSimilar(null)
+  if (groups && !settings.similarity_enabled) setGroups(null)
 
   // ボードの「ギャラリーで表示」（FR-701）。絞り込みを外して画像を選び、見える所までスクロールする。
   // ゴミ箱と見つからない画像は、その一覧を開いて選ぶ
@@ -531,6 +554,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     setMenuAt(null)
     setZoom(false)
     setSimilar(null)
+    setGroups(null)
     setAside(next)
     if (!next) setFilter(NO_FILTER)
     setSelection({ ids: new Set([id]), anchor: id })
@@ -626,6 +650,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     setAside(next)
     setZoom(false)
     setSimilar(null)
+    setGroups(null)
     setSelection(EMPTY_SELECTION)
     // タグの統合や削除はゴミ箱と見つからない画像にも効くので、開くたびに読み直す
     if (next === 'trash') reloadTrash()
@@ -739,15 +764,17 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
 
   const title = similar
     ? '似た画像'
-    : inTrash
-      ? 'ゴミ箱'
-      : inMissing
-        ? '見つからない'
-        : filter.category === 'all'
-          ? 'すべての画像'
-          : filter.category === 'uncategorized'
-            ? '未分類'
-            : (data.categories.find((c) => c.id === filter.category)?.name ?? '')
+    : groups
+      ? '元が同じ画像'
+      : inTrash
+        ? 'ゴミ箱'
+        : inMissing
+          ? '見つからない'
+          : filter.category === 'all'
+            ? 'すべての画像'
+            : filter.category === 'uncategorized'
+              ? '未分類'
+              : (data.categories.find((c) => c.id === filter.category)?.name ?? '')
 
   const skipped = result?.kind === 'report' || result?.kind === 'scan' ? result.report.skipped : []
 
@@ -775,6 +802,32 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     }
     editSkipped((list) => list.filter((x) => x.path !== s.path))
   }
+  // 組ごとの見出しの行（FR-611）。「1枚にまとめる…」は組の全部の画像でダイアログを開く
+  const sections = useMemo(() => {
+    let start = 0
+    return shownGroups?.map((g) => {
+      const section = {
+        start,
+        header: (
+          <>
+            <span className="list__section-count">{g.length}枚</span>
+            <button type="button" className="button" onClick={() => setMerging(g)}>
+              1枚にまとめる…
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => setGroups((all) => all && all.filter((ids) => !g.some((i) => ids.includes(i.id))))}
+            >
+              一覧から外す
+            </button>
+          </>
+        ),
+      }
+      start += g.length
+      return section
+    })
+  }, [shownGroups])
   const tidyExisting = tidying && data.images.find((i) => i.id === tidying.existing)
 
   return (
@@ -836,8 +889,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         />
         <GalleryToolbar
           title={title}
-          count={listed.length}
-          sort={aside || similar ? undefined : sort}
+          count={shownGroups?.length ?? listed.length}
+          unit={shownGroups ? '組' : '枚'}
+          sort={aside || similar || groups ? undefined : sort}
           onSort={setSort}
           lead={
             similar && (
@@ -863,12 +917,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
             !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
           )}
           {/* 拡大表示の間は、結果のモードの「閉じる」の代わりに拡大表示の「閉じる」を出す。Escape も拡大表示を先に閉じる */}
-          {(zoomed || similar) && (
+          {(zoomed || similar || groups) && (
             <button
               type="button"
               className="button"
               title="閉じる（esc）"
-              onClick={zoomed ? () => setZoom(false) : closeSimilar}
+              onClick={zoomed ? () => setZoom(false) : groups ? closeGroups : closeSimilar}
             >
               <Icon d={ICONS.x} />
               閉じる
@@ -892,11 +946,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           scrollTo={restoreTop.current}
           onScrolled={(top) => (scrolled.current = top)}
           empty={
-            !aside && filtered
-              ? '条件に合う画像がありません'
-              : '画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください'
+            groups && !allGroups?.length
+              ? '元が同じ画像の組は見つかりませんでした'
+              : !aside && filtered
+                ? '条件に合う画像がありません'
+                : '画像がありません。「画像を取り込む」を押すか、画像をここにドロップしてください'
           }
           thumbWidth={thumbWidth}
+          sections={sections}
           selected={selection.ids}
           onSelect={(id, e) =>
             setSelection((s) =>
