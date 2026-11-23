@@ -68,6 +68,8 @@ export type Inspected = {
 
 export type Settings = {
   confirm_category_move: boolean
+  // 差分検出で、対応していない形式のファイルを _未対応ファイル/ へ移す（FR-108）
+  set_aside_unsupported: boolean
   thumb_width: number
   tags_collapsed: boolean
   // カテゴリで絞り込むときとカテゴリの件数に、子カテゴリの画像を含める（FR-516）

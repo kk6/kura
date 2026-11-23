@@ -203,6 +203,17 @@ export default function SettingsPage({
                   />
                 }
               />
+              <Row
+                name="差分検出で、対応していない形式のファイルを _未対応ファイル/ へ移す"
+                description="動画など、Kura が登録しないファイルを、ライブラリの直下の _未対応ファイル/ へまとめます。移したファイルは、登録しなかったファイルの一覧で知らせます。"
+                control={
+                  <Switch
+                    label="差分検出で、対応していない形式のファイルを _未対応ファイル/ へ移す"
+                    checked={settings.set_aside_unsupported}
+                    onChange={(set_aside_unsupported) => onSettings({ set_aside_unsupported })}
+                  />
+                }
+              />
             </Group>
           )}
 

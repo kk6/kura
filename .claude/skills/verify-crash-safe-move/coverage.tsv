@@ -9,4 +9,4 @@ src-tauri/src/fileops.rs	drop_op	11d1635d59c639df
 src-tauri/src/fileops.rs	settle	73b562ea9c7a45b3
 src-tauri/src/fileops.rs	recover	98250a067b49690b
 src-tauri/src/library.rs	connect	f8852825ccda82d0
-src-tauri/src/library.rs	apply_op	c9c7598ed8118f5d
+src-tauri/src/library.rs	apply_op	2b31a54c87ab1905

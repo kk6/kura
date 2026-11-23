@@ -93,3 +93,24 @@
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
 }
+
+/* 重複の行の「整理…」（FR-109）。理由の右端に寄せる */
+.skip__action {
+  margin-left: auto;
+}
+
+/* 重複の整理（FR-109）の、残す場所の選択肢。名前の下にパスを出す */
+.tidy__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.tidy__choice {
+  align-items: flex-start;
+  color: var(--color-text);
+}
+
+.tidy__path {
+  display: block;
+}
