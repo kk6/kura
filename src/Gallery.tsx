@@ -682,6 +682,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       getCurrentWebview().onDragDropEvent((e) => {
         const p = e.payload
         if (p.type === 'leave') return setFileDrag(null)
+        if (p.type === 'enter') measureTitleBar()
         const over = onSearchByImage(p.position)
         if (p.type === 'drop') {
           setFileDrag(null)
@@ -1323,9 +1324,21 @@ function useDialogOpen() {
 // 類似画像検索の結果の帯に出す基準画像のサムネイル。ratio と color は読み込むまでの場所と色
 type Lead = { src: string; name: string; ratio?: string; color?: string }
 
-// Tauri のドラッグの位置（物理ピクセル）が「画像で探す」の上か（FR-608）
-function onSearchByImage(p: { x: number; y: number }) {
+// macOS の wry はドラッグの位置を、型は PhysicalPosition だがポイント（CSS のピクセルと同じ）で、
+// ページの上端ではなくウィンドウのタイトルバーを含む上端から数えて渡す（実アプリで測った）。
+// その差を、ドラッグが入るたびにウィンドウの外側の高さとページの高さから求める。全画面ではタイトルバーがなく0になる
+let titleBar = 0
+function measureTitleBar() {
+  const win = getCurrentWindow()
+  Promise.all([win.outerSize(), win.scaleFactor()]).then(
+    ([size, scale]) => (titleBar = Math.max(0, size.height / scale - innerHeight)),
+    // モックの画面にはウィンドウがないので、差はないものとする
+    () => (titleBar = 0),
+  )
+}
+
+// Tauri のドラッグの位置が「画像で探す」の上か（FR-608）
+function onSearchByImage({ x, y }: { x: number; y: number }) {
   const r = document.getElementById(SEARCH_BY_IMAGE)?.getBoundingClientRect()
-  const [x, y] = [p.x / devicePixelRatio, p.y / devicePixelRatio]
-  return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+  return !!r && x >= r.left && x <= r.right && y - titleBar >= r.top && y - titleBar <= r.bottom
 }

@@ -28,7 +28,7 @@ async function open(page: Page, enabled = true) {
 
 const button = (page: Page) => page.getByRole('button', { name: /画像で探す|探しています/ })
 
-// Tauri のドラッグのイベントを送る。at は CSS のピクセルで、本物と同じく物理ピクセルに直して送る
+// Tauri のドラッグのイベントを送る。macOS の本物と同じく、位置は CSS のピクセルのまま送る（e2e の devicePixelRatio は2）
 async function drag(
   page: Page,
   event: 'enter' | 'over' | 'drop' | 'leave',
@@ -39,7 +39,7 @@ async function drag(
     ([event, at, paths]) =>
       (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('plugin:event|emit', {
         event: `tauri://drag-${event}`,
-        payload: { paths, position: { x: at.x * devicePixelRatio, y: at.y * devicePixelRatio } },
+        payload: { paths, position: at },
       }),
     [event, at, paths] as const,
   )
