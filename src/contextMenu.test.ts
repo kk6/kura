@@ -69,6 +69,20 @@ describe('imageMenu', () => {
     ])
   })
 
+  it('類似画像検索の結果のモードで2枚以上を選んでいれば、「ゴミ箱へ移す」の前に「1枚にまとめる…」を出す', () => {
+    expect(imageMenu('gallery', { ...ALL_ON, count: 2, merge: true })).toEqual([
+      'similar',
+      'board',
+      'rule',
+      ...CATEGORY,
+      'rule',
+      'merge',
+      'trash',
+    ])
+    expect(imageMenu('gallery', { ...ALL_ON, count: 1, merge: true })).not.toContain('merge')
+    expect(imageMenu('gallery', { ...ALL_ON, count: 2 })).not.toContain('merge')
+  })
+
   it('ゴミ箱と見つからない画像では、その画面の操作だけを出し、カテゴリを変える操作は出さない', () => {
     expect(imageMenu('trash', ALL_ON)).toEqual(['restore', 'purge'])
     expect(imageMenu('missing', ALL_ON)).toEqual(['forget'])

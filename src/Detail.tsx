@@ -37,6 +37,8 @@ type Props = {
   onTrash: (ids: number[]) => void
   // 選んだ画像の「ボードに追加」。アイデアボードが OFF ならなく、ボタンを出さない（FR-711）
   onAddToBoard?: () => void
+  // 選んだ画像の「1枚にまとめる…」（FR-610）。類似画像検索の結果のモードで2枚以上を選んでいるときだけあり、ボタンを出す
+  onMerge?: () => void
   // 選んだ1枚を基準に「似た画像を探す」（FR-601）。類似画像検索が OFF ならなく、ボタンを出さない
   onFindSimilar?: () => void
   // 画像を Finder で選んだ状態で開く
@@ -274,6 +276,11 @@ export default function Detail(props: Props) {
           <dl className="detail__fields">{classify}</dl>
           <div className="detail__actions">
             {add}
+            {props.onMerge && (
+              <button type="button" className="button" onClick={props.onMerge}>
+                1枚にまとめる…
+              </button>
+            )}
             {trash}
           </div>
         </>

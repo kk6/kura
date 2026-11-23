@@ -8,6 +8,7 @@ import { recentLimit, rememberTag } from './choices'
 import ConfirmDialog from './ConfirmDialog'
 import { ACTION_LABELS, type ImageAction, imageMenu, parentMoves, useContextMenu } from './contextMenu'
 import CategoryDialog from './CategoryDialog'
+import MergeDialog from './MergeDialog'
 import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
 import GalleryHeader from './GalleryHeader'
@@ -25,7 +26,7 @@ import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResul
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
 import type { Boards } from './board/types'
-import type { Detail as DetailData, Done, Image, Restored, Settings } from './galleryTypes'
+import type { Detail as DetailData, Done, Image, Merged, Restored, Settings } from './galleryTypes'
 import type {
   Backfill,
   BackfillCounts,
@@ -556,6 +557,24 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     reloadTrash()
   }
 
+  // 「1枚にまとめる…」（FR-610）。類似画像検索の結果のモードで2枚以上を選んだときだけ。開いたときの画像を持つ
+  const [merging, setMerging] = useState<Image[] | null>(null)
+  const canMerge = !!similar && !aside && selected.length >= 2
+  // 失敗したら reject してダイアログに理由を出す。途中まで進んだかもしれないので、どちらでも一覧を読み直す。
+  // ゴミ箱へ移した画像は手元の一覧から消えるので、結果のモードの一覧からも外れる
+  async function mergeImages(keep: number, category: number | null, tags: number[]) {
+    const remove = merging!.filter((i) => i.id !== keep).map((i) => i.id)
+    let r: Merged
+    try {
+      r = await invoke<Merged>('merge_images', { keep, remove, category, tags })
+    } finally {
+      reload()
+      reloadTrash()
+    }
+    setSelection({ ids: new Set([keep]), anchor: keep })
+    setResult({ kind: 'merged', count: r.trashed.length, failed: named(r.failed, data.images) })
+  }
+
   function openAside(next: 'trash' | 'missing') {
     setSettingsKind(null)
     setAside(next)
@@ -644,6 +663,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     board: settings.board_enabled,
     lastBoard: !!lastBoard,
     similarity: settings.similarity_enabled,
+    merge: canMerge,
   })
   // 右クリックからのカテゴリの変更（FR-416）。1つ上がない画像を含むと null
   // 開いたときの画像を持つ。移した画像が絞り込みから外れて選択が空になっても、閉じるまでダイアログを描けるように
@@ -665,6 +685,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     else if (action === 'board') addToBoard()
     else if (action === 'lastBoard') addToLastBoard()
     else if (action === 'reveal') reveal(ids[0])
+    else if (action === 'merge') setMerging(selected)
     else if (action === 'trash') trashImages(ids)
     else if (action === 'restore') restoreImages()
     else setAsking(action)
@@ -881,6 +902,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
               onOpen={() => setZoom(true)}
               onAddToBoard={settings.board_enabled ? addToBoard : undefined}
               onFindSimilar={settings.similarity_enabled ? findSimilar : undefined}
+              onMerge={canMerge ? () => setMerging(selected) : undefined}
               onClose={() => toggleDetail(false)}
             />
           )}
@@ -966,6 +988,16 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           onAssign={lib.assign}
           onCreate={lib.createCategory}
           onClose={() => setChangingCategory(null)}
+        />
+      )}
+      {merging && (
+        <MergeDialog
+          root={root}
+          images={merging}
+          categories={data.categories}
+          tags={data.tags}
+          onMerge={mergeImages}
+          onClose={() => setMerging(null)}
         />
       )}
       {adding && (

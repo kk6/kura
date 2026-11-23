@@ -35,7 +35,17 @@ export function useContextMenu() {
 
 // 画像の右クリックのメニューに出す操作（FR-515）。'rule' は区切り線
 export type ImageAction =
-  'similar' | 'lastBoard' | 'board' | 'category' | 'parent' | 'reveal' | 'trash' | 'restore' | 'purge' | 'forget'
+  | 'similar'
+  | 'lastBoard'
+  | 'board'
+  | 'category'
+  | 'parent'
+  | 'reveal'
+  | 'merge'
+  | 'trash'
+  | 'restore'
+  | 'purge'
+  | 'forget'
 
 // lastBoard の名前はボードの名前から作る
 export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = {
@@ -44,6 +54,7 @@ export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = 
   category: 'カテゴリを変える…',
   parent: '1つ上のカテゴリへ移す',
   reveal: 'Finderで表示',
+  merge: '1枚にまとめる…',
   trash: 'ゴミ箱へ移す',
   restore: '元に戻す',
   purge: '完全に削除…',
@@ -53,8 +64,8 @@ export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = 
 // 一覧と拡大表示で同じメニューにし、詳細パネルの操作を出す。ゴミ箱と見つからない画像は、その画面のパネルの操作だけ
 export function imageMenu(
   place: 'gallery' | 'trash' | 'missing',
-  // lastBoard：最後に画像を追加したボードが残っているか（FR-712）
-  o: { count: number; board: boolean; lastBoard?: boolean; similarity: boolean },
+  // lastBoard：最後に画像を追加したボードが残っているか（FR-712）。merge：類似画像検索の結果のモードか（FR-610）
+  o: { count: number; board: boolean; lastBoard?: boolean; similarity: boolean; merge?: boolean },
 ): (ImageAction | 'rule')[] {
   if (place === 'trash') return ['restore', 'purge']
   if (place === 'missing') return ['forget']
@@ -67,7 +78,7 @@ export function imageMenu(
     // FR-416
     ['category', 'parent'],
     o.count === 1 ? ['reveal'] : [],
-    ['trash'],
+    [...(o.merge && o.count >= 2 ? ['merge' as const] : []), 'trash'],
   ]
   return groups.filter((g) => g.length).flatMap((g, i) => (i ? ['rule' as const, ...g] : g))
 }

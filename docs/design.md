@@ -92,6 +92,7 @@ CSS変数として `src/styles/tokens.css` に定義し、コンポーネント�
 | `--size-progress` | 進み具合のバー | 高さ 3px |
 | `--size-progress-bar` | ステータスバーの進み具合のバー | 幅 160px |
 | `--size-dialog` | ダイアログ | 幅 560px |
+| `--size-merge-thumb` | 「1枚にまとめる」のダイアログで、残す画像を選ぶサムネイルの枠 | 幅・高さ 120px |
 | `--size-settings` | 設定のページの中身 | 幅の上限 720px |
 | `--size-choices` | 入力欄の下の候補の一覧 | 高さの上限 240px。超えたら一覧の中でスクロールする |
 | `--size-icon` | CSS で描くアイコン（検索欄の消すボタン） | 幅・高さ 15px |

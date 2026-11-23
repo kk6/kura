@@ -344,6 +344,16 @@ const trashImages: Handler = (args) => {
   return out
 }
 
+// 1枚にまとめる（FR-610）。ゴミ箱へ移すのは trash_images と同じで、7枚目は移せない
+const mergeImages: Handler = (args) => {
+  const keep = IMAGES.find((i) => i.id === args?.keep)
+  if (!keep) throw `画像が見つかりません（${args?.keep}）`
+  keep.category_id = args?.category as number | null
+  keep.tags = args?.tags as number[]
+  const done = trashImages({ ids: args?.remove }) as Done
+  return { trashed: done.done, failed: done.failed, replaced: [], boards: [] }
+}
+
 const restoreImages: Handler = (args) => {
   const out: Restored = { moved: [], failed: [], uncategorized: [] }
   for (const id of args?.ids as number[]) {
@@ -840,6 +850,7 @@ const handlers: Record<string, Handler> = {
   delete_tag: deleteTag,
   load_trash: () => structuredClone(TRASH),
   trash_images: trashImages,
+  merge_images: mergeImages,
   restore_images: restoreImages,
   purge_images: purgeImages,
   empty_trash: emptyTrash,

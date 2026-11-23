@@ -21,6 +21,8 @@ export type Result =
   | { kind: 'assigned'; moved: number; failed: Failed }
   // ゴミ箱（FR-511）。uncategorized は元のカテゴリがなく未分類へ戻した枚数
   | { kind: 'trashed'; count: number; failed: Failed }
+  // 1枚にまとめる（FR-610）。count はゴミ箱へ移した枚数
+  | { kind: 'merged'; count: number; failed: Failed }
   | { kind: 'emptied'; count: number; failed: Failed }
   | { kind: 'forgotten'; count: number; failed: Failed }
   | { kind: 'restored'; count: number; uncategorized: number; failed: Failed }
@@ -171,6 +173,7 @@ const NotesLink = ({ notes, onShow }: { notes: SourceNote[]; onShow: () => void 
 
 const TRASH_DONE = {
   trashed: 'ゴミ箱へ移した',
+  merged: '1枚にまとめ、ゴミ箱へ移した',
   restored: '元に戻した',
   emptied: 'ゴミ箱から削除した',
   forgotten: '一覧から外した',

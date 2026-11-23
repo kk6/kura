@@ -289,30 +289,7 @@ fn load_from(conn: &Connection, id: BoardId) -> Result<Board, String> {
         )
         .map_err(err)?
         .query_map([id.0], |r| {
-            Ok((
-                PlacementId(r.get(0)?),
-                SourceId(r.get(1)?),
-                Geometry {
-                    width: r.get(2)?,
-                    height: r.get(3)?,
-                    x: r.get(4)?,
-                    y: r.get(5)?,
-                    scale: r.get(6)?,
-                    rotation: r.get(7)?,
-                    flipped: r.get(8)?,
-                    grayscale: r.get(9)?,
-                    crop: match r.get::<_, Option<f64>>(10)? {
-                        Some(x) => Some(Crop {
-                            x,
-                            y: r.get(11)?,
-                            width: r.get(12)?,
-                            height: r.get(13)?,
-                        }),
-                        None => None,
-                    },
-                    stack_order: r.get(14)?,
-                },
-            ))
+            Ok((PlacementId(r.get(0)?), SourceId(r.get(1)?), geometry(r)?))
         })
         .map_err(err)?
         .collect::<Result<Vec<_>, _>>()
@@ -325,6 +302,30 @@ fn load_from(conn: &Connection, id: BoardId) -> Result<Board, String> {
         });
     }
     Ok(board)
+}
+
+/// 3列目から始まる配置の寸法と加工の列（width から stack_order まで）を読む
+fn geometry(r: &rusqlite::Row) -> rusqlite::Result<Geometry> {
+    Ok(Geometry {
+        width: r.get(2)?,
+        height: r.get(3)?,
+        x: r.get(4)?,
+        y: r.get(5)?,
+        scale: r.get(6)?,
+        rotation: r.get(7)?,
+        flipped: r.get(8)?,
+        grayscale: r.get(9)?,
+        crop: match r.get::<_, Option<f64>>(10)? {
+            Some(x) => Some(Crop {
+                x,
+                y: r.get(11)?,
+                width: r.get(12)?,
+                height: r.get(13)?,
+            }),
+            None => None,
+        },
+        stack_order: r.get(14)?,
+    })
 }
 
 fn source(conn: &Connection, id: SourceId) -> Result<Source, String> {
@@ -706,6 +707,115 @@ fn bounds(items: &[Item]) -> Option<(f64, f64, f64, f64)> {
             (cx - half_w, cy - half_h, cx + half_w, cy + half_h)
         })
         .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))
+}
+
+/// 1枚にまとめた（FR-610）ときに、配置の元画像を置き換えた参照。開いているボードが取り消しの履歴を直すのに使う
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Replaced {
+    pub from: SourceId,
+    pub to: Source,
+}
+
+/// from の画像の配置を、to の画像に置き換える（FR-610、ADR-0033）。取り消しの履歴の分（active = 0）も置き換え、
+/// 開いているボードが履歴から戻しても、元画像を変えた保存として断られないようにする。
+/// 置き換えた配置のあるボードは revision を進め、開く前の編集の遅れた保存で戻させない。配置がなければ None
+pub(crate) fn replace_image(
+    tx: &Transaction,
+    from: i64,
+    to: i64,
+) -> Result<Option<(Replaced, Vec<BoardId>)>, String> {
+    let id_of = |image: i64| {
+        tx.query_row(
+            "SELECT id FROM board_sources WHERE image_id = ?1",
+            [image],
+            |r| r.get(0).map(SourceId),
+        )
+        .map_err(err)
+    };
+    let (from, to) = (id_of(from)?, source(tx, id_of(to)?)?);
+    let rows = tx
+        .prepare(
+            "SELECT id, board_id, width, height, x, y, scale, rotation, flipped, grayscale,
+                    crop_x, crop_y, crop_width, crop_height, stack_order
+             FROM board_items WHERE source_id = ?1",
+        )
+        .map_err(err)?
+        .query_map([from.0], |r| {
+            Ok((r.get::<_, i64>(0)?, BoardId(r.get(1)?), geometry(r)?))
+        })
+        .map_err(err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(err)?;
+    if rows.is_empty() {
+        return Ok(None);
+    }
+    let mut boards = vec![];
+    for (id, board, g) in rows {
+        let g = replaced(&g, to.width.max(1) as f64, to.height.max(1) as f64);
+        tx.execute(
+            "UPDATE board_items SET source_id = ?2, width = ?3, height = ?4, x = ?5, y = ?6,
+             scale = ?7, crop_x = NULL, crop_y = NULL, crop_width = NULL, crop_height = NULL
+             WHERE id = ?1",
+            params![id, to.id.0, g.width, g.height, g.x, g.y, g.scale],
+        )
+        .map_err(err)?;
+        if !boards.contains(&board) {
+            boards.push(board);
+        }
+    }
+    for board in &boards {
+        tx.execute(
+            "UPDATE boards SET revision = revision + 1 WHERE id = ?1",
+            [board.0],
+        )
+        .map_err(err)?;
+    }
+    Ok(Some((Replaced { from, to }, boards)))
+}
+
+/// boards のどれかを編集していれば終える。画面が持つ配置は DB と違うので、そのまま保存させないため。
+/// ボードのウィンドウは開き直して今の配置を読む
+pub(crate) fn end_edit(lib: &mut Library, boards: &[BoardId]) {
+    if lib
+        .board_session
+        .editing
+        .is_some_and(|(edit, _)| boards.contains(&edit.board_id))
+    {
+        lib.board_session.editing = None;
+    }
+}
+
+/// width×height の画像に置き換えた配置。見えている部分の中心（回転の後）と表示の幅を保ち、高さは縦横比に合わせ、
+/// トリミングは外す。回転・反転・グレースケール・重なり順は保つ。画面の replacedGeometry と同じ計算
+pub(crate) fn replaced(g: &Geometry, width: f64, height: f64) -> Geometry {
+    let (w, h) = (g.width * g.scale, g.height * g.scale);
+    let c = g.crop.unwrap_or(Crop {
+        x: 0.0,
+        y: 0.0,
+        width: 1.0,
+        height: 1.0,
+    });
+    let left = g.x + if g.flipped { 1.0 - c.x - c.width } else { c.x } * w;
+    let (dx, dy) = (
+        left + c.width * w / 2.0 - (g.x + w / 2.0),
+        g.y + (c.y + c.height / 2.0) * h - (g.y + h / 2.0),
+    );
+    let (sin, cos) = g.rotation.to_radians().sin_cos();
+    let (cx, cy) = (
+        g.x + w / 2.0 + dx * cos - dy * sin,
+        g.y + h / 2.0 + dx * sin + dy * cos,
+    );
+    let shown = c.width * w;
+    let scale = shown / width;
+    Geometry {
+        width,
+        height,
+        x: cx - shown / 2.0,
+        y: cy - height * scale / 2.0,
+        scale,
+        crop: None,
+        ..g.clone()
+    }
 }
 
 /// revision は同じ編集トークンの中で増やす。失敗した保存は revision を使わず、同じ値で再試行できる。
