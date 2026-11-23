@@ -14,6 +14,42 @@ Claude Code はセッションの始めに [CLAUDE.md](../CLAUDE.md) を読み�
 
 1つのセッションでは1つのタスクだけを進めます。セッションが長くなると、前の作業の文脈が混ざります。
 
+## フェーズを進める（pstack と自作のスキル）
+
+フェーズは、3種類のセッションで進めます。作業のやり方は [pstack](https://github.com/cursor/plugins/tree/main/pstack) の poteto-mode にそろえます。
+
+| セッション | 始め方 | モデル | すること |
+| --- | --- | --- | --- |
+| 計画 | `/mattpocock-skills:grill-with-docs` | Opus | 要件を詰め、`docs/tasks/phase<N>.md` と通しの確認を書く |
+| 進行役 | `/kk6-conductor` | Opus | まとまりの表とブリーフを書き、作業セッションのカードを出し、受け入れて統合する。自分では実装しない |
+| 作業 | 進行役のカードから始める | Opus | 1まとまりを実装し、報告して止まる |
+
+### スラッシュコマンドは1つのメッセージに1つ
+
+1つのメッセージに書いたスラッシュコマンドは、先頭の1つだけが動きます。2つ目からは、1つ目のスキルに渡す引数の文字として扱われます。`disable-model-invocation: true` のスキル（kk6-mode、kk6-conductor など）は、Claude が引数の中に名前を見つけても読み込めません。
+
+フェーズ4の4aは `/pstack:poteto-mode /kk6-mode フェーズ4に着手してください` で始めました。このとき kk6-mode は読み込まれませんでした。そのため、進行役のはずのメインセッションが自分で実装しました。
+
+2つのスキルを使うときは、メッセージを分けます。
+
+> /kk6-mode
+
+> /pstack:poteto-mode docs/tasks/phase4.md のタスク31を進めてください
+
+### スキルの役目
+
+- `/kk6-conductor`：フェーズの進行役。これだけで始め、次のメッセージで「フェーズ4の4a-2を進めてください」のように範囲を伝える。poteto-mode とは一緒に読み込まない。poteto-mode は「受け取ったセッションが自分で実行する」と書いているので、進行役の決まりと食い違う
+- `/pstack:poteto-mode`：1つのタスクを poteto のやり方で進める。作業セッションは、ブリーフの1行目で poteto-mode の `worker.md` を読むので、この指示がなくても同じやり方になる
+- `/kk6-mode`：返答の書き方、Git、検証の報告の決まり。進行役を通さずに1つのタスクを頼むときに使う
+- `/pstack:automate-me`：同じ指示を何度も繰り返していると気づいたら、それを kk6-mode か kk6-conductor に足す。Cursor 向けに書かれているので、「`.claude/skills/kk6-mode` を、`~/.claude/projects/-Users-kk6-Projects-kura/` の記録から更新してください」と置き場所を伝える
+
+### worker.md と Kura の決まりの食い違い
+
+poteto-mode の `worker.md` は、ブリーフがはっきり上書きしない限り、次のように動きます。kk6-conductor は、開始ブリーフの「守ること」でこれらを上書きします。進行役を通さずに作業を頼むときも、同じことを書き添えます。
+
+- 質問せずに自分で選んで進める。Kura では、未決事項は実装で決めずに質問する
+- PR のタイトルを `type(scope): subject`、説明を英語の見出し（Why、What changed など）で書く。Kura の PR は日本語で書く
+
 ## 頼み方の例
 
 ### フェーズのタスク一覧を作る
