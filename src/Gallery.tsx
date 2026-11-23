@@ -6,7 +6,8 @@ import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { rememberTag } from './choices'
 import ConfirmDialog from './ConfirmDialog'
-import { ACTION_LABELS, type ImageAction, imageMenu, useContextMenu } from './contextMenu'
+import { ACTION_LABELS, type ImageAction, imageMenu, parentMoves, useContextMenu } from './contextMenu'
+import CategoryDialog from './CategoryDialog'
 import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
 import GalleryHeader from './GalleryHeader'
@@ -644,9 +645,23 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     lastBoard: !!lastBoard,
     similarity: settings.similarity_enabled,
   })
+  // 右クリックからのカテゴリの変更（FR-416）。1つ上がない画像を含むと null
+  // 開いたときの画像を持つ。移した画像が絞り込みから外れて選択が空になっても、閉じるまでダイアログを描けるように
+  const [changingCategory, setChangingCategory] = useState<Image[] | null>(null)
+  const up = parentMoves(selected, data.categories)
+  async function moveUp() {
+    if (!up) return
+    try {
+      await lib.assignEach(up)
+    } catch (e) {
+      setResult({ kind: 'error', message: `カテゴリを変えられません（${e}）` })
+    }
+  }
   function runMenu(action: ImageAction) {
     setMenuAt(null)
     if (action === 'similar') findSimilar()
+    else if (action === 'category') setChangingCategory(selected)
+    else if (action === 'parent') moveUp()
     else if (action === 'board') addToBoard()
     else if (action === 'lastBoard') addToLastBoard()
     else if (action === 'reveal') reveal(ids[0])
@@ -704,7 +719,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         onFilter={changeFilter}
         onManageTags={() => setManagingTags(true)}
         onRename={lib.renameCategory}
-        onCreate={lib.createCategory}
+        onCreate={async (parent, name) => void (await lib.createCategory(parent, name))}
         onMove={lib.moveCategory}
         onDelete={lib.deleteCategory}
         onCollapse={lib.collapseCategories}
@@ -906,7 +921,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
                 type="button"
                 role="menuitem"
                 className="menu__item"
-                disabled={action === 'similar' && !canFindSimilar}
+                disabled={(action === 'similar' && !canFindSimilar) || (action === 'parent' && !up)}
                 title={
                   action === 'similar' && ids.length === 1 && shown?.detail && !canFindSimilar
                     ? NOT_COMPUTED
@@ -942,6 +957,15 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
             ? `${askedName}のタグ、メモ、評価を削除します。元に戻せません。`
             : `${asking === 'purge' ? askedName : `ゴミ箱の画像 ${trash.length}枚`}を完全に削除します。元に戻せません。`}
         </ConfirmDialog>
+      )}
+      {changingCategory && (
+        <CategoryDialog
+          selected={changingCategory}
+          categories={data.categories}
+          onAssign={lib.assign}
+          onCreate={lib.createCategory}
+          onClose={() => setChangingCategory(null)}
+        />
       )}
       {adding && (
         <Suspense fallback={null}>

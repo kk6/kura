@@ -373,6 +373,8 @@ test('右クリックの「「<ボード名>」に追加」は最後に追加し
   await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([
     '「服のしわ」に追加',
     'ボードに追加…',
+    'カテゴリを変える…',
+    '1つ上のカテゴリへ移す',
     'Finderで表示',
     'ゴミ箱へ移す',
   ])

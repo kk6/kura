@@ -1,3 +1,4 @@
+import type { Category, Image } from './galleryTypes'
 import { useEffect, useRef, useState } from 'react'
 
 // 右クリックのメニューの位置。右クリックを離したときに閉じないよう、自動では閉じないポップオーバー（popover="manual"）に
@@ -33,12 +34,15 @@ export function useContextMenu() {
 }
 
 // 画像の右クリックのメニューに出す操作（FR-515）。'rule' は区切り線
-export type ImageAction = 'similar' | 'lastBoard' | 'board' | 'reveal' | 'trash' | 'restore' | 'purge' | 'forget'
+export type ImageAction =
+  'similar' | 'lastBoard' | 'board' | 'category' | 'parent' | 'reveal' | 'trash' | 'restore' | 'purge' | 'forget'
 
 // lastBoard の名前はボードの名前から作る
 export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = {
   similar: '似た画像を探す',
   board: 'ボードに追加…',
+  category: 'カテゴリを変える…',
+  parent: '1つ上のカテゴリへ移す',
   reveal: 'Finderで表示',
   trash: 'ゴミ箱へ移す',
   restore: '元に戻す',
@@ -60,8 +64,26 @@ export function imageMenu(
       ...(o.board && o.lastBoard ? ['lastBoard' as const] : []),
       ...(o.board ? ['board' as const] : []),
     ],
+    // FR-416
+    ['category', 'parent'],
     o.count === 1 ? ['reveal'] : [],
     ['trash'],
   ]
   return groups.filter((g) => g.length).flatMap((g, i) => (i ? ['rule' as const, ...g] : g))
+}
+
+// 「1つ上のカテゴリへ移す」（FR-416）の移す先ごとの画像。カテゴリが揃っていなければ、それぞれの親へ分ける。
+// 未分類か一番上の階層のカテゴリの画像を1枚でも含むと、1つ上がないので null（メニューの項目を押せない）
+export function parentMoves(
+  images: Pick<Image, 'id' | 'category_id'>[],
+  categories: Category[],
+): { category: number; ids: number[] }[] | null {
+  const parents = new Map(categories.map((c) => [c.id, c.parent_id]))
+  const groups = new Map<number, number[]>()
+  for (const i of images) {
+    const parent = i.category_id === null ? null : (parents.get(i.category_id) ?? null)
+    if (parent === null) return null
+    groups.set(parent, [...(groups.get(parent) ?? []), i.id])
+  }
+  return images.length ? [...groups].map(([category, ids]) => ({ category, ids })) : null
 }
