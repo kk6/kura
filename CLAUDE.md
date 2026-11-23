@@ -42,6 +42,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - 開発サーバー（Tauri のコマンドをモックに差し替えた画面だけ）：`npm run dev:mock`（http://localhost:5173）。モックの応答は `src/mocks/ipc.ts` に書く
 - ダミーライブラリの生成：`npm run dev-library -- <枚数>`（`dev-library/` に出力。空でないと止まる）
 - 元URLの記録（拡張属性）を付けたダミー画像の生成：`uv run scripts/gen_source_urls.py <出力先>`（macOS だけ。通常の取り込み・重複・Finder・補完の確認用に分けて作る）
+- 元が同じ画像（FR-610、FR-611）のしきい値の計測：(1) `uv run scripts/gen_same_origin.py <見本の写真のフォルダ> <出力先>` で、写真ごとに縮小・トリミング・彩度と明るさ・JPEG の再圧縮の写しを作る (2) 出力先を、`verify-kura` で隔離して起動したリリース版のライブラリの中に写し、類似画像検索を ON にして特徴量を計算させる (3) `uv run scripts/measure_same_origin.py <出力先> <ライブラリ>/.kura/features.db` で、変形の種類ごとと別の写真どうしの類似度の分布を出す。Pillow で真似たサムネイルは値がずれるので、アプリが計算した値を使う
 - テスト（Rust）：`cargo test`（`src-tauri/` で実行）
 - テスト（Rust、別のファイルシステム）：`hdiutil create -size 64m -fs ExFAT -volname KURAEX <名前>.dmg` で作ったイメージを `hdiutil attach -nobrowse` でマウントし、`KURA_TEST_DIR=<マウント先> cargo test fileops` で同じテストを流す（HFS+ や大文字・小文字を区別する APFS も同じ）
 - テスト（画面の単体テスト）：`npm test`（Vitest。`src/**/*.test.ts` を流す）
