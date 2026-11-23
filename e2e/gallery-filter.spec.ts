@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { openGallery, thumb, selectedNames } from './gallery-helpers'
+import { openGallery, thumb, selectedNames, type TauriWindow } from './gallery-helpers'
 
 test('サイドバーのカテゴリとタグを押し、検索バーに入れると絞り込み、件数は子カテゴリを含めて数える', async ({
   page,
@@ -438,4 +438,69 @@ test('⌥ を押しながら押したタグとカテゴリを除き、取り消�
   await tagInput.fill('除いた残り')
   await tagInput.press('Enter')
   await expect(tags.getByRole('button', { name: /^除いた残り/ }).locator('.sidebar__count')).toHaveText(String(visible))
+})
+
+test('除いたタグとカテゴリはグレーで示し、選んだもの・何もしていないものと見分けられる（FR-517）', async ({ page }) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const tags = sidebar.getByRole('list', { name: 'タグ' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+
+  await tags.getByRole('button', { name: /^あおり/ }).click({ modifiers: ['Alt'] })
+  await tags.getByRole('button', { name: /^座り/ }).click()
+  await categories.getByRole('button', { name: 'ポーズ', exact: true }).click({ modifiers: ['Alt'] })
+  await categories.getByRole('button', { name: '背景', exact: true }).click()
+
+  // 除いたタグは地も文字もグレー（--color-raise と --color-text-faint）。何もしていないタグは白地に黒、選んだタグは黒地
+  const excluded = tags.getByRole('button', { name: /^あおり.*（除く）$/ })
+  await expect(excluded).toHaveCSS('background-color', 'rgb(236, 236, 233)')
+  await expect(excluded.locator('.sidebar__name')).toHaveCSS('color', 'rgb(106, 106, 100)')
+  await expect(tags.getByRole('button', { name: /^振り返り/ })).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(tags.getByRole('button', { name: /^座り/ })).toHaveCSS('background-color', 'rgb(28, 28, 26)')
+  // 除いたカテゴリは名前の文字だけグレー。何もしていないカテゴリは黒い文字
+  await expect(categories.getByRole('button', { name: 'ポーズ（除く）' })).toHaveCSS('color', 'rgb(106, 106, 100)')
+  await expect(categories.getByRole('button', { name: '座り', exact: true })).toHaveCSS('color', 'rgb(28, 28, 26)')
+  await sidebar.screenshot({ path: 'test-results/filter-exclude-gray.png' })
+})
+
+test('サイドバーのタグ一覧を名前で絞り込み、選んだタグと除いたタグは残す（FR-518）', async ({ page }) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const tags = sidebar.getByRole('list', { name: 'タグ' })
+  const search = sidebar.getByRole('searchbox', { name: 'タグを名前で絞り込む' })
+
+  // 2,000 個のタグを作り、差分の確認で一覧を読み直す
+  await page.evaluate(async () => {
+    const { invoke } = (window as unknown as TauriWindow).__TAURI_INTERNALS__
+    for (let i = 0; i < 2000; i++) await invoke('add_tag', { ids: [], name: `Pose-${i}` })
+    await invoke('add_tag', { ids: [], name: 'ポーズ立ち' })
+  })
+  await sidebar.getByRole('button', { name: '差分を確認' }).click()
+  await expect(tags.getByRole('listitem')).toHaveCount(2004)
+
+  await tags.getByRole('button', { name: /^座り/ }).click()
+  await tags.getByRole('button', { name: /^あおり/ }).click({ modifiers: ['Alt'] })
+
+  // 大文字・小文字の違いを無視する。選んだ「座り」と除いた「あおり」は名前に含まなくても残す
+  await search.fill('pOSE-199')
+  await expect(tags.getByRole('listitem')).toHaveCount(13)
+  await expect(tags.getByRole('button', { name: /^Pose-1999/ })).toBeVisible()
+  await expect(tags.getByRole('button', { name: /^座り/ })).toBeVisible()
+  await sidebar.screenshot({ path: 'test-results/sidebar-tag-search.png' })
+
+  // 正規化（NFC）の違いを無視する。濁点を分けた「ポーズ」でも当たる
+  await search.fill('ポーズ'.normalize('NFD'))
+  await expect(tags.getByRole('listitem')).toHaveCount(3)
+  await expect(tags.getByRole('button', { name: /^ポーズ立ち/ })).toBeVisible()
+
+  // Escape で入力した文字を消し、すべてのタグに戻す。タグの選択は外さない
+  await search.press('Escape')
+  await expect(search).toHaveValue('')
+  await expect(tags.getByRole('listitem')).toHaveCount(2004)
+  await expect(tags.getByRole('button', { name: /^座り/ })).toHaveAttribute('aria-pressed', 'true')
+
+  // 一覧を閉じると検索欄も隠す
+  await search.fill('pose')
+  await sidebar.getByRole('button', { name: 'タグ', exact: true }).click()
+  await expect(search).toBeHidden()
 })

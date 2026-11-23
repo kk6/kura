@@ -12,6 +12,13 @@ export function candidates(tags: Tag[], typed: string, onAll: Set<number>, limit
   return key ? rest.filter((t) => tagKey(t.name).includes(key)).slice(0, limit) : rest
 }
 
+// サイドバーのタグ一覧の絞り込み（FR-518）。入力した文字を名前に含むタグを、元の順のまま返す。
+// keep（選んでいるタグと除いているタグ）は名前に含まなくても返す。何で絞り込んでいるかが見えなくならないように
+export function tagsByName(tags: Tag[], typed: string, keep: Set<number>): Tag[] {
+  const key = tagKey(typed)
+  return key ? tags.filter((t) => keep.has(t.id) || tagKey(t.name).includes(key)) : tags
+}
+
 // 最近使ったタグ（詳細パネル）。id を使った新しい順に持ち、使ったタグを先頭へ移す
 export const rememberTag = (recent: number[], id: number) => [id, ...recent.filter((r) => r !== id)]
 

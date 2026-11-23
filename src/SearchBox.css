@@ -31,7 +31,8 @@
 }
 
 /* WebKit の初期の消すボタンは塗りつぶしの丸なので、線の × に替える。動きは初期のまま */
-.gallery__search::-webkit-search-cancel-button {
+.gallery__search::-webkit-search-cancel-button,
+.sidebar__search::-webkit-search-cancel-button {
   width: var(--size-icon);
   height: var(--size-icon);
   -webkit-appearance: none;

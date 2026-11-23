@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { subtree } from './categoryTree'
+import { tagsByName } from './choices'
 import ConfirmDialog from './ConfirmDialog'
 import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
@@ -77,6 +78,8 @@ export default function Sidebar(props: Props) {
   const exclude = (kind: 'tag' | 'category', id: number) => onFilter(toggleExclude(filter, kind, id))
   const excludedTags = new Set(filter.excludeTags)
   const excludedCategories = new Set(filter.excludeCategories)
+  // タグ一覧を名前で絞り込む文字（FR-518）。画像の絞り込みには使わず、保存もしない
+  const [tagQuery, setTagQuery] = useState('')
 
   // タグは押すたびに選ぶ・外すが切り替わる（FR-504、pickTag）。Shift の範囲は一覧の画像と同じで、選んだタグを先頭へ寄せる前の並び順で決める。
   // 寄せた後の並びで決めると、押すたびに並びが変わり、範囲が予想できなくなるため
@@ -480,10 +483,30 @@ export default function Sidebar(props: Props) {
           </button>
         </span>
       </h2>
+      {/* 閉じている間は一覧がないので出さない。入力した文字は閉じても残す */}
+      {!props.tagsCollapsed && (
+        <div className="sidebar__tag-search">
+          <input
+            autoCorrect="off"
+            autoCapitalize="off"
+            autoComplete="off"
+            className="sidebar__input sidebar__search"
+            type="search"
+            placeholder="タグを探す"
+            aria-label="タグを名前で絞り込む"
+            value={tagQuery}
+            onChange={(e) => setTagQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // かな漢字変換を取り消す Escape では消さない
+              if (e.key === 'Escape' && !e.nativeEvent.isComposing) setTagQuery('')
+            }}
+          />
+        </div>
+      )}
       <ul className="sidebar__tags" aria-labelledby="sidebar-tags" onKeyDown={onTagKey}>
         {/* 閉じていても選んでいるタグは出す。何で絞り込んでいるかが見えなくならないように */}
         {/* 選んでいるタグは先頭へ寄せる。スクロールの外で選ばれたままのタグに気づかず、絞り込みを誤解しないように */}
-        {gallery.tags
+        {tagsByName(gallery.tags, props.tagsCollapsed ? '' : tagQuery, new Set([...filter.tags, ...excludedTags]))
           .filter((t) => !props.tagsCollapsed || filter.tags.includes(t.id) || excludedTags.has(t.id))
           // 除いているタグも、選んでいるタグと同じく先頭へ寄せる
           .sort(

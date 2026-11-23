@@ -7,6 +7,7 @@ import {
   moveActive,
   recentCandidates,
   rememberTag,
+  tagsByName,
 } from './choices'
 import { NO_FILTER } from './filter'
 
@@ -36,6 +37,37 @@ describe('candidates', () => {
   it('件数を limit までに絞る', () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ id: i, name: `タグ${i}` }))
     expect(candidates(many, 'タグ', new Set())).toHaveLength(8)
+  })
+})
+
+describe('tagsByName', () => {
+  it('入力した文字を名前に含むタグだけを、大文字・小文字と正規化の違いを無視して元の順で返す', () => {
+    // 'ポ' を濁点の結合文字（NFD）で書いても、NFC の名前に当たる
+    expect(tagsByName(TAGS, 'ホ\u309Aーズ'.normalize('NFD'), new Set()).map((t) => t.id)).toEqual([2])
+    expect(tagsByName(TAGS, ' pO ', new Set()).map((t) => t.id)).toEqual([1])
+    expect(tagsByName(TAGS, 'り', new Set()).map((t) => t.id)).toEqual([2, 3])
+  })
+
+  it('名前が NFD のタグにも、NFC の入力で当たる', () => {
+    const nfd = [{ id: 9, name: 'ポーズ'.normalize('NFD') }]
+    expect(tagsByName(nfd, 'ポーズ', new Set()).map((t) => t.id)).toEqual([9])
+  })
+
+  it('空の入力では全部を返す', () => {
+    expect(tagsByName(TAGS, ' ', new Set())).toEqual(TAGS)
+  })
+
+  it('keep のタグ（選んでいるタグと除いているタグ）は、名前に含まなくても返す', () => {
+    expect(tagsByName(TAGS, 'pose', new Set([3])).map((t) => t.id)).toEqual([1, 3])
+  })
+
+  it('2,000 個のタグから、入力した文字を含むものだけを返す', () => {
+    const many = Array.from({ length: 2000 }, (_, i) => ({ id: i, name: `タグ${i}` }))
+    expect(tagsByName(many, '199', new Set()).map((t) => t.name)).toEqual([
+      'タグ199',
+      'タグ1199',
+      ...Array.from({ length: 10 }, (_, i) => `タグ199${i}`),
+    ])
   })
 })
 
