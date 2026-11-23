@@ -16,10 +16,13 @@ function useKeepActiveVisible(listId: string, active: number) {
 // 選んだ画像（1枚でも複数でも）のカテゴリ（FR-402、FR-407）。入力欄を押すと未分類とすべてのカテゴリを出し、
 // 文字を入れると道筋で絞り込む。選ぶとすぐに移す
 export function CategorySelect({
+  id = 'detail-category',
   selected,
   categories,
   onAssign,
 }: {
+  // ラベルと結ぶ id。詳細パネルの欄と、右クリックの「カテゴリを変える…」のダイアログの欄（FR-416）を分ける
+  id?: string
   selected: Image[]
   categories: Category[]
   // 移せなかった画像はステータスバーに出すので、reject するのはカテゴリがないときなど全体の失敗だけ
@@ -80,7 +83,7 @@ export function CategorySelect({
         <input
           autoCorrect="off"
           autoCapitalize="off"
-          id="detail-category"
+          id={id}
           className={error ? 'tag-input__field tag-input__field--error' : 'tag-input__field'}
           // 入力中は今のカテゴリを薄く出し、何から変えるのかを残す
           placeholder={mixed ? '複数のカテゴリ' : text === null ? '' : current}

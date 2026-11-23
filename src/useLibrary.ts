@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useCallback, useState } from 'react'
 import { addCategory, editCategories, editImages, moveImages, named, removeCategory, replaceTag } from './galleryData'
 import type { Assigned, Deleted, Gallery, Image, Tag } from './galleryTypes'
-import type { Result } from './StatusbarResult'
+import type { Failed, Result } from './StatusbarResult'
 
 const EMPTY: Gallery = { images: [], categories: [], tags: [] }
 
@@ -56,9 +56,18 @@ export function useLibrary(report: (result: Result) => void) {
     return named(r.failed, data.images)
   }
 
-  async function assign(targets: number[], category: number | null) {
-    const r = await invoke<Assigned>('set_category', { ids: targets, category })
-    report({ kind: 'assigned', moved: r.moved.length, failed: applyMoved(r, category) })
+  const assign = (targets: number[], category: number | null) => assignEach([{ category, ids: targets }])
+
+  // 移す先ごとに移し、結果はまとめて1つ出す。「1つ上のカテゴリへ移す」（FR-416）で、揃っていない画像をそれぞれの親へ移すため
+  async function assignEach(groups: { category: number | null; ids: number[] }[]) {
+    let moved = 0
+    const failed: Failed = []
+    for (const { category, ids } of groups) {
+      const r = await invoke<Assigned>('set_category', { ids, category })
+      moved += r.moved.length
+      failed.push(...applyMoved(r, category))
+    }
+    report({ kind: 'assigned', moved, failed })
   }
 
   async function renameImage(id: number, stem: string) {
@@ -80,6 +89,7 @@ export function useLibrary(report: (result: Result) => void) {
   async function createCategory(parent: number | null, name: string) {
     const id = await invoke<number>('create_category', { parent, name })
     setData((d) => addCategory(d, { id, name: name.normalize('NFC'), parent_id: parent, collapsed: false }))
+    return id
   }
 
   async function moveCategory(id: number, parent: number | null) {
@@ -132,6 +142,7 @@ export function useLibrary(report: (result: Result) => void) {
     reloadMissing,
     update: setData,
     assign,
+    assignEach,
     renameImage,
     rate,
     renameCategory,
