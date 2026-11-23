@@ -581,6 +581,23 @@ const similarImages: Handler = (args) => {
   return { ...result, aspects: [...result.aspects, 'pose'], scores: [...result.scores, pose] }
 }
 
+// 元が同じ画像の組を探す（FR-611）。本物と同じく進み具合を送り、e2e で中止できるよう少しずつ待つ。
+// 組は計算済みの画像から決まった形で作る（2枚、3枚、2枚）。mock.originSlow があれば e2e で撮れるよう長く待つ
+let originCancelled = false
+const findOriginGroups: Handler = async () => {
+  originCancelled = false
+  const ids = computedImages().map((i) => i.id)
+  const total = (ids.length * (ids.length - 1)) / 2
+  const wait = sessionStorage.getItem('mock.originSlow') ? 2000 : 100
+  for (const done of [0, total / 3, (total * 2) / 3]) {
+    await emit('origin-progress', { done: Math.round(done), total })
+    await new Promise((r) => setTimeout(r, wait))
+    if (originCancelled) return null
+  }
+  await emit('origin-progress', { done: total, total })
+  return [ids.slice(0, 2), ids.slice(2, 5), ids.slice(5, 7)].filter((g) => g.length >= 2)
+}
+
 // アイデアボード（FR-701）。src-tauri/src/board.rs と同じ検査をする。ギャラリーとボードの画面が同じ値を見るよう sessionStorage に置く。
 // e2e で失敗の表示を確かめるため、「削除できない」という名前のボードは削除できず、「開けない」という名前のボードは開けない。
 // 「保存できない」という名前のボードは配置を保存できない
@@ -844,6 +861,10 @@ const handlers: Record<string, Handler> = {
   },
   features_status: featuresStatus,
   similar_images: similarImages,
+  find_origin_groups: findOriginGroups,
+  cancel_origin_groups: () => {
+    originCancelled = true
+  },
   retry_features: () => {
     sessionStorage.removeItem('mock.stopFeatures')
     runFeatures()
@@ -864,7 +885,7 @@ const handlers: Record<string, Handler> = {
   create_library: createLibrary,
   import_paths: importPaths,
   load_gallery: loadGallery,
-  report_gallery: (args) => console.info(`report_gallery: ${args?.addable} ${args?.dialog}`),
+  report_gallery: (args) => console.info(`report_gallery: ${args?.addable} ${args?.similar} ${args?.dialog}`),
   image_detail: imageDetail,
   // e2e が確かめられるように、開いたものをコンソールに出す
   show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),

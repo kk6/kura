@@ -23,7 +23,7 @@ import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import TidyDialog from './TidyDialog'
 import Status from './Status'
-import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResult'
+import StatusbarResult, { FeaturesProgress, OriginProgress, type Result } from './StatusbarResult'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
 import type { Boards } from './board/types'
@@ -113,6 +113,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   const [backfilled, setBackfilled] = useState(0)
   // 類似画像検索のモデルのダウンロード。補完と同じく、設定を閉じても続き、開き直すと進み具合を出す
   const [modelFetch, setModelFetch] = useState<ModelFetch | null>(null)
+  // 元が同じ画像の組を探している間の進み具合（FR-611）。null は探していない
+  const [originSearch, setOriginSearch] = useState<ImportProgress | null>(null)
+  // 見つけた組（FR-611）。保存せず、外した組と1枚にまとめた組は取り除く。null は結果のモードでない
+  const [groups, setGroups] = useState<number[][] | null>(null)
   // 特徴量の計算の状況（FR-604）。計算は Rust のきっかけで始まるので、画面は見せるだけにする
   const [features, setFeatures] = useState<FeaturesStatus>(FEATURES_IDLE)
   // 画面を開いたときと設定を開いたときに読み、その後は features-progress で受け取る
@@ -410,13 +414,17 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   }
   // Rust に知らせ、メニューの「ボードに追加…」の有効・無効と、ダイアログの間にボードの最前面の固定を
   // 外すのに使う。固定したボードの後ろにダイアログが隠れないように（FR-701、FR-705）
+  // 押せる条件は詳細パネルのボタンと同じ。メニューの「似た画像を探す」の有効・無効にも使う（6章）
+  const canFindSimilar = settings.similarity_enabled && only !== null && !!shown?.detail?.similar
   const dialogOpen = useDialogOpen()
   useEffect(() => {
-    invoke('report_gallery', { addable: canAdd, dialog: dialogOpen }).catch((e) => console.error(e))
-  }, [canAdd, dialogOpen])
+    invoke('report_gallery', { addable: canAdd, similar: canFindSimilar, dialog: dialogOpen }).catch((e) =>
+      console.error(e),
+    )
+  }, [canAdd, canFindSimilar, dialogOpen])
   useEffect(
     () => () => {
-      invoke('report_gallery', { addable: false, dialog: false }).catch((e) => console.error(e))
+      invoke('report_gallery', { addable: false, similar: false, dialog: false }).catch((e) => console.error(e))
     },
     [],
   )
@@ -463,7 +471,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     }
   }
   // 「似た画像を探す」（FR-601）。結果の画像から押すと基準が入れ替わる。戻る履歴は作らない
-  const canFindSimilar = settings.similarity_enabled && only !== null && !!shown?.detail?.similar
   async function findSimilar() {
     const image = selectedImage
     if (!image || !canFindSimilar || document.querySelector('dialog[open]')) return
@@ -484,6 +491,26 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     if (!similar) return
     restoreTop.current = entryTop.current
     setSimilar(null)
+  }
+  // メニューの「似た画像を探す」（⇧⌘F）。入力欄の中では効かせない。ダイアログの間は findSimilar が止める（6章）
+  function findSimilarFromMenu() {
+    if (!document.hasFocus() || document.activeElement?.closest('input, textarea, select')) return
+    findSimilar()
+  }
+  // 元が同じ画像の組を探す（FR-611）。探している間もほかの操作を続けられる。中止したら結果を出さない
+  async function findGroups() {
+    if (!settings.similarity_enabled || originSearch || document.querySelector('dialog[open]')) return
+    setSettingsKind(null)
+    setOriginSearch({ done: 0, total: 0 })
+    let found: number[][] | null
+    try {
+      found = await invoke<number[][] | null>('find_origin_groups')
+    } catch (e) {
+      setResult({ kind: 'error', message: `元が同じ画像の組を探せません（${e}）` })
+      found = null
+    }
+    setOriginSearch(null)
+    if (found) setGroups(found)
   }
   // 知らない観点（後の版で足した観点）の保存した値は残す
   const saveWeights = () => changeSettings({ similarity_weights: { ...settings.similarity_weights, ...weights } })
@@ -510,7 +537,18 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     setRevealed({ id })
   }
   // リスナーは一度だけ登録する。呼ばれたときに今の描画の関数を使うよう、ref を通す
-  const handlers = { scan, onKey, start, leave, openBoard, addToBoard, revealImage, changeSettings }
+  const handlers = {
+    scan,
+    onKey,
+    start,
+    leave,
+    openBoard,
+    addToBoard,
+    revealImage,
+    changeSettings,
+    findSimilarFromMenu,
+    findGroups,
+  }
   const latest = useRef(handlers)
   latest.current = handlers
   useEffect(() => {
@@ -532,6 +570,10 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       listen('open-board', () => latest.current.openBoard()),
       // 操作の対象は手前のウィンドウ。ボードのウィンドウが手前なら追加しない
       listen('add-to-board', () => document.hasFocus() && latest.current.addToBoard()),
+      listen('find-similar', () => latest.current.findSimilarFromMenu()),
+      listen('find-origin-groups', () => latest.current.findGroups()),
+      // 終わった後に届いた進み具合で、表示を戻さない
+      getCurrentWindow().listen<ImportProgress>('origin-progress', (e) => setOriginSearch((s) => s && e.payload)),
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === 'drop') latest.current.start(e.payload.paths)
       }),
@@ -961,6 +1003,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           onShowNotes={() => setShowNotes(true)}
         />
         <FeaturesProgress status={features} />
+        {originSearch && <OriginProgress progress={originSearch} onCancel={() => invoke('cancel_origin_groups')} />}
       </footer>
 
       {menuAt && (
@@ -1056,6 +1099,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           modelFetch={modelFetch}
           features={features}
           onFetchModels={fetchModels}
+          onFindGroups={findGroups}
           onRestore={restoreLibrary}
         />
       )}

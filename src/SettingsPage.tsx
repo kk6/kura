@@ -62,6 +62,7 @@ export default function SettingsPage({
   modelFetch,
   onFetchModels,
   features,
+  onFindGroups,
   onRestore,
 }: {
   kind: SettingsKind
@@ -88,6 +89,8 @@ export default function SettingsPage({
   onFetchModels: () => void
   // 特徴量の計算の状況（FR-604）
   features: FeaturesStatus
+  // 元が同じ画像の組を探す（FR-611）。設定を閉じて、結果をギャラリーに出す
+  onFindGroups: () => void
   // 管理情報を戻す（FR-107）。失敗したら理由の文字列で reject する。成功するとギャラリーごと作り直す
   onRestore: (path: string) => Promise<void>
 }) {
@@ -357,6 +360,17 @@ export default function SettingsPage({
                 >
                   {features.error && <Status kind="error">{features.error}</Status>}
                 </Row>
+              )}
+              {settings.similarity_enabled && (
+                <Row
+                  name="元が同じ画像の組を探す"
+                  description="特徴量を計算した画像どうしを比べ、同じ写真から大きさやトリミング、色味を変えて作られたと思われる画像の組を一覧に出します。組ごとに1枚にまとめられます。"
+                  control={
+                    <button type="button" className="button settings__button" onClick={onFindGroups}>
+                      探す
+                    </button>
+                  }
+                />
               )}
             </Group>
           )}
