@@ -581,6 +581,31 @@ const similarImages: Handler = (args) => {
   return { ...result, aspects: [...result.aspects, 'pose'], scores: [...result.scores, pose] }
 }
 
+// 骨格の重ね表示（FR-606）。ポーズの有無は similarImages と同じ決まり。ポーズのある画像は、
+// id を4で割って1余れば1人、3余れば2人の、右腕を上げて立つ人を返す。左耳はスコアを低くして描かない点にする
+const STANDING = [
+  [0.5, 0.08], [0.53, 0.06], [0.47, 0.06], [0.57, 0.08], [0.43, 0.08], [0.65, 0.2], [0.35, 0.2], [0.75, 0.35],
+  [0.22, 0.12], [0.8, 0.5], [0.18, 0], [0.6, 0.52], [0.4, 0.52], [0.63, 0.75], [0.37, 0.75], [0.65, 1], [0.35, 1],
+] // prettier-ignore
+const imagePose: Handler = (args) => {
+  const id = Number(args?.id)
+  const image = IMAGES.find((i) => i.id === id)!
+  const status = !computedImages().includes(image)
+    ? 'uncomputed'
+    : sessionStorage.getItem('mock.missingPose')
+      ? 'missing_models'
+      : mockPose(id)
+  if (status !== 'ok') return { people: [], skipped: status }
+  // 関節の座標は、本物と同じく長い辺を1とした値
+  const long = Math.max(image.width, image.height)
+  const [w, h] = [image.width / long, image.height / long]
+  const centers = id % 4 === 1 ? [0.5] : [0.3, 0.7]
+  const people = centers.map((cx) =>
+    STANDING.flatMap(([x, y], j) => [w * cx + (x - 0.5) * h * 0.28, h * 0.15 + y * h * 0.7, j === 3 ? 0.1 : 0.9]),
+  )
+  return { people, skipped: null }
+}
+
 // 元が同じ画像の組を探す（FR-611）。本物と同じく進み具合を送り、e2e で中止できるよう少しずつ待つ。
 // 組は計算済みの画像から決まった形で作る（2枚、3枚、2枚）。mock.originSlow があれば e2e で撮れるよう長く待つ
 let originCancelled = false
@@ -861,6 +886,7 @@ const handlers: Record<string, Handler> = {
   },
   features_status: featuresStatus,
   similar_images: similarImages,
+  image_pose: imagePose,
   find_origin_groups: findOriginGroups,
   cancel_origin_groups: () => {
     originCancelled = true

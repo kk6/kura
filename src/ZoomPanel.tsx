@@ -1,5 +1,6 @@
 import type { Image } from './galleryTypes'
 import { Icon, ICONS } from './icons'
+import { poseBox, skeleton } from './pose'
 import { type Zoom, ZOOM_STEP } from './useZoom'
 import { scaleOf, type Size, zoomRange } from './zoomView'
 import './ZoomPanel.css'
@@ -14,11 +15,22 @@ type Props = {
   onNext?: () => void
   // 右クリック。一覧と同じメニューを出す（FR-515）
   onContextMenu: (e: React.MouseEvent) => void
+  // 重ねる骨格（FR-606）。人物ごとに [x, y, スコア] × 17。重ねないときは空
+  people: number[][]
 }
 
 // 拡大表示（FR-508）。一覧と同じ場所に重ねて出す
-export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onContextMenu }: Props) {
+export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onContextMenu, people }: Props) {
   const { view, frame } = zoom
+  // 枠を測った後の画像の置き方。骨格も同じ場所に重ねる
+  const placed = frame && {
+    // 枠の中央から view の分ずらし、倍率の大きさで描く。transform の拡大ではぼけるので幅で描く
+    position: 'absolute' as const,
+    top: '50%',
+    left: '50%',
+    width: image.width * scaleOf(view, image, frame),
+    transform: `translate(calc(-50% + ${view.x}px), calc(-50% + ${view.y}px))`,
+  }
   return (
     <section
       {...zoom.section}
@@ -42,19 +54,12 @@ export default function ZoomPanel({ zoom, image, src, onPrev, onNext, onContextM
         style={{
           aspectRatio: `${image.width} / ${image.height}`,
           background: image.color,
-          ...(frame
-            ? {
-                // 枠の中央から view の分ずらし、倍率の大きさで描く。transform の拡大ではぼけるので幅で描く
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                width: image.width * scaleOf(view, image, frame),
-                transform: `translate(calc(-50% + ${view.x}px), calc(-50% + ${view.y}px))`,
-              }
-            : // 枠を測るまでは、小さい画像も枠いっぱいに広げ、縦横比を保ったまま収める
-              { width: `min(100cqw, calc(100cqh * ${image.width / image.height}))` }),
+          ...(placed ||
+            // 枠を測るまでは、小さい画像も枠いっぱいに広げ、縦横比を保ったまま収める
+            { width: `min(100cqw, calc(100cqh * ${image.width / image.height}))` }),
         }}
       />
+      {placed && people.length > 0 && <Skeleton people={people} image={image} style={placed} />}
       {onPrev && (
         <button type="button" className="zoom__nav zoom__nav--prev" aria-label="前の画像" onClick={onPrev}>
           <span className="zoom__arrow">
@@ -133,3 +138,26 @@ const Chevron = ({ d }: { d: string }) => (
     <path d={d} />
   </svg>
 )
+
+// 骨格を画像と同じ場所に重ねる。viewBox を関節の座標の入れ物にし、線の太さは倍率によらず同じにする
+function Skeleton({ people, image, style }: { people: number[][]; image: Size; style: React.CSSProperties }) {
+  const box = poseBox(image)
+  const { lines, joints } = skeleton(people)
+  const bones = lines.map(([a, b]) => `M${a.x} ${a.y}L${b.x} ${b.y}`).join('')
+  // 長さ0の線を丸い端で描くと、太さの直径の点になる
+  const dots = joints.map((p) => `M${p.x} ${p.y}h0`).join('')
+  return (
+    <svg
+      className="zoom__pose"
+      viewBox={`0 0 ${box.width} ${box.height}`}
+      style={{ ...style, aspectRatio: `${image.width} / ${image.height}` }}
+      aria-hidden="true"
+    >
+      {/* 黒い縁を下に敷き、上に白を重ねる。明るい写真にも暗い写真にも見えるように */}
+      <path className="zoom__pose-edge" d={bones} />
+      <path className="zoom__pose-edge zoom__pose-joint" d={dots} />
+      <path className="zoom__pose-line" d={bones} />
+      <path className="zoom__pose-line zoom__pose-joint" d={dots} />
+    </svg>
+  )
+}

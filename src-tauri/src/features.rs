@@ -338,6 +338,19 @@ impl Store {
         Ok(out)
     }
 
+    /// hash の画像の、pose の観点の今のモデル名の行。ないか決まりと違う形なら None
+    pub fn pose(&self, hash: &str, aspect: &Aspect) -> Result<Option<Pose>, String> {
+        self.conn
+            .query_row(
+                "SELECT status, people FROM poses WHERE hash = ?1 AND aspect = ?2 AND model = ?3",
+                params![hash, aspect.aspect, aspect.model],
+                |r| Ok(pose_row(r.get(0)?, &r.get::<_, Vec<u8>>(1)?, aspect.dim)),
+            )
+            .optional()
+            .map(Option::flatten)
+            .map_err(err)
+    }
+
     /// その画像の行を、観点とモデル名によらずすべて消す
     pub fn remove(&mut self, hash: &str) -> Result<(), String> {
         let tx = self.conn.transaction().map_err(err)?;

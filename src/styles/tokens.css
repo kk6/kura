@@ -15,6 +15,8 @@
   --color-warning: #8a5300;
   --color-success: #18703a;
   --color-info: #1f5fb0;
+  --color-pose: #ffffff;
+  --color-pose-edge: #1c1c1a;
 
   --font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
   --font-size-sm: 12px;
@@ -71,4 +73,7 @@
   --size-slider-thumb: 12px;
   --size-check: 18px;
   --size-scrollbar: 8px;
+  --size-pose-line: 2px;
+  --size-pose-joint: 6px;
+  --size-pose-edge: 1px;
 }

@@ -149,6 +149,48 @@ pub fn similar(
     })
 }
 
+/// 拡大表示に重ねる骨格（FR-606）。ポーズがなければ people は空で、skipped に理由を入れる
+#[derive(Debug, PartialEq, Serialize)]
+pub struct PoseOf {
+    /// 人物ごとに COCO 17点の [x, y, スコア]。x、y はサムネイルの長い辺を1とした値
+    pub people: Vec<Vec<f32>>,
+    pub skipped: Option<Skip>,
+}
+
+/// id の画像の、今のモデルのポーズ。missing（モデルのファイルが欠けた観点）に入っていれば使わない
+pub fn pose_of(
+    lib: &mut Library,
+    aspects: &[Aspect],
+    id: i64,
+    missing: &[String],
+) -> Result<PoseOf, String> {
+    let skip = |s| {
+        Ok(PoseOf {
+            people: Vec::new(),
+            skipped: Some(s),
+        })
+    };
+    let Some(a) = aspects.iter().find(|a| a.kind == Kind::Pose) else {
+        return skip(Skip::MissingModels);
+    };
+    if missing.contains(&a.aspect) {
+        return skip(Skip::MissingModels);
+    }
+    // 類似画像検索を使ったことのないライブラリには features.db を作らない（設計メモ2章）
+    let Some(hash) = hash_of(lib, id)?.filter(|_| features::path(&lib.root).exists()) else {
+        return skip(Skip::Uncomputed);
+    };
+    match lib.with_features(|s| s.pose(&hash, a))? {
+        Some(p) if p.status == PoseStatus::Ok => Ok(PoseOf {
+            people: p.people,
+            skipped: None,
+        }),
+        Some(p) if p.status == PoseStatus::Few => skip(Skip::Few),
+        Some(_) => skip(Skip::NoPerson),
+        None => skip(Skip::Uncomputed),
+    }
+}
+
 /// id を基準に探せるか。ゴミ箱でも「見つからない」でもなく、今のモデルの全観点の特徴量がそろっている。
 /// 画面が押す前に未計算を知るため、詳細パネルを読むたびに呼ぶ（5.6 の「入口と結果」）
 pub fn ready(lib: &mut Library, aspects: &[Aspect], id: i64) -> Result<bool, String> {
@@ -856,6 +898,63 @@ mod tests {
             serde_json::to_value(&r.skipped).unwrap(),
             serde_json::json!({ "pose": "missing_models" })
         );
+    }
+
+    #[test]
+    fn 骨格の重ね表示にはポーズのある画像の全員の関節を返す() {
+        let (_d, mut lib) = open();
+        let a = pose_aspects();
+        let two = [person(&RAISE, &[]), person(&lying(&RAISE), &[])];
+        let id = posed(&mut lib, "two", PoseStatus::Ok, &two);
+        let got = pose_of(&mut lib, &a, id, &[]).unwrap();
+        assert_eq!(got.skipped, None);
+        assert_eq!(got.people, two.to_vec());
+    }
+
+    #[test]
+    fn 骨格の重ね表示はポーズのない画像では理由だけを返す() {
+        let cases = [
+            ("none", Some(PoseStatus::None), &[][..], Skip::NoPerson),
+            ("few", Some(PoseStatus::Few), &[][..], Skip::Few),
+            ("uncomputed", None, &[][..], Skip::Uncomputed),
+            (
+                "missing",
+                Some(PoseStatus::Ok),
+                &["pose".to_string()][..],
+                Skip::MissingModels,
+            ),
+        ];
+        for (name, status, missing, why) in cases {
+            let (_d, mut lib) = open();
+            let a = pose_aspects();
+            let id = match status {
+                Some(PoseStatus::Ok) => {
+                    posed(&mut lib, "x", PoseStatus::Ok, &[person(&RAISE, &[])])
+                }
+                Some(s) => posed(&mut lib, "x", s, &[]),
+                None => image(&mut lib, "x", 0.0),
+            };
+            let got = pose_of(&mut lib, &a, id, missing).unwrap();
+            assert_eq!(got.skipped, Some(why), "{name}");
+            assert!(got.people.is_empty(), "{name}");
+        }
+    }
+
+    #[test]
+    fn 骨格の重ね表示はfeatures_dbを作らずに未計算とする() {
+        let (dir, mut lib) = open();
+        let id = add(&mut lib, "x", "");
+        let got = pose_of(&mut lib, &pose_aspects(), id, &[]).unwrap();
+        assert_eq!(got.skipped, Some(Skip::Uncomputed));
+        assert!(!features::path(dir.path()).exists());
+    }
+
+    #[test]
+    fn 骨格の重ね表示はポーズの観点がなければモデルがないとする() {
+        let (_d, mut lib) = open();
+        let id = image(&mut lib, "x", 0.0);
+        let got = pose_of(&mut lib, &aspects(), id, &[]).unwrap();
+        assert_eq!(got.skipped, Some(Skip::MissingModels));
     }
 
     #[test]

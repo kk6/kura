@@ -43,6 +43,7 @@ import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { changeWeight, fillWeights, rankSimilar, type Similar, type Weights } from './similarity'
 import { type SortKey, sortImages } from './sort'
 import { useLibrary } from './useLibrary'
+import type { PoseOf } from './pose'
 import { useZoom, ZOOM_STEP } from './useZoom'
 import { IMAGE_DRAG } from './imageDrag'
 import { actualSize, FIT } from './zoomView'
@@ -240,6 +241,24 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   const moveTo = useCallback((id: number) => setSelection({ ids: new Set([id]), anchor: id }), [])
   const zoomView = useZoom(zoomed)
   const { changeView, zoomBy } = zoomView
+  // 骨格の重ね表示（FR-606）。初期値は OFF で、状態は保存しない
+  const [poseOn, setPoseOn] = useState(false)
+  const [pose, setPose] = useState<{ id: number; people: number[][] } | null>(null)
+  const zoomedId = zoomed?.id ?? null
+  useEffect(() => {
+    if (zoomedId === null || !settings.similarity_enabled) return
+    let current = true
+    invoke<PoseOf>('image_pose', { id: zoomedId }).then(
+      (p) => current && setPose({ id: zoomedId, people: p.people }),
+      // 読めなければ、ポーズのない画像と同じく切り替えを出さない。理由は Rust がログに残す
+      () => current && setPose({ id: zoomedId, people: [] }),
+    )
+    return () => {
+      current = false
+    }
+    // 計算が進むとポーズが入るので、読み直す
+  }, [zoomedId, settings.similarity_enabled, features.done])
+  const people = settings.similarity_enabled && pose && pose.id === zoomedId ? pose.people : []
   const step = (by: number) => {
     const id = order[at + by]
     if (id !== undefined) moveTo(id)
@@ -912,7 +931,14 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         >
           {/* 拡大表示の間は、サムネイルの大きさの代わりに画像の倍率を出す。後ろに隠れたサムネイルを変えても見えないため */}
           {zoomed && zoomView.frame ? (
-            <ZoomSlider zoom={zoomView} image={zoomed} frame={zoomView.frame} />
+            <>
+              {people.length > 0 && (
+                <button type="button" className="button" aria-pressed={poseOn} onClick={() => setPoseOn((on) => !on)}>
+                  骨格を重ねる
+                </button>
+              )}
+              <ZoomSlider zoom={zoomView} image={zoomed} frame={zoomView.frame} />
+            </>
           ) : (
             !zoomed && <ThumbSlider width={thumbWidth} onChange={(thumb_width) => changeSettings({ thumb_width })} />
           )}
@@ -979,6 +1005,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
             onPrev={at > 0 ? () => step(-1) : undefined}
             onNext={at < order.length - 1 ? () => step(1) : undefined}
             onContextMenu={(e) => openContextMenu(zoomed.id, e)}
+            people={poseOn ? people : []}
           />
         )}
 

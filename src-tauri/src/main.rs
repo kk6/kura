@@ -296,6 +296,23 @@ fn similar_images(
     Ok(result)
 }
 
+/// 拡大表示に重ねる、画像の今のモデルのポーズ（FR-606）
+#[tauri::command]
+fn image_pose(
+    app: AppHandle,
+    current: State<Current>,
+    models: State<Models>,
+    id: i64,
+) -> Result<similar::PoseOf, String> {
+    let manifest = models.manifest()?;
+    let missing = model::missing(manifest, &app_file(&app, "models")?).aspects;
+    current
+        .0
+        .with(|lib| similar::pose_of(lib, &manifest.aspects, id, &missing))
+        // 画面は切り替えを出さないだけなので、理由はログに残す
+        .inspect_err(|e| log::warn!("ポーズを読めません（{id}、{e}）"))
+}
+
 /// ライブラリ全体から元が同じ画像の組を探す（FR-611）。進み具合を origin-progress で知らせる。
 /// ロックは特徴量を読む間だけ持つので、探している間もほかのコマンドを使える。中止されたら null
 #[tauri::command]
@@ -1104,6 +1121,7 @@ fn main() {
             prepare_models,
             features_status,
             similar_images,
+            image_pose,
             find_origin_groups,
             cancel_origin_groups,
             retry_features,

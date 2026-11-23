@@ -70,3 +70,33 @@
 .zoom__nav:focus-visible .zoom__arrow {
   visibility: visible;
 }
+
+/* 骨格の重ね表示（FR-606）。画像の操作（ドラッグ、右クリック）を妨げない */
+.zoom__pose {
+  pointer-events: none;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.zoom__pose path {
+  vector-effect: non-scaling-stroke;
+}
+
+.zoom__pose-line {
+  stroke: var(--color-pose);
+  stroke-width: var(--size-pose-line);
+}
+
+.zoom__pose-edge {
+  stroke: var(--color-pose-edge);
+  stroke-width: calc(var(--size-pose-line) + 2 * var(--size-pose-edge));
+}
+
+.zoom__pose-line.zoom__pose-joint {
+  stroke-width: var(--size-pose-joint);
+}
+
+.zoom__pose-edge.zoom__pose-joint {
+  stroke-width: calc(var(--size-pose-joint) + 2 * var(--size-pose-edge));
+}
