@@ -1,6 +1,10 @@
 // src-tauri/src/import.rs の Report と Skipped（import_paths コマンドの返り値）
+// setAside は、対応していない形式なので差分検出で _未対応ファイル/ へ移したファイル（FR-108）。to は移した先
 export type Skipped = { path: string } & (
-  { kind: 'duplicate'; existing: number } | { kind: 'unsupported' } | { kind: 'error'; message: string }
+  | { kind: 'duplicate'; existing: number }
+  | { kind: 'unsupported' }
+  | { kind: 'setAside'; to: string }
+  | { kind: 'error'; message: string }
 )
 
 // src-tauri/src/source.rs の Note。登録できたが、ダウンロード元の記録を全部は元URLにできなかった画像（FR-208）

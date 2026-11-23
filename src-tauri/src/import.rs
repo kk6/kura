@@ -249,6 +249,10 @@ pub enum Reason {
         existing: i64,
     },
     Unsupported,
+    /// 対応していない形式なので、差分検出で `_未対応ファイル/` へ移した（FR-108）。to は移した先の絶対パス
+    SetAside {
+        to: PathBuf,
+    },
     /// 壊れた画像、読めないフォルダ、カテゴリにできない名前のフォルダなど
     Error {
         message: String,

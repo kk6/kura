@@ -52,7 +52,7 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 
 `check.sh` の `DRIFT` は、上の関数の本体（空白を詰めたもの）が `coverage.tsv` の指紋と違うことを示す。整形だけの変更でも出る。
 
-**同期したコミット：`002d834`**（`dce2922` から、写す2つのファイルの変更は `3f16753` だけ。`library.rs` のエラーの文を定数 `NOT_OPEN` と `DRIVE_UNREADABLE` に出したもので、`connect` と `apply_op` の本体は変わらず指紋も同じ。`transfer` を呼ぶ側（`trash.rs`、`sync.rs`、`category.rs`、`import.rs`）にも変更はない。この間に足した `calc.rs`、`features.rs`、`model.rs` は `features.db` とアプリのデータフォルダのモデルだけを書き、ライブラリの画像も `pending_ops` も動かさない。モデルは変更せず、TLC と6つの故障モデルで確かめた。前の同期は `dce2922`）
+**同期したコミット：`28c0622`**（`002d834` から、`library.rs` の `apply_op` に、DB に行のないファイルを動かす2つの種類（`skipped.rs` の `SET_ASIDE` と `TRASH_DUPLICATE`。FR-108、FR-109）を足した。どちらも DB を変えない `apply_none` で、`transfer` の移動（`copy: false`、`OnConflict::Number`）をそのまま使う。段階の順番もトランザクションの区切りも変わらないので、モデルは変更せず、TLC と6つの故障モデルで確かめた。前の同期は `002d834`）
 
 ## DRIFT や FAIL が出たとき
 

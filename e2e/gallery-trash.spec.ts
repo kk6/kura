@@ -127,8 +127,8 @@ test('開いた後に差分を確認して結果を出し、見つからない�
   await expect(status).toContainText('完了：差分を反映（登録 3枚、移動 1枚、カテゴリ追加 1件）')
   await expect(status).toContainText('注意：見つからない画像 2枚')
   await expect(missingItem).toContainText('2')
-  await status.getByRole('button', { name: /スキップ 1枚/ }).click()
-  await expect(page.getByRole('dialog', { name: '登録しなかったファイル（1件）' })).toContainText('メモ.txt')
+  await status.getByRole('button', { name: /スキップ 3枚/ }).click()
+  await expect(page.getByRole('dialog', { name: '登録しなかったファイル（3件）' })).toContainText('メモ.txt')
   await page.keyboard.press('Escape')
   await status.getByRole('button', { name: '注意：元URLの注意 1件' }).click()
   await expect(page.getByRole('dialog', { name: '元URLの注意（1枚）' })).toContainText(

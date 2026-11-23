@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::category::{self, Failed, SUBTREE};
 use crate::fileops::{self, nfc};
 use crate::import::{self, millis, Reason, Skipped};
-use crate::library::{self, err, Access, Library, UNCATEGORIZED_DIR};
+use crate::library::{self, err, Access, Library, UNCATEGORIZED_DIR, UNSUPPORTED_DIR};
 use crate::source::{self, Note};
 use crate::trash::{self, Done};
 
@@ -96,6 +96,9 @@ impl Walk {
             if meta.0.is_dir() {
                 if rel.as_os_str().is_empty() && name == UNCATEGORIZED_DIR {
                     self.visit(root, &child, false);
+                } else if rel.as_os_str().is_empty() && name == UNSUPPORTED_DIR {
+                    // 対応していない形式のファイルを移した先（FR-108）。カテゴリにせず、中も知らせない
+                    continue;
                 } else if !subdirs {
                     self.fail(path, "未分類の下のフォルダは登録しません".into());
                 } else if let Err(message) = category::validate(&name) {
@@ -539,7 +542,7 @@ pub fn forget(lib: &mut Library, ids: &[i64]) -> Result<Done, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
@@ -560,12 +563,12 @@ mod tests {
         }
     }
 
-    fn scan(lib: &mut Library) -> Result<Report, String> {
+    pub(crate) fn scan(lib: &mut Library) -> Result<Report, String> {
         super::scan(&std::cell::RefCell::new(lib), |_, _| {})
     }
 
     /// ライブラリの rel に、shade の色の 4x4 の PNG を Finder で置いたかのように書く
-    fn png(lib: &Library, rel: &str, shade: u8) {
+    pub(crate) fn png(lib: &Library, rel: &str, shade: u8) {
         let path = lib.root.join(rel);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         RgbImage::from_pixel(4, 4, Rgb([shade, 0, 0]))
@@ -605,7 +608,7 @@ mod tests {
             .unwrap()
     }
 
-    fn id_of(lib: &Library, file_name: &str) -> i64 {
+    pub(crate) fn id_of(lib: &Library, file_name: &str) -> i64 {
         lib.conn
             .query_row(
                 "SELECT id FROM images WHERE file_name = ?1",
@@ -1106,6 +1109,19 @@ mod tests {
         assert_eq!((r.added, r.categories_added), (0, 0));
         assert_eq!(r.skipped.len(), 1);
         assert_eq!(r.skipped[0].reason, Reason::Unsupported);
+    }
+
+    #[test]
+    fn 未対応ファイルのフォルダはカテゴリにせず中も知らせない() {
+        let (_d, mut lib) = setup();
+        png(&lib, "_未対応ファイル/a.png", 10);
+        fs::write(lib.root.join("_未対応ファイル/b.mp4"), b"movie").unwrap();
+
+        let r = scan(&mut lib).unwrap();
+
+        assert_eq!((r.added, r.categories_added), (0, 0));
+        assert!(r.skipped.is_empty(), "{r:?}");
+        assert!(category::create(&mut lib, None, "_未対応ファイル").is_err());
     }
 
     #[test]

@@ -21,6 +21,7 @@ import Masonry from './Masonry'
 import SettingsPage, { type SettingsKind } from './SettingsPage'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
+import TidyDialog from './TidyDialog'
 import Status from './Status'
 import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResult'
 import MissingPanel from './MissingPanel'
@@ -35,6 +36,7 @@ import type {
   ModelFetch,
   Report,
   ScanReport,
+  Skipped,
 } from './importTypes'
 import { EMPTY_SELECTION, keepOnly, select } from './selection'
 import { changeWeight, fillWeights, rankSimilar, type Similar, type Weights } from './similarity'
@@ -75,6 +77,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   const { data, trash, missing, loadError, reload, reloadTrash, reloadMissing } = lib
   const [showSkipped, setShowSkipped] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
+  // スキップの一覧の重複の行の「整理…」（FR-109）で開いた行
+  const [tidying, setTidying] = useState<(Skipped & { kind: 'duplicate' }) | null>(null)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
   // 設定で出している種類。null は設定を閉じている（8章）
@@ -705,6 +709,32 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
 
   const skipped = result?.kind === 'report' || result?.kind === 'scan' ? result.report.skipped : []
 
+  // 差分検出のスキップの一覧の行を差し替える。一覧は保存しないので、ステータスバーの結果が持つ
+  const editSkipped = (edit: (list: Skipped[]) => Skipped[]) =>
+    setResult((r) => (r?.kind === 'scan' ? { ...r, report: { ...r.report, skipped: edit(r.report.skipped) } } : r))
+  // 対応していない形式のファイルを _未対応ファイル/ へ移す（FR-108）。移した行と移せなかった行を差し替える
+  async function setAsideFiles(paths: string[]) {
+    let next: Skipped[]
+    try {
+      next = await invoke<Skipped[]>('set_aside_unsupported', { paths })
+    } catch (e) {
+      next = paths.map((path) => ({ path, kind: 'error', message: String(e) }))
+    }
+    const byPath = new Map(next.map((s) => [s.path, s]))
+    editSkipped((list) => list.map((s) => byPath.get(s.path) ?? s))
+  }
+  // 重複を整理する（FR-109）。失敗したら reject してダイアログに理由を出す。登録済みの画像を移したかもしれないので、どちらでも読み直す
+  async function tidy(keepRegistered: boolean) {
+    const s = tidying!
+    try {
+      await invoke('tidy_duplicate', { path: s.path, existing: s.existing, keepRegistered })
+    } finally {
+      reload()
+    }
+    editSkipped((list) => list.filter((x) => x.path !== s.path))
+  }
+  const tidyExisting = tidying && data.images.find((i) => i.id === tidying.existing)
+
   return (
     <div
       className={
@@ -1055,9 +1085,25 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           <SkipDialog
             title={result?.kind === 'scan' ? '登録しなかったファイル' : undefined}
             skipped={skipped}
+            {...(result?.kind === 'scan' && {
+              // 登録済みの画像がゴミ箱か「見つからない」にあれば、残す場所がないので出さない
+              canTidy: (s) => data.images.some((i) => i.id === s.existing),
+              onTidy: setTidying,
+              onSetAside: setAsideFiles,
+            })}
             onClose={() => setShowSkipped(false)}
           />
         ))}
+      {tidying && tidyExisting && (
+        <TidyDialog
+          name={tidying.path.slice(tidying.path.lastIndexOf('/') + 1)}
+          dir={tidying.path.slice(root.length + 1, tidying.path.lastIndexOf('/'))}
+          existing={tidyExisting}
+          categories={data.categories}
+          onTidy={tidy}
+          onClose={() => setTidying(null)}
+        />
+      )}
     </div>
   )
 }

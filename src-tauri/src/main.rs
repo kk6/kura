@@ -16,6 +16,7 @@ mod restore;
 mod settings;
 mod settle;
 mod similar;
+mod skipped;
 mod source;
 mod sync;
 mod tag;
@@ -759,6 +760,16 @@ async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
             if let Err(e) = app.emit("scan-progress", ImportProgress { done, total }) {
                 log::warn!("差分検出の進み具合を送れません：{e}");
             }
+        })
+        .and_then(|mut r| {
+            // ON の間は、対応していない形式のファイルを差分検出のたびに移す（FR-108）。読めない設定は初期値（OFF）とみなす
+            if settings_file(&app).is_ok_and(|f| settings::load(&f).set_aside_unsupported) {
+                current.0.with(|lib| {
+                    skipped::set_aside(lib, &mut r.skipped);
+                    Ok(())
+                })?;
+            }
+            Ok(r)
         });
         // 一部だけ登録した失敗もあるので、結果によらず計算を起こす
         app.state::<calc::Calc>().wake();
@@ -776,6 +787,42 @@ async fn scan_library(app: AppHandle) -> Result<sync::Report, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// 差分検出のスキップの一覧から、対応していない形式のファイルを `_未対応ファイル/` へ移す（FR-108）。
+/// 返り値は paths と同じ順の、移した先か移せなかった理由
+#[tauri::command]
+async fn set_aside_unsupported(
+    app: AppHandle,
+    paths: Vec<PathBuf>,
+) -> Result<Vec<import::Skipped>, String> {
+    with_library(app, move |lib| {
+        let mut list: Vec<_> = paths
+            .into_iter()
+            .map(|path| import::Skipped {
+                path,
+                reason: import::Reason::Unsupported,
+            })
+            .collect();
+        skipped::set_aside(lib, &mut list);
+        Ok(list)
+    })
+    .await
+}
+
+/// 差分検出で重複として登録しなかったファイル path を整理する（FR-109）。
+/// keep_registered が false なら、登録済みの画像 existing をそのファイルのあったカテゴリへ移す
+#[tauri::command]
+async fn tidy_duplicate(
+    app: AppHandle,
+    path: PathBuf,
+    existing: i64,
+    keep_registered: bool,
+) -> Result<(), String> {
+    with_library(app, move |lib| {
+        skipped::tidy(lib, &path, existing, keep_registered)
+    })
+    .await
 }
 
 /// DB を利用者が選んだファイルに書き出す（NFR-07）
@@ -1038,6 +1085,8 @@ fn main() {
             empty_trash,
             load_missing,
             scan_library,
+            set_aside_unsupported,
+            tidy_duplicate,
             forget_images,
             backup_library,
             inspect_backup,

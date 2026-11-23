@@ -2,7 +2,7 @@ import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
 import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
-import type { FeaturesStatus, Report, ScanReport } from '../importTypes'
+import type { FeaturesStatus, Report, ScanReport, Skipped } from '../importTypes'
 import type { Added, BoardSummary, EditingBoard, Item, Snapshot, Target, Viewport } from '../board/types'
 import photos from 'virtual:docs-photos'
 
@@ -396,7 +396,12 @@ const SCAN: ScanReport = {
   returned: 0,
   categories_added: 1,
   categories_removed: 0,
-  skipped: [{ path: '/Users/me/Pictures/Kura ライブラリ/_未分類/メモ.txt', kind: 'unsupported' }],
+  // 1枚目（未分類）と中身が同じファイルを「ポーズ/座り」に置いた重複（FR-109）と、対応していない形式のファイル（FR-108）
+  skipped: [
+    { path: '/Users/me/Pictures/Kura ライブラリ/ポーズ/座り/ref_00001 のコピー.jpg', kind: 'duplicate', existing: 1 },
+    { path: '/Users/me/Pictures/Kura ライブラリ/_未分類/メモ.txt', kind: 'unsupported' },
+    { path: '/Users/me/Pictures/Kura ライブラリ/服飾/clip.mp4', kind: 'unsupported' },
+  ],
   source_notes: [
     {
       path: '/Users/me/Pictures/Kura ライブラリ/_未分類/ref_00030.jpg',
@@ -414,7 +419,37 @@ const scanLibrary: Handler = async () => {
   await emit('scan-progress', { done: 4, total: 4 })
   // e2e が「見つからない」の画像が元の場所に戻った場合を作る
   if (sessionStorage.getItem('mock.returnMissing')) IMAGES.push(...MISSING.splice(0, 1))
-  return structuredClone(SCAN)
+  const report = structuredClone(SCAN)
+  // 本物と同じく、ON の間は対応していない形式のファイルを移した行にする（FR-108）
+  if (stored('mock.settings', DEFAULT_SETTINGS).set_aside_unsupported) {
+    const paths = report.skipped.filter((s) => s.kind === 'unsupported').map((s) => s.path)
+    const moved = new Map((setAsideUnsupported({ paths }) as Skipped[]).map((s) => [s.path, s]))
+    report.skipped = report.skipped.map((s) => moved.get(s.path) ?? s)
+  }
+  return report
+}
+
+// 対応していない形式のファイルを _未対応ファイル/ へ移す（FR-108）。本物と同じく同名には連番を付ける
+const setAsideUnsupported: Handler = (args) => {
+  const taken = new Set<string>()
+  return (args?.paths as string[]).map((path) => {
+    const name = path.slice(path.lastIndexOf('/') + 1)
+    const free = taken.has(name) ? name.replace(/(\.[^.]*)?$/, ' (2)$1') : name
+    taken.add(free)
+    return { path, kind: 'setAside', to: `/Users/me/Pictures/Kura ライブラリ/_未対応ファイル/${free}` }
+  })
+}
+
+// 重複を整理する（FR-109）。登録しなかったファイルの場所に残すなら、登録済みの画像をそのフォルダのカテゴリへ移す
+const tidyDuplicate: Handler = (args) => {
+  const image = IMAGES.find((i) => i.id === args?.existing)
+  if (!image) throw '画像が見つかりません'
+  if (!args?.keepRegistered) {
+    const dir = (args?.path as string).split('/').slice(5, -1)
+    image.category_id =
+      dir[0] === '_未分類' ? null : (GALLERY.categories.find((c) => c.name === dir.at(-1))?.id ?? null)
+  }
+  return null
 }
 
 // 元URLの補完（FR-208）。本物と同じく1枚ごとに進み具合を送り、e2e で中断できるよう少しずつ待つ
@@ -445,6 +480,7 @@ const stored = <T>(key: string, init: T): T => JSON.parse(sessionStorage.getItem
 const store = (key: string, value: unknown) => sessionStorage.setItem(key, JSON.stringify(value))
 const DEFAULT_SETTINGS: Settings = {
   confirm_category_move: true,
+  set_aside_unsupported: false,
   thumb_width: 200,
   tags_collapsed: false,
   category_children: true,
@@ -857,6 +893,8 @@ const handlers: Record<string, Handler> = {
   // 新しく作ったライブラリは空なので、差分もない
   load_missing: () => (created ? [] : structuredClone(MISSING)),
   scan_library: scanLibrary,
+  set_aside_unsupported: setAsideUnsupported,
+  tidy_duplicate: tidyDuplicate,
   forget_images: forgetImages,
   backup_library: () => null,
   // 管理情報を戻す（FR-107）。e2e で失敗と警告を確かめるため、パスの名前で結果を変える

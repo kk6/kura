@@ -6,7 +6,7 @@ use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::fileops::{self, OnConflict, PendingOp, Request};
-use crate::library::{err, Library, TRASH_DIR, UNCATEGORIZED_DIR};
+use crate::library::{err, Library, TRASH_DIR, UNCATEGORIZED_DIR, UNSUPPORTED_DIR};
 
 /// 画像をカテゴリのフォルダへ移す操作の、pending_ops の種類
 pub const MOVE_IMAGE: &str = "move_image";
@@ -127,7 +127,7 @@ pub fn apply_move(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
 }
 
 /// dir の逆。フォルダ（ライブラリからの相対パス）に当たるカテゴリ
-fn by_dir(conn: &Connection, path: &Path) -> Result<Option<i64>, String> {
+pub(crate) fn by_dir(conn: &Connection, path: &Path) -> Result<Option<i64>, String> {
     if path == Path::new(UNCATEGORIZED_DIR) {
         return Ok(None);
     }
@@ -193,8 +193,8 @@ fn check_name(what: &str, name: &str) -> Result<(), String> {
 
 pub(crate) fn validate(name: &str) -> Result<(), String> {
     check_name("カテゴリ名", name)?;
-    if name == UNCATEGORIZED_DIR {
-        return Err(format!("{UNCATEGORIZED_DIR} はカテゴリ名に使えません"));
+    if name == UNCATEGORIZED_DIR || name == UNSUPPORTED_DIR {
+        return Err(format!("{name} はカテゴリ名に使えません"));
     }
     Ok(())
 }

@@ -40,6 +40,11 @@ pub const UNCATEGORIZED_DIR: &str = "_未分類";
 pub const BACKUP_DIR: &str = ".kura/backups";
 /// 削除したカテゴリのフォルダに残った管理外のファイル（FR-404）と、削除した画像（FR-511、`<画像のid>.<拡張子>`）を置く
 pub const TRASH_DIR: &str = ".kura/trash";
+/// 差分検出で重複として登録しなかったファイルを、整理するときに移す（FR-109）。DB に行はなく、ゴミ箱を空にすると消える。
+/// . で始めるので、削除したカテゴリのフォルダ（カテゴリ名は . で始められない）とも画像（画像の id の名前）とも重ならない
+pub const DUPLICATES_DIR: &str = ".kura/trash/.duplicates";
+/// 対応していない形式のファイルを移すルート直下のフォルダ（FR-108）。カテゴリにはせず、差分検出でも見ない
+pub const UNSUPPORTED_DIR: &str = "_未対応ファイル";
 
 // 1つが1つの版。後のタスクでテーブルを足すときは末尾に足し、既存の要素は書き換えない
 pub(crate) const MIGRATIONS: &[&str] = &[
@@ -312,6 +317,9 @@ fn apply_op(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
         crate::category::TRASH_CATEGORY => crate::category::apply_trash_category(tx, op),
         crate::trash::TRASH_IMAGE => crate::trash::apply_trash(tx, op),
         crate::trash::RESTORE_IMAGE => crate::trash::apply_restore(tx, op),
+        crate::skipped::SET_ASIDE | crate::skipped::TRASH_DUPLICATE => {
+            crate::skipped::apply_none(tx, op)
+        }
         _ => Err(format!("未知の操作の種類です（{}）", op.kind)),
     }
 }
