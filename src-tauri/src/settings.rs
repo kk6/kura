@@ -19,6 +19,10 @@ pub struct Settings {
     pub tags_collapsed: bool,
     /// カテゴリで絞り込むときとカテゴリの件数に、子カテゴリの画像を含める（FR-516）
     pub category_children: bool,
+    /// 詳細パネルに最近使ったタグを出す（FR-419）
+    pub recent_tags: bool,
+    /// 最近使ったタグを出す件数（5、10、15。FR-419）。範囲に収めるのは画面側
+    pub recent_tags_count: u32,
     /// アイデアボードを使う（FR-711）。前の版の設定ファイルにはないので、更新した人も ON で始まる
     pub board_enabled: bool,
     /// 類似画像検索を使う（5.6）。true にするのは、モデルのファイルをそろえた後の画面だけ。
@@ -124,6 +128,8 @@ impl Default for Settings {
             thumb_width: 200,
             tags_collapsed: false,
             category_children: true,
+            recent_tags: true,
+            recent_tags_count: 5,
             board_enabled: true,
             similarity_enabled: false,
             similarity_weights: BTreeMap::new(),
@@ -210,6 +216,8 @@ mod tests {
         assert!(s.board_enabled);
         assert!(!s.similarity_enabled);
         assert!(s.category_children);
+        assert!(s.recent_tags);
+        assert_eq!(s.recent_tags_count, 5);
     }
 
     #[test]
@@ -221,6 +229,8 @@ mod tests {
             thumb_width: 140,
             tags_collapsed: true,
             category_children: false,
+            recent_tags: false,
+            recent_tags_count: 15,
             board_enabled: false,
             similarity_enabled: true,
             similarity_weights: BTreeMap::from([
@@ -268,6 +278,9 @@ mod tests {
         assert!(s.similarity_weights.is_empty());
         // 子カテゴリを含めるかはフェーズ4で足した。前の版と同じく含めて始める（FR-516）
         assert!(s.category_children);
+        // 最近使ったタグの設定は 4a-2 で足した。前の版と同じく出す・5件で始める（FR-419）
+        assert!(s.recent_tags);
+        assert_eq!(s.recent_tags_count, 5);
     }
 
     #[test]
@@ -356,6 +369,8 @@ mod tests {
             thumb_width: 120,
             tags_collapsed: false,
             category_children: true,
+            recent_tags: true,
+            recent_tags_count: 5,
             board_enabled: true,
             similarity_enabled: false,
             similarity_weights: BTreeMap::new(),

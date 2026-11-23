@@ -123,3 +123,16 @@
   color: var(--color-text-faint);
   background: var(--color-raise);
 }
+
+/* 設定の間は、ギャラリーのサイドバーを外さずに隠し、同じ場所に設定の種類を出す */
+.gallery__main[inert] > .gallery__sidebar {
+  visibility: hidden;
+}
+
+.settings__select {
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--color-input);
+}

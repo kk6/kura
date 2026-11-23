@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { openGallery, thumb, selectedNames } from './gallery-helpers'
+import { openGallery, settingsKind, thumb, selectedNames } from './gallery-helpers'
 
 test('画像を選ぶと詳細パネルに詳細を出す', async ({ page }) => {
   const errors: string[] = []
@@ -156,6 +156,57 @@ test('タグの入力欄の下に、この起動の間に付けたタグを新�
   await recent.getByRole('button', { name: 'え' }).click()
   await expect(chips).toHaveText(['え'])
   await expect(recent.getByRole('button')).toHaveText(['か', 'お', 'う', 'い', 'あ'])
+  expect(errors).toEqual([])
+})
+
+test('設定の「タグ」で最近使ったタグの件数を変え、出さないようにでき、開き直しても残る（FR-419）', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await openGallery(page)
+  await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
+  const detail = page.getByRole('complementary', { name: '詳細' })
+  const tagInput = detail.getByRole('combobox', { name: 'タグ' })
+  const recent = detail.getByRole('list', { name: '最近使ったタグ' })
+  const settings = page.getByRole('region', { name: '設定' })
+  const show = settings.getByRole('switch', { name: '最近使ったタグを出す' })
+  const count = settings.getByRole('combobox', { name: '最近使ったタグを出す件数' })
+  const openTags = async () => {
+    await page.getByRole('button', { name: '設定' }).click()
+    await settingsKind(page, 'タグ')
+  }
+
+  await thumb(page, 2).click()
+  for (const name of 'abcdefghijkl') {
+    await tagInput.fill(name)
+    await tagInput.press('Enter')
+  }
+  await thumb(page, 3).click()
+  await expect(recent.getByRole('button')).toHaveCount(5)
+
+  await openTags()
+  await expect(show).toBeChecked()
+  await expect(count).toHaveValue('5')
+  await count.selectOption('10')
+  await page.keyboard.press('Escape')
+  await expect(recent.getByRole('button')).toHaveCount(10)
+
+  await openTags()
+  await count.selectOption('15')
+  await page.keyboard.press('Escape')
+  // 付けたのは12個なので、12個まで
+  await expect(recent.getByRole('button')).toHaveCount(12)
+
+  await openTags()
+  await show.uncheck()
+  await expect(count).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(recent).toHaveCount(0)
+
+  // 開き直しても設定は残る
+  await openGallery(page)
+  await openTags()
+  await expect(show).not.toBeChecked()
+  await expect(count).toHaveValue('15')
   expect(errors).toEqual([])
 })
 

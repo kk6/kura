@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { tagsByName } from './choices'
 import Status from './Status'
 import type { Tag } from './galleryTypes'
-import './SkipDialog.css'
-import './TagDialog.css'
+import './TagManager.css'
 
 // 1つのタグに対する操作。一度に1つの行だけで行う
 type Action =
@@ -10,14 +10,13 @@ type Action =
   | { id: number; kind: 'merge'; into: number | null }
   | { id: number; kind: 'delete' }
 
-// タグ管理（FR-408）。名前の変更、統合、削除。統合と削除は取り消せないので、行の中で確かめてから行う
-export default function TagDialog({
+// タグ管理（FR-408）。設定の「タグ」に置く。名前の変更、統合、削除。統合と削除は取り消せないので、行の中で確かめてから行う
+export default function TagManager({
   tags,
   counts,
   onRename,
   onMerge,
   onDelete,
-  onClose,
 }: {
   tags: Tag[]
   // タグの id ごとの、付いている画像の枚数（ゴミ箱を除く）
@@ -26,12 +25,12 @@ export default function TagDialog({
   onRename: (id: number, name: string) => Promise<void>
   onMerge: (from: number, into: number) => Promise<void>
   onDelete: (id: number) => Promise<void>
-  onClose: () => void
 }) {
-  const ref = useRef<HTMLDialogElement>(null)
   const [action, setAction] = useState<Action | null>(null)
   const [error, setError] = useState<string | null>(null)
-  useEffect(() => ref.current?.showModal(), [])
+  // 一覧を名前で絞り込む文字。比べ方はサイドバーの絞り込み（FR-518）と同じ。操作中のタグは名前を変えても残す
+  const [query, setQuery] = useState('')
+  const shown = tagsByName(tags, query, new Set(action ? [action.id] : []))
 
   const start = (next: Action | null) => {
     setAction(next)
@@ -48,7 +47,7 @@ export default function TagDialog({
   const nameOf = (id: number) => tags.find((t) => t.id === id)?.name ?? ''
   const count = (id: number) => counts.get(id) ?? 0
   const errorLine = error && (
-    <span id="tag-dialog-error">
+    <span id="tag-manager-error">
       <Status kind="error">{error}</Status>
     </span>
   )
@@ -63,7 +62,7 @@ export default function TagDialog({
             className={error ? 'tags__input tags__input--error' : 'tags__input'}
             aria-label={`「${nameOf(a.id)}」の新しい名前`}
             aria-invalid={!!error}
-            aria-describedby={error ? 'tag-dialog-error' : undefined}
+            aria-describedby={error ? 'tag-manager-error' : undefined}
             value={a.name}
             autoFocus
             onFocus={(e) => e.target.select()}
@@ -76,8 +75,8 @@ export default function TagDialog({
               if (e.nativeEvent.isComposing || e.keyCode === 229) return
               if (e.key === 'Enter') run(onRename(a.id, a.name))
               if (e.key === 'Escape') {
-                // ダイアログごと閉じず、名前の入力だけをやめる
-                e.preventDefault()
+                // 設定ごと閉じず（Gallery が window で受ける）、名前の入力だけをやめる
+                e.stopPropagation()
                 start(null)
               }
             }}
@@ -149,13 +148,31 @@ export default function TagDialog({
   }
 
   return (
-    <dialog ref={ref} className="dialog" aria-labelledby="tag-dialog-title" onClose={onClose}>
-      <h2 id="tag-dialog-title" className="dialog__title">
-        タグを管理する
-      </h2>
-      {tags.length ? (
-        <ul className="skip__list" aria-label="タグ">
-          {tags.map((t) => (
+    <div className="tags">
+      <input
+        autoCorrect="off"
+        autoCapitalize="off"
+        autoComplete="off"
+        className="tags__input tags__search"
+        type="search"
+        placeholder="タグを探す"
+        aria-label="タグを名前で絞り込む"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          // かな漢字変換を取り消す Escape と、空の欄の Escape は消さない。空なら設定を閉じる（Gallery）
+          if (e.key !== 'Escape' || e.nativeEvent.isComposing || !query) return
+          e.stopPropagation()
+          setQuery('')
+        }}
+      />
+      {tags.length === 0 ? (
+        <p className="tags__note">タグはまだありません</p>
+      ) : shown.length === 0 ? (
+        <p className="tags__note">「{query}」を名前に含むタグはありません</p>
+      ) : (
+        <ul className="tags__list" aria-label="タグ">
+          {shown.map((t) => (
             <li key={t.id} className="tags__item">
               <span className="tags__row">
                 <span className="tags__name">{t.name}</span>
@@ -190,12 +207,7 @@ export default function TagDialog({
             </li>
           ))}
         </ul>
-      ) : (
-        <p>タグはまだありません</p>
       )}
-      <form method="dialog" className="dialog__actions">
-        <button className="button">閉じる</button>
-      </form>
-    </dialog>
+    </div>
   )
 }

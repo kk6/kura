@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures'
-import { columnCount, openGallery, selectedNames, thumb } from './gallery-helpers'
+import { columnCount, openGallery, selectedNames, settingsKind, thumb } from './gallery-helpers'
 
-test('設定ダイアログでカテゴリの移動の確認を戻し、管理情報をエクスポートする', async ({ page }) => {
+test('設定でカテゴリの移動の確認を戻し、管理情報をエクスポートする', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await openGallery(page)
@@ -28,6 +28,7 @@ test('設定ダイアログでカテゴリの移動の確認を戻し、管理�
   await page.getByRole('button', { name: '設定' }).click()
   await expect(confirm).not.toBeChecked()
   await confirm.check()
+  await settingsKind(page, 'バックアップ')
   await settings.getByRole('button', { name: '管理情報をエクスポート…' }).click()
   await expect(settings).toContainText('完了：/Users/me/Documents/Kura ライブラリ-')
   await page.screenshot({ path: 'test-results/settings.png' })
@@ -174,7 +175,7 @@ test('UIのリニューアルで足した、ライブラリのメニュー、一
   expect(errors).toEqual([])
 })
 
-test('設定は一覧の場所にページで出し、サイドバーは残す。ON/OFF はスイッチで、Escape・歯車・サイドバーで選択を保ったまま一覧に戻る', async ({
+test('設定はサイドバーに種類を並べ、選んだ種類のページを出す。Escape・歯車・「ギャラリーに戻る」で選択を保ったまま一覧に戻る', async ({
   page,
 }) => {
   await openGallery(page)
@@ -182,19 +183,46 @@ test('設定は一覧の場所にページで出し、サイドバーは残す�
   const status = page.getByRole('contentinfo')
   await expect(status).toContainText('1枚を選択')
   const settings = page.getByRole('region', { name: '設定' })
+  const kinds = page.getByRole('navigation', { name: '設定の種類' })
   const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const title = settings.getByRole('heading', { level: 2 })
 
+  // 開くと「一般」を出す。サイドバーはギャラリーの項目の代わりに種類を出す
   await page.keyboard.press('Meta+,')
-  await expect(settings).toBeVisible()
-  await expect(sidebar).toBeVisible()
+  await expect(title).toHaveText('一般')
+  await expect(kinds.getByRole('listitem')).toHaveText([
+    '一般',
+    'タグ',
+    'アイデアボード',
+    '類似画像検索',
+    '元URL',
+    'バックアップ',
+  ])
+  await expect(kinds.getByRole('button', { name: '一般' })).toHaveAttribute('aria-current', 'true')
+  await expect(sidebar).toHaveCount(0)
   await expect(page.locator('.gallery__main')).toHaveAttribute('inert', '')
+  await expect(settings.getByRole('switch', { name: 'サイドバーでカテゴリを移すときに確認する' })).toBeVisible()
   // ページの間は、下の一覧に効くキーを受けない
   await page.keyboard.press('Meta+a')
   await expect(status).toContainText('1枚を選択')
 
+  // 種類ごとのページを撮る
+  for (const [kind, file] of [
+    ['一般', 'general'],
+    ['タグ', 'tags-page'],
+    ['アイデアボード', 'board'],
+    ['類似画像検索', 'similarity'],
+    ['元URL', 'source'],
+    ['バックアップ', 'backup'],
+  ]) {
+    await settingsKind(page, kind)
+    await expect(title).toHaveText(kind)
+    await page.screenshot({ path: `test-results/settings-${file}.png` })
+  }
+
+  await settingsKind(page, 'アイデアボード')
   const board = settings.getByRole('switch', { name: 'アイデアボードを使う' })
   await expect(board).toBeChecked()
-  await page.screenshot({ path: 'test-results/settings-page.png' })
   await board.click()
   await expect(board).not.toBeChecked()
   await expect(page.getByRole('banner').getByRole('button', { name: 'アイデアボード' })).toHaveCount(0)
@@ -203,20 +231,22 @@ test('設定は一覧の場所にページで出し、サイドバーは残す�
 
   await page.keyboard.press('Escape')
   await expect(settings).toHaveCount(0)
+  await expect(sidebar).toBeVisible()
   await expect(page.locator('.gallery__main')).not.toHaveAttribute('inert')
   await expect(status).toContainText('1枚を選択')
 
-  // 歯車は開いている間は押した状態で、もう一度押すと閉じる
+  // 歯車は開いている間は押した状態で、もう一度押すと閉じる。開き直すと「一般」に戻る
   const gear = page.getByRole('button', { name: '設定' })
   await gear.click()
   await expect(gear).toHaveAttribute('aria-pressed', 'true')
+  await expect(title).toHaveText('一般')
   await gear.click()
   await expect(settings).toHaveCount(0)
   await expect(gear).toHaveAttribute('aria-pressed', 'false')
 
-  // サイドバーで絞り込むと、ページを閉じて結果を見せる
-  await page.getByRole('button', { name: '設定' }).click()
-  await sidebar.getByRole('button', { name: /^未分類/ }).click()
+  // 「ギャラリーに戻る」で一覧に戻る
+  await gear.click()
+  await kinds.getByRole('button', { name: 'ギャラリーに戻る' }).click()
   await expect(settings).toHaveCount(0)
-  await expect(status).toContainText('500 / 2000枚')
+  await expect(status).toContainText('1枚を選択')
 })

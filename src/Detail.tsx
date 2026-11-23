@@ -27,6 +27,8 @@ type Props = {
   onTagCreated: (tag: Tag) => void
   // この起動の間に付けたタグの id。新しい順
   recentTags: number[]
+  // 最近使ったタグを出す件数。0 は出さない（FR-419）
+  recentLimit: number
   // タグを付けた・外した画像と、保存したメモ。一覧の絞り込みと件数に反映する
   onTagged: (tag: number, ids: number[]) => void
   onUntagged: (tag: number, ids: number[]) => void
@@ -228,6 +230,7 @@ export default function Detail(props: Props) {
           ids={ids}
           tags={tags}
           recent={props.recentTags}
+          recentLimit={props.recentLimit}
           onCreated={props.onTagCreated}
           onTagged={props.onTagged}
           onUntagged={props.onUntagged}

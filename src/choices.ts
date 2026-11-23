@@ -22,6 +22,10 @@ export function tagsByName(tags: Tag[], typed: string, keep: Set<number>): Tag[]
 // 最近使ったタグ（詳細パネル）。id を使った新しい順に持ち、使ったタグを先頭へ移す
 export const rememberTag = (recent: number[], id: number) => [id, ...recent.filter((r) => r !== id)]
 
+// 最近使ったタグを出す件数の選択肢（FR-419）。手で書き換えた設定ファイルの値は初めの 5 に戻す
+export const RECENT_TAG_COUNTS = [5, 10, 15]
+export const recentLimit = (count: number) => (RECENT_TAG_COUNTS.includes(count) ? count : RECENT_TAG_COUNTS[0])
+
 // 最近使ったタグのうち、まだあり、選んだ画像のすべてには付いていないもの
 export function recentCandidates(tags: Tag[], recent: number[], onAll: Set<number>, limit = 5): Tag[] {
   const byId = new Map(tags.map((t) => [t.id, t]))

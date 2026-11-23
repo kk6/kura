@@ -1,3 +1,4 @@
+import { settingsKind } from './gallery-helpers'
 import { expect, test, type Page } from './fixtures'
 import { boardWith } from './board-helpers'
 
@@ -37,6 +38,7 @@ test('最前面に固定と不透明度を変えると保存され、開き直�
   await page.goto('/')
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, 'アイデアボード')
   await page.getByRole('switch', { name: 'アイデアボードを使う' }).uncheck()
   await expect
     .poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem('mock.settings')!).board_enabled))

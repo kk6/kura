@@ -52,8 +52,9 @@ test('ギャラリーでは、すべてを選択が一覧の画像に効き、�
   await expect(memo).toHaveValue('')
   await expect(selected).toHaveCount(1)
 
-  await page.getByRole('button', { name: 'タグを管理する' }).click()
-  await expect(page.getByRole('dialog', { name: 'タグを管理する' })).toBeVisible()
+  await thumbs.nth(0).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'カテゴリを変える…' }).click()
+  await expect(page.getByRole('dialog', { name: '1枚の画像のカテゴリを変える' })).toBeVisible()
   await expect.poll(() => reports.at(-1)).toBe('report_gallery: true true')
   await page.keyboard.press('Escape')
   await expect.poll(() => reports.at(-1)).toBe('report_gallery: true false')

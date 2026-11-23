@@ -138,6 +138,7 @@ export function TagEditor({
   ids,
   tags,
   recent,
+  recentLimit,
   onCreated,
   onTagged,
   onUntagged,
@@ -146,6 +147,8 @@ export function TagEditor({
   tags: Tag[]
   // この起動の間に付けたタグの id。新しい順。入力欄の下に出し、押すと付ける
   recent: number[]
+  // 最近使ったタグを出す件数。0 は出さない（設定の「タグ」。FR-419）
+  recentLimit: number
   onCreated: (tag: Tag) => void
   onTagged: (tag: number, ids: number[]) => void
   onUntagged: (tag: number, ids: number[]) => void
@@ -195,7 +198,7 @@ export function TagEditor({
   const onAll = new Set((on ?? []).filter((t) => t.count === ids.length).map((t) => t.id))
   const shown = focused ? candidates(tags, text, onAll) : []
   // 付いているタグを読むまでは、どれが付いているか分からないので出さない
-  const recents = on ? recentCandidates(tags, recent, onAll) : []
+  const recents = on ? recentCandidates(tags, recent, onAll, recentLimit) : []
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     // かな漢字変換を確定する Enter ではタグを付けない（Safari は確定の keydown の isComposing が false で、keyCode が 229 になる）

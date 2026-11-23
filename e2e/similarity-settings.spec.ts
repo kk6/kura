@@ -1,3 +1,4 @@
+import { settingsKind } from './gallery-helpers'
 import { expect, test, type Page } from './fixtures'
 
 async function openSettings(page: Page) {
@@ -5,6 +6,7 @@ async function openSettings(page: Page) {
   await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
   await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, '類似画像検索')
   return page.getByRole('region', { name: '設定' })
 }
 
@@ -165,6 +167,7 @@ async function openUpdated(page: Page, extra: Record<string, string> = {}) {
     for (const [k, v] of Object.entries(extra)) sessionStorage.setItem(k, v)
   }, extra)
   await page.getByRole('button', { name: '設定' }).click()
+  await settingsKind(page, '類似画像検索')
   settings = page.getByRole('region', { name: '設定' })
   return settings
 }

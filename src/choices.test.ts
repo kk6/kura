@@ -6,6 +6,7 @@ import {
   filterCandidates,
   moveActive,
   recentCandidates,
+  recentLimit,
   rememberTag,
   tagsByName,
 } from './choices'
@@ -82,6 +83,12 @@ describe('recentCandidates', () => {
   it('使った新しい順に、選んだ画像のすべてに付いているタグと消えたタグを除いて limit まで返す', () => {
     expect(recentCandidates(TAGS, [3, 9, 1, 2], new Set([1])).map((t) => t.id)).toEqual([3, 2])
     expect(recentCandidates(TAGS, [3, 1, 2], new Set(), 2).map((t) => t.id)).toEqual([3, 1])
+  })
+})
+
+describe('recentLimit', () => {
+  it('5、10、15 はそのまま、それ以外は 5 にする', () => {
+    expect([5, 10, 15, 0, 7, 100].map(recentLimit)).toEqual([5, 10, 15, 5, 5, 5])
   })
 })
 

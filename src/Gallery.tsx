@@ -4,7 +4,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { message, open } from '@tauri-apps/plugin-dialog'
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { rememberTag } from './choices'
+import { recentLimit, rememberTag } from './choices'
 import ConfirmDialog from './ConfirmDialog'
 import { ACTION_LABELS, type ImageAction, imageMenu, parentMoves, useContextMenu } from './contextMenu'
 import CategoryDialog from './CategoryDialog'
@@ -17,12 +17,11 @@ import Detail, { NOT_COMPUTED } from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
-import SettingsPage from './SettingsPage'
+import SettingsPage, { type SettingsKind } from './SettingsPage'
 import Sidebar from './Sidebar'
 import SkipDialog from './SkipDialog'
 import Status from './Status'
 import StatusbarResult, { FeaturesProgress, type Result } from './StatusbarResult'
-import TagDialog from './TagDialog'
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
 import type { Boards } from './board/types'
@@ -77,7 +76,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   const [showNotes, setShowNotes] = useState(false)
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const [zoom, setZoom] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // 設定で出している種類。null は設定を閉じている（8章）
+  const [settingsKind, setSettingsKind] = useState<SettingsKind | null>(null)
+  const settingsOpen = settingsKind !== null
   // 詳細パネルを開いているか。保存せず、起動すると開いた状態に戻る
   const [detailOpen, setDetailOpen] = useState(true)
   // 開閉の動きの途中か。閉じる動きの間はパネルを残し、動き終わってから外す
@@ -171,7 +172,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   function changeFilter(next: Filter) {
     setFilter(next)
     // サイドバーで絞り込んだら、設定のページを閉じて結果を見せる
-    setSettingsOpen(false)
+    setSettingsKind(null)
     if (aside) {
       setAside(null)
       setSelection(EMPTY_SELECTION)
@@ -238,12 +239,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     }
     if (e.metaKey && key === ',') {
       e.preventDefault()
-      setSettingsOpen(true)
+      setSettingsKind((k) => k ?? 'general')
       return
     }
     // 設定のページの間は、下の一覧に効くキーを受けない。Escape で一覧に戻る
     if (settingsOpen) {
-      if (e.key === 'Escape') setSettingsOpen(false)
+      if (e.key === 'Escape') setSettingsKind(null)
       // ページの文字をすべて選ばせない。検索欄など入力欄の中の ⌘A は、文字の全選択のまま残す
       else if (e.metaKey && key === 'a' && !(e.target as Element).closest('input, textarea, select')) e.preventDefault()
       return
@@ -556,7 +557,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   }
 
   function openAside(next: 'trash' | 'missing') {
-    setSettingsOpen(false)
+    setSettingsKind(null)
     setAside(next)
     setZoom(false)
     setSimilar(null)
@@ -614,7 +615,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   }
 
   // タグ管理（FR-408）。変わるのはタグの行と画像のタグだけなので、一覧を読み直さずに手元の値を変える
-  const [managingTags, setManagingTags] = useState(false)
   // from のタグを画像と絞り込みの条件から外す。into があれば代わりに付ける
   function forgetTag(from: number, into: number | null) {
     lib.update((d) => dropTag(d, from, into))
@@ -708,39 +708,39 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         onPick={pick}
         onOpenBoard={settings.board_enabled ? openBoard : undefined}
         settingsOpen={settingsOpen}
-        onSettings={() => setSettingsOpen((open) => !open)}
+        onSettings={() => setSettingsKind((k) => (k ? null : 'general'))}
         onLeave={leave}
       />
 
-      <Sidebar
-        gallery={data}
-        filter={filter}
-        counts={counts}
-        onFilter={changeFilter}
-        onManageTags={() => setManagingTags(true)}
-        onRename={lib.renameCategory}
-        onCreate={async (parent, name) => void (await lib.createCategory(parent, name))}
-        onMove={lib.moveCategory}
-        onDelete={lib.deleteCategory}
-        onCollapse={lib.collapseCategories}
-        confirmMove={settings.confirm_category_move}
-        onSkipConfirm={() => changeSettings({ confirm_category_move: false })}
-        trashCount={trash.length}
-        missingCount={missing.length}
-        aside={aside}
-        onAside={openAside}
-        scanning={!!scanning || !!progress}
-        onScan={scan}
-        root={root}
-        onReveal={() => reveal()}
-        tagsCollapsed={settings.tags_collapsed}
-        onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
-        categoryChildren={settings.category_children}
-        onCategoryChildren={(category_children) => changeSettings({ category_children })}
-      />
-
-      {/* 設定のページの間は、下に残した帯・一覧・詳細パネルを操作させない（display: contents の入れ物） */}
+      {/* 設定の間は、下に残したサイドバー・帯・一覧・詳細パネルを操作させない（display: contents の入れ物）。
+          サイドバーを外さず残すのは、閉じたときにタグの検索の文字や開閉を戻すため */}
       <div className="gallery__main" inert={settingsOpen}>
+        <Sidebar
+          gallery={data}
+          filter={filter}
+          counts={counts}
+          onFilter={changeFilter}
+          onManageTags={() => setSettingsKind('tags')}
+          onRename={lib.renameCategory}
+          onCreate={async (parent, name) => void (await lib.createCategory(parent, name))}
+          onMove={lib.moveCategory}
+          onDelete={lib.deleteCategory}
+          onCollapse={lib.collapseCategories}
+          confirmMove={settings.confirm_category_move}
+          onSkipConfirm={() => changeSettings({ confirm_category_move: false })}
+          trashCount={trash.length}
+          missingCount={missing.length}
+          aside={aside}
+          onAside={openAside}
+          scanning={!!scanning || !!progress}
+          onScan={scan}
+          root={root}
+          onReveal={() => reveal()}
+          tagsCollapsed={settings.tags_collapsed}
+          onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
+          categoryChildren={settings.category_children}
+          onCategoryChildren={(category_children) => changeSettings({ category_children })}
+        />
         <GalleryToolbar
           title={title}
           count={listed.length}
@@ -864,6 +864,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
               onRename={lib.renameImage}
               onTagCreated={(tag) => lib.update((d) => addTag(d, tag))}
               recentTags={recentTags}
+              recentLimit={settings.recent_tags ? recentLimit(settings.recent_tags_count) : 0}
               onTagged={(tag, ids) => {
                 setRecentTags((r) => rememberTag(r, tag))
                 lib.update((d) =>
@@ -973,8 +974,16 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         </Suspense>
       )}
 
-      {settingsOpen && (
+      {settingsKind && (
         <SettingsPage
+          kind={settingsKind}
+          onKind={setSettingsKind}
+          onClose={() => setSettingsKind(null)}
+          tags={data.tags}
+          tagCounts={counts.tags}
+          onRenameTag={lib.renameTag}
+          onMergeTag={mergeTag}
+          onDeleteTag={deleteTag}
           root={root}
           settings={settings}
           onSettings={changeSettings}
@@ -986,16 +995,6 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           features={features}
           onFetchModels={fetchModels}
           onRestore={restoreLibrary}
-        />
-      )}
-      {managingTags && (
-        <TagDialog
-          tags={data.tags}
-          counts={counts.tags}
-          onRename={lib.renameTag}
-          onMerge={mergeTag}
-          onDelete={deleteTag}
-          onClose={() => setManagingTags(false)}
         />
       )}
 
