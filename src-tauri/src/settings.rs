@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 pub struct Settings {
     /// サイドバーでカテゴリを移すときに確認する（FR-412）
     pub confirm_category_move: bool,
+    /// 差分検出で、対応していない形式のファイルを `_未対応ファイル/` へ移す（FR-108）。前の版の設定ファイルにはないので OFF で始まる
+    pub set_aside_unsupported: bool,
     /// 一覧の列の幅の目安（FR-501）。範囲に収めるのは画面側
     pub thumb_width: u32,
     /// サイドバーのタグ一覧を閉じている（FR-503）。タグが多いとサイドバーのスクロールが長くなるため
@@ -125,6 +127,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             confirm_category_move: true,
+            set_aside_unsupported: false,
             thumb_width: 200,
             tags_collapsed: false,
             category_children: true,
@@ -214,6 +217,8 @@ mod tests {
         assert!(s.confirm_category_move);
         assert_eq!(s.thumb_width, 200);
         assert!(s.board_enabled);
+        // 未対応のファイルを移すのはフェーズ4b で足した。前の版から更新した人も OFF で始める（FR-108）
+        assert!(!s.set_aside_unsupported);
         assert!(!s.similarity_enabled);
         assert!(s.category_children);
         assert!(s.recent_tags);
@@ -226,6 +231,7 @@ mod tests {
         let file = dir.path().join("app/settings.json");
         let s = Settings {
             confirm_category_move: false,
+            set_aside_unsupported: true,
             thumb_width: 140,
             tags_collapsed: true,
             category_children: false,
@@ -366,6 +372,7 @@ mod tests {
         let file = dir.path().join("settings.json");
         let before = Settings {
             confirm_category_move: false,
+            set_aside_unsupported: false,
             thumb_width: 120,
             tags_collapsed: false,
             category_children: true,

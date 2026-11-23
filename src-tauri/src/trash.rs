@@ -8,7 +8,7 @@ use serde::Serialize;
 
 use crate::category::{self, Failed, Moved};
 use crate::fileops::{self, OnConflict, PendingOp, Request};
-use crate::library::{self, err, Library, TRASH_DIR};
+use crate::library::{self, err, Library, DUPLICATES_DIR, TRASH_DIR};
 
 /// 画像をゴミ箱へ移す操作と、ゴミ箱から戻す操作の、pending_ops の種類
 pub const TRASH_IMAGE: &str = "trash_image";
@@ -147,7 +147,8 @@ pub fn apply_restore(tx: &Transaction, op: &PendingOp) -> Result<(), String> {
 
 /// ゴミ箱を空にする（FR-511）。1枚ずつ実ファイルを消してから、DB の行（タグと元URLを含む）を消し、最後にサムネイルを消す。
 /// ファイルを先に消すのは、行が残っていれば、途中で止まってももう一度空にすると続きから消せるため。
-/// 消せないファイルの画像は行を残し、元に戻せるようにする
+/// 消せないファイルの画像は行を残し、元に戻せるようにする。
+/// 差分検出で重複として登録しなかったファイル（FR-109、DB に行がない）もここで消す
 pub fn empty(lib: &mut Library) -> Result<Done, String> {
     let ids = {
         let mut stmt = lib
@@ -161,7 +162,16 @@ pub fn empty(lib: &mut Library) -> Result<Done, String> {
             .map_err(err)?;
         ids
     };
-    purge(lib, &ids)
+    let done = purge(lib, &ids)?;
+    let duplicates = lib.root.join(DUPLICATES_DIR);
+    match fs::remove_dir_all(&duplicates) {
+        Err(e) if e.kind() != ErrorKind::NotFound => {
+            // shortcut: 中身は残した画像と同じなので、消せなくても失うものはない。ログに残すだけにし、次に空にするときにもう一度消す
+            log::error!("{} を消せません（{e}）", duplicates.display());
+        }
+        _ => {}
+    }
+    Ok(done)
 }
 
 /// ゴミ箱の画像のうち ids だけを完全に削除する。消し方は empty と同じ。ゴミ箱にない画像は消さずに failed に入れる
