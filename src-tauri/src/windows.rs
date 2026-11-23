@@ -306,6 +306,8 @@ pub(crate) struct GalleryState {
     pub(crate) front: bool,
     /// 追加できる画像を選んでいるか
     addable: bool,
+    /// 選んだ1枚で「似た画像を探す」を押せるか
+    similar: bool,
     /// ギャラリーでダイアログを開いているか
     dialog: bool,
 }
@@ -322,6 +324,9 @@ pub(crate) fn update_gallery(app: &AppHandle, change: impl FnOnce(&mut GallerySt
     if let Err(e) = menu::enable(app, menu::ADD_TO_BOARD, g.front && g.addable && !g.dialog) {
         log::warn!("「ボードに追加…」の有効・無効を変えられません：{e}");
     }
+    if let Err(e) = menu::enable(app, menu::FIND_SIMILAR, g.front && g.similar && !g.dialog) {
+        log::warn!("「似た画像を探す」の有効・無効を変えられません：{e}");
+    }
 }
 
 /// ボードを最前面に固定するか。ギャラリーでダイアログを開いている間は外す。固定したボードの後ろに
@@ -335,12 +340,13 @@ fn pinned(app: &AppHandle, always_on_top: bool) -> bool {
             .dialog
 }
 
-/// ギャラリーが、追加できる画像を選んでいるかと、ダイアログを開いているかを知らせる。
-/// ライブラリ選択画面へ戻るときは両方 false で知らせる
+/// ギャラリーが、追加できる画像を選んでいるか、「似た画像を探す」を押せるかと、ダイアログを開いているかを
+/// 知らせる。ライブラリ選択画面へ戻るときはすべて false で知らせる
 #[tauri::command]
-pub(crate) fn report_gallery(app: AppHandle, addable: bool, dialog: bool) {
+pub(crate) fn report_gallery(app: AppHandle, addable: bool, similar: bool, dialog: bool) {
     update_gallery(&app, |g| {
         g.addable = addable;
+        g.similar = similar;
         g.dialog = dialog;
     });
     let Some(w) = app.get_webview_window(BOARD) else {

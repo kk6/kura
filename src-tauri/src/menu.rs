@@ -1,6 +1,7 @@
 //! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
 //! 終了は保存を待つ項目に置き換えた。
-//! 足したのは「ファイル」の「ライブラリを切り替える…」「ボードに追加…」と「ウインドウ」の「アイデアボードを開く」だけ。
+//! 足したのは「ファイル」の「ライブラリを切り替える…」「ボードに追加…」「似た画像を探す」
+//! 「元が同じ画像の組を探す…」と「ウインドウ」の「アイデアボードを開く」だけ。
 //! 「編集」の取り消す・やり直す・すべてを選択は、ボードとギャラリーに届くよう自前の項目に置き換えた
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
@@ -19,6 +20,12 @@ pub const OPEN_BOARD: &str = "open-board";
 /// 選んだ画像をボードに追加する項目（FR-701）。選ぶと main.rs がギャラリーへ add-to-board イベントを送る
 pub const ADD_TO_BOARD: &str = "add-to-board";
 
+/// 選んだ1枚の「似た画像を探す」（FR-601、6章）。選ぶと main.rs がギャラリーへ find-similar イベントを送る
+pub const FIND_SIMILAR: &str = "find-similar";
+
+/// 元が同じ画像の組を探す項目（FR-611）。選ぶと main.rs がギャラリーへ find-origin-groups イベントを送る
+pub const FIND_ORIGIN_GROUPS: &str = "find-origin-groups";
+
 /// 「編集」の取り消す・やり直す・すべてを選択（FR-702、NFR-12）。選ぶと main.rs が手前のウィンドウへ
 /// edit-menu イベントで id を送る。標準の項目は入力欄の文字にしか効かず、ボードの配置やギャラリーの画像に
 /// 届かないので置き換えた。入力欄の文字の編集は画面が受け持つ（src/editMenu.ts）
@@ -31,8 +38,13 @@ pub const EDITS: [&str; 3] = [UNDO, REDO, SELECT_ALL];
 /// （spikes/board-native）。選ぶと main.rs がボードとメモの保存を待ってから終了する（FR-704、FR-411）
 pub const QUIT: &str = "quit";
 
-/// board が false（アイデアボードが OFF。FR-711）なら、ボードの項目とショートカットを入れない
-pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<R>> {
+/// board が false（アイデアボードが OFF。FR-711）なら、ボードの項目とショートカットを入れない。
+/// similarity が false（類似画像検索が OFF）なら、類似画像検索の項目と ⇧⌘F を入れない（6章）
+pub fn build<R: Runtime>(
+    app: &AppHandle<R>,
+    board: bool,
+    similarity: bool,
+) -> tauri::Result<Menu<R>> {
     let name = app.package_info().name.clone();
     let about = AboutMetadata {
         name: Some(name.clone()),
@@ -69,6 +81,21 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
         false,
         Some("CmdOrCtrl+Shift+B"),
     )?;
+    // 「ボードに追加…」と同じく、詳細パネルのボタンを押せる間だけ enable で有効にする
+    let find_similar = MenuItem::with_id(
+        app,
+        FIND_SIMILAR,
+        "似た画像を探す",
+        false,
+        Some("CmdOrCtrl+Shift+F"),
+    )?;
+    let find_groups = MenuItem::with_id(
+        app,
+        FIND_ORIGIN_GROUPS,
+        "元が同じ画像の組を探す…",
+        true,
+        None::<&str>,
+    )?;
     let undo = MenuItem::with_id(app, UNDO, "取り消す", true, Some("CmdOrCtrl+Z"))?;
     let redo = MenuItem::with_id(app, REDO, "やり直す", true, Some("CmdOrCtrl+Shift+Z"))?;
     let select_all = MenuItem::with_id(app, SELECT_ALL, "すべてを選択", true, Some("CmdOrCtrl+A"))?;
@@ -76,7 +103,13 @@ pub fn build<R: Runtime>(app: &AppHandle<R>, board: bool) -> tauri::Result<Menu<
     let file_seps = [sep()?, sep()?];
     let mut file: Vec<&dyn IsMenuItem<R>> = vec![&switch, &file_seps[0]];
     if board {
-        file.extend([&add_to_board as &dyn IsMenuItem<R>, &file_seps[1]]);
+        file.push(&add_to_board);
+    }
+    if similarity {
+        file.extend([&find_similar as &dyn IsMenuItem<R>, &find_groups]);
+    }
+    if board || similarity {
+        file.push(&file_seps[1]);
     }
     file.push(&file_close);
     let minimize = PredefinedMenuItem::minimize(app, Some("しまう"))?;
