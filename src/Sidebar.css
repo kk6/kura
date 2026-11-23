@@ -284,6 +284,12 @@ body.is-dragging * {
   transform: scale(var(--motion-press));
 }
 
+/* タグの一覧を名前で絞り込む欄（FR-518）。タグの一覧と同じ左右の余白で、見出しの下に置く */
+.sidebar__tag-search {
+  margin-top: var(--space-1);
+  padding: 0 var(--space-3);
+}
+
 /* タグの一覧。詳細パネルのタグと同じ四角を、折り返して並べる。選んでいるタグは黒く塗る */
 .sidebar__tags {
   display: flex;
@@ -315,10 +321,26 @@ body.is-dragging * {
   cursor: pointer;
 }
 
+/* 除いているタグとカテゴリ（FR-517）。取り消し線に加えて、カテゴリは名前の文字を、タグは表示そのものをグレーにする。
+   取り消し線だけでは選んでいるもの・何もしていないものと見分けにくかったため */
 .sidebar__tag--excluded .sidebar__name,
 .sidebar__name--excluded {
-  /* 除いているタグとカテゴリ（FR-517）。色は変えず、取り消し線で示す */
   text-decoration: line-through;
+}
+
+.sidebar__name--excluded {
+  color: var(--color-text-faint);
+}
+
+/* タグは地をグレーに塗り、文字（件数も）をグレーにする。地が白の何もしていないタグ、黒の選んでいるタグと見分ける。
+   --color-text-faint は --color-raise の上で 4.6:1 */
+.sidebar__tag--excluded,
+.sidebar__tag--excluded .sidebar__count {
+  color: var(--color-text-faint);
+}
+
+.sidebar__tag--excluded {
+  background: var(--color-raise);
 }
 
 .sidebar__tag--selected {
