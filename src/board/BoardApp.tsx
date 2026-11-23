@@ -8,7 +8,7 @@ import Status from '../Status'
 import Canvas from './Canvas'
 import NameDialog from './NameDialog'
 import { defaultName } from './names'
-import type { Point } from './geometry'
+import { replacedGeometry, type Point } from './geometry'
 import { saveQueue, type SaveState } from './saveQueue'
 import { restack, type Restack } from './stack'
 import type { BoardDisplay, Settings } from '../galleryTypes'
@@ -278,6 +278,7 @@ export default function BoardApp() {
       getCurrentWindow().listen('release', () => (held.current = false)),
       // ギャラリーで画像を削除・復元・移動した、または差分検出が終わった
       getCurrentWindow().listen('images-changed', () => refreshRef.current().catch((e) => setError(String(e)))),
+      getCurrentWindow().listen<{ from: number; to: Source }[]>('board-replaced', (e) => replaceRef.current(e.payload)),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
     // 開いたときに1度だけ読む
@@ -319,6 +320,31 @@ export default function BoardApp() {
   }
   const refreshRef = useRef(refresh)
   refreshRef.current = refresh
+
+  // ギャラリーで1枚にまとめ（FR-610）、配置の元画像を置き換えた。Rust は DB の配置を置き換えて編集を終えているので、
+  // 開き直して読む。置き換えは利用者の編集ではないので履歴に積まない。取り消しで置き換える前の画像に戻して保存を
+  // 断られないよう、履歴の中の配置も同じ計算で置き換える。開き直すまでは編集を止める
+  async function replace(replaced: { from: number; to: Source }[]) {
+    const v = latest.current
+    if (v.kind !== 'board') return
+    revealing.current++
+    try {
+      const to = new Map(replaced.map((r) => [r.from, r.to]))
+      const renew = (items: Item[]) =>
+        items.map((i) => {
+          const source = to.get(i.source.id)
+          return source ? { ...i, source, geometry: replacedGeometry(i.geometry, source) } : i
+        })
+      const { past, future } = history.current
+      const renewAll = (list: Moment[]) => list.map((m) => ({ ...m, items: renew(m.items) }))
+      history.current = { past: renewAll(past), future: renewAll(future) }
+      await open(v.board.board.id)
+    } finally {
+      revealing.current--
+    }
+  }
+  const replaceRef = useRef(replace)
+  replaceRef.current = replace
 
   // 配置を画面に出して保存する（FR-704）。保存中も失敗しても、変えた状態のまま見せる
   function put({ edit, board }: EditingBoard, items: Item[]) {

@@ -67,6 +67,22 @@ export function turned(g: Geometry, rotation: number): Geometry {
   return pinned(g, { ...g, rotation: ((rotation % 360) + 360) % 360 })
 }
 
+// 1枚にまとめて（FR-610）size の画像に置き換えた配置。見えている部分の中心（回転の後）と表示の幅を保ち、高さは縦横比に
+// 合わせ、トリミングは外す。src-tauri/src/board.rs の replaced と同じ計算
+export function replacedGeometry(g: Geometry, size: Size): Geometry {
+  const center = centerOf(g)
+  const v = visible(g)
+  const scale = (v.right - v.left) / size.width
+  return {
+    ...g,
+    ...size,
+    scale,
+    crop: null,
+    x: center.x - (size.width * scale) / 2,
+    y: center.y - (size.height * scale) / 2,
+  }
+}
+
 // Shift を押している間の回転の刻み（FR-706）
 export const snap = (degrees: number) => Math.round(degrees / 15) * 15
 

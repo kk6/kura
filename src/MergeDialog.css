@@ -1,0 +1,78 @@
+/* 残す画像を選ぶサムネイル。多いときは並びの中でスクロールし、カテゴリとタグの欄を押し出さない */
+.merge__images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, var(--size-merge-thumb));
+  gap: var(--space-4);
+  max-height: calc(var(--size-merge-thumb) * 2 + var(--space-7) * 2);
+  overflow-y: auto;
+}
+
+.merge__image {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  cursor: default;
+}
+
+.merge__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size-merge-thumb);
+  height: var(--size-merge-thumb);
+  border-radius: var(--radius-sm);
+  background: var(--color-raise);
+}
+
+.merge__thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.merge__image:has(input:checked) .merge__thumb {
+  outline: var(--select-outline);
+}
+
+.merge__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  /* 初期のラジオボタンの青を使わず、黒にする */
+  accent-color: var(--color-text);
+}
+
+.merge__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merge__meta {
+  color: var(--color-text-faint);
+}
+
+.merge__fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3) var(--space-4);
+  align-items: baseline;
+  margin: var(--space-5) 0 0;
+}
+
+.merge__fields dt {
+  color: var(--color-text-sub);
+}
+
+.merge__fields dd {
+  margin: 0;
+}
+
+.dialog > .merge__note {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-sub);
+  font-size: var(--font-size-sm);
+}

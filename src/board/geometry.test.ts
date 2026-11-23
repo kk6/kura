@@ -3,6 +3,7 @@ import {
   bounds,
   centerOf,
   cropOf,
+  replacedGeometry,
   fitView,
   intersects,
   pinned,
@@ -206,5 +207,31 @@ describe('cropOf', () => {
   })
   it('画像の外だけを引いたときは null', () => {
     expect(cropOf(wide, { x: -50, y: -50 }, { x: -10, y: 300 })).toBeNull()
+  })
+})
+
+describe('replacedGeometry', () => {
+  // src-tauri/src/merge.rs の「置き換えは見えている部分の中心と表示の幅を保ち…」と同じ値
+  const cropped = {
+    ...g(0, 0, 100, 50),
+    rotation: 90,
+    flipped: true,
+    grayscale: true,
+    crop: { x: 0.5, y: 0, width: 0.5, height: 1 },
+    stack_order: 3,
+  }
+  it('見えている部分の中心と表示の幅を保ち、高さを縦横比に合わせ、トリミングを外す', () => {
+    const plain = replacedGeometry({ ...g(0, 0, 640, 480, 0.5) }, { width: 320, height: 320 })
+    close({ x: plain.x, y: plain.y, scale: plain.scale }, { x: 0, y: -40, scale: 1 })
+    expect([plain.width, plain.height, plain.crop]).toEqual([320, 320, null])
+    const flat = replacedGeometry({ ...cropped, rotation: 0 }, { width: 100, height: 100 })
+    close({ x: flat.x, y: flat.y, scale: flat.scale }, { x: 0, y: 0, scale: 0.5 })
+  })
+
+  it('回転していても、見えている部分の中心が同じ所に来る。回転・反転・グレースケール・重なり順は保つ', () => {
+    const next = replacedGeometry(cropped, { width: 100, height: 100 })
+    close({ x: next.x, y: next.y, scale: next.scale }, { x: 25, y: -25, scale: 0.5 })
+    close(centerOf(next), centerOf(cropped))
+    expect([next.rotation, next.flipped, next.grayscale, next.stack_order]).toEqual([90, true, true, 3])
   })
 })

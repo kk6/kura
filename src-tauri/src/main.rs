@@ -9,6 +9,7 @@ mod import;
 mod library;
 mod manifest;
 mod menu;
+mod merge;
 mod model;
 mod recent;
 mod restore;
@@ -711,6 +712,37 @@ async fn empty_trash(app: AppHandle) -> Result<trash::Done, String> {
     with_library(app, trash::empty).await
 }
 
+/// 元が同じ画像を1枚にまとめる（FR-610）。配置を置き換えるので、先に開いているボードの保存を待つ。
+/// 置き換えたら、開いているボードに開き直させる。取り消しの履歴を直せるよう、置き換えた参照を渡す
+#[tauri::command]
+async fn merge_images(
+    app: AppHandle,
+    keep: i64,
+    remove: Vec<i64>,
+    category: Option<i64>,
+    tags: Vec<i64>,
+) -> Result<merge::Merged, String> {
+    let _held = windows::settle(&app, &[BOARD])
+        .await
+        .map_err(|e| format!("ボードを保存できないため、まとめられません（{e}）"))?;
+    let merged = with_library(app.clone(), move |lib| {
+        merge::merge(lib, keep, &remove, category, &tags)
+    })
+    .await?;
+    log::info!(
+        "1枚にまとめました：残す画像 {keep}、ゴミ箱 {}枚、移せない画像 {}枚、ボード {}件",
+        merged.trashed.len(),
+        merged.failed.len(),
+        merged.boards.len()
+    );
+    if !merged.boards.is_empty() {
+        if let Err(e) = app.emit_to(BOARD, "board-replaced", &merged.replaced) {
+            log::warn!("ボードに配置の置き換えを知らせられません：{e}");
+        }
+    }
+    Ok(merged)
+}
+
 #[tauri::command]
 fn load_missing(current: State<Current>) -> Result<Vec<gallery::Image>, String> {
     current.0.with(|lib| gallery::missing(lib))
@@ -1000,6 +1032,7 @@ fn main() {
             delete_tag,
             load_trash,
             trash_images,
+            merge_images,
             restore_images,
             purge_images,
             empty_trash,
