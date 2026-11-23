@@ -46,3 +46,27 @@
   background: var(--color-text);
   pointer-events: none;
 }
+
+/* 元が同じ画像の組の見出しの行（FR-611、docs/design.md）。上に境界線を引き、組の画像はこの下から並べる */
+.list__section {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--size-toolbar);
+  border-top: var(--border);
+}
+
+/* 枚数を左に、ボタンを右に寄せる */
+.list__section-count {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-sub);
+}
+
+/* 先頭の組は一覧の上の帯の境界線のすぐ下なので、線を重ねない */
+.list__section--first {
+  border-top: none;
+}

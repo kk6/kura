@@ -36,6 +36,19 @@ describe('layout', () => {
   test('画像がなければ高さは 0', () => {
     expect(layout([], 300, 100, 10).height).toBe(0)
   })
+
+  test('区切りがあれば、区切りごとに見出しの行を置き、その下から全部の列を同じ高さで始める', () => {
+    // 2列。1つ目の組は 0〜2、2つ目の組は 3〜4。見出しの行の高さは 40
+    const l = layout([size(100, 300), size(100, 100), size(100, 100), size(100, 100), size(100, 100)], 210, 100, 10, {
+      starts: [0, 3],
+      header: 40,
+    })
+
+    expect([...l.headers]).toEqual([0, 350])
+    expect([...l.y]).toEqual([40, 40, 150, 390, 390])
+    expect([...l.x]).toEqual([0, 110, 110, 0, 110])
+    expect(l.height).toBe(490)
+  })
 })
 
 describe('visible', () => {

@@ -11,6 +11,7 @@ mod manifest;
 mod menu;
 mod merge;
 mod model;
+mod origin;
 mod recent;
 mod restore;
 mod settings;
@@ -144,6 +145,8 @@ fn activate(
     windows::close_board(app);
     log::info!("ライブラリを開きました：{}", root.display());
     app.state::<calc::Calc>().wake();
+    // 前のライブラリの組を探し続けない
+    app.state::<origin::Search>().cancel();
     Ok(root)
 }
 
@@ -190,13 +193,18 @@ async fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(
     let mut similarity = None;
     settings::save_and_apply(&settings_file(&app)?, &settings, |before, after| {
         similarity = Some((before.similarity_enabled, after.similarity_enabled));
-        if after.board_enabled == before.board_enabled {
+        if after.board_enabled == before.board_enabled
+            && after.similarity_enabled == before.similarity_enabled
+        {
             return Ok(());
         }
-        // OFF ではボードの項目と ⌘B をメニューから外し、開いているボードを閉じる（FR-711）
-        menu::build(&app, after.board_enabled)
+        // OFF ではボードの項目と ⌘B をメニューから外し、開いているボードを閉じる（FR-711）。
+        // 類似画像検索が OFF なら、その項目と ⇧⌘F を外す（6章）
+        menu::build(&app, after.board_enabled, after.similarity_enabled)
             .and_then(|m| app.set_menu(m))
             .map_err(|e| format!("メニューを変えられません（{e}）"))?;
+        // 作り直した項目は無効で始まるので、今のギャラリーの状態を当て直す
+        windows::update_gallery(&app, |_| {});
         if !after.board_enabled {
             windows::close_board(&app);
         }
@@ -286,6 +294,43 @@ fn similar_images(
         start.elapsed()
     );
     Ok(result)
+}
+
+/// ライブラリ全体から元が同じ画像の組を探す（FR-611）。進み具合を origin-progress で知らせる。
+/// ロックは特徴量を読む間だけ持つので、探している間もほかのコマンドを使える。中止されたら null
+#[tauri::command]
+async fn find_origin_groups(app: AppHandle) -> Result<Option<Vec<Vec<i64>>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let aspects = app.state::<Models>().manifest()?.aspects.clone();
+        let start = std::time::Instant::now();
+        let groups = origin::find(
+            &*app.state::<Current>().0,
+            &app.state::<origin::Search>(),
+            &aspects,
+            &mut |p| {
+                if let Err(e) = app.emit_to("main", "origin-progress", p) {
+                    log::warn!("元が同じ画像を探す進み具合を送れません：{e}");
+                }
+            },
+        )?;
+        match &groups {
+            Some(g) => log::info!(
+                "元が同じ画像の組を探しました（{}組、{:?}）",
+                g.len(),
+                start.elapsed()
+            ),
+            None => log::info!("元が同じ画像の組を探すのを中止しました"),
+        }
+        Ok(groups)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 元が同じ画像の組を探すのを止める（FR-611）
+#[tauri::command]
+fn cancel_origin_groups(search: State<origin::Search>) {
+    search.cancel();
 }
 
 /// 特徴量の計算が使うもの。ワーカーは計算する画像があるときだけ、回ごとに起動する
@@ -975,10 +1020,10 @@ fn main() {
             Ok(())
         })
         .menu(|app| {
-            let enabled = settings_file(app)
-                .map(|file| settings::load(&file).board_enabled)
-                .unwrap_or(true);
-            menu::build(app, enabled)
+            let s = settings_file(app)
+                .map(|file| settings::load(&file))
+                .unwrap_or_default();
+            menu::build(app, s.board_enabled, s.similarity_enabled)
         })
         .on_menu_event(|app, event| {
             if event.id() == menu::QUIT {
@@ -1000,7 +1045,13 @@ fn main() {
             }
             // 開いているライブラリ（Current）は次のライブラリを開くまで残す。戻るかどうかは画面が決める。
             // ボードもギャラリーの画面が開く。ライブラリ選択画面ではボードを開かないため
-            for id in [menu::SWITCH_LIBRARY, menu::OPEN_BOARD, menu::ADD_TO_BOARD] {
+            for id in [
+                menu::SWITCH_LIBRARY,
+                menu::OPEN_BOARD,
+                menu::ADD_TO_BOARD,
+                menu::FIND_SIMILAR,
+                menu::FIND_ORIGIN_GROUPS,
+            ] {
                 if event.id() == id {
                     if let Err(e) = app.emit_to("main", id, ()) {
                         log::warn!("メニューの操作を画面に送れません（{id}）：{e}");
@@ -1041,6 +1092,7 @@ fn main() {
         .manage(windows::BoardFrame::default())
         .manage(Mutex::new(windows::GalleryState::default()))
         .manage(backfill::Gate::default())
+        .manage(origin::Search::default())
         .invoke_handler(tauri::generate_handler![
             list_recent_libraries,
             missing_recent_libraries,
@@ -1052,6 +1104,8 @@ fn main() {
             prepare_models,
             features_status,
             similar_images,
+            find_origin_groups,
+            cancel_origin_groups,
             retry_features,
             windows::report_gallery,
             location_warning,

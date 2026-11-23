@@ -32,11 +32,11 @@ test('ギャラリーでは、すべてを選択が一覧の画像に効き、�
   await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
   const thumbs = page.locator('.list__thumb')
   const selected = page.locator('.list__thumb--selected')
-  await expect.poll(() => reports.at(-1)).toBe('report_gallery: false false')
+  await expect.poll(() => reports.at(-1)).toBe('report_gallery: false false false')
 
   await emit(page, 'edit-menu', 'select-all')
   await expect(selected).toHaveCount(await thumbs.count())
-  await expect.poll(() => reports.at(-1)).toBe('report_gallery: true false')
+  await expect.poll(() => reports.at(-1)).toBe('report_gallery: true false false')
 
   await thumbs.nth(0).click()
   await expect(selected).toHaveCount(1)
@@ -55,7 +55,7 @@ test('ギャラリーでは、すべてを選択が一覧の画像に効き、�
   await thumbs.nth(0).click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'カテゴリを変える…' }).click()
   await expect(page.getByRole('dialog', { name: '1枚の画像のカテゴリを変える' })).toBeVisible()
-  await expect.poll(() => reports.at(-1)).toBe('report_gallery: true true')
+  await expect.poll(() => reports.at(-1)).toBe('report_gallery: true false true')
   await page.keyboard.press('Escape')
-  await expect.poll(() => reports.at(-1)).toBe('report_gallery: true false')
+  await expect.poll(() => reports.at(-1)).toBe('report_gallery: true false false')
 })

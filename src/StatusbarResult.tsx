@@ -223,3 +223,16 @@ export function FeaturesProgress({ status }: { status: FeaturesStatus }) {
     </span>
   )
 }
+
+// 元が同じ画像の組を探している間（FR-611）。取り込みなどの結果と並べて出し、中止できる
+export function OriginProgress({ progress, onCancel }: { progress: ImportProgress; onCancel: () => void }) {
+  return (
+    <span className="statusbar__import" role="status">
+      元が同じ画像の組を探し中
+      <Progress label="元が同じ画像の組を探す進み具合" value={progress} />
+      <button type="button" className="statusbar__link statusbar__cancel" onClick={onCancel}>
+        中止
+      </button>
+    </span>
+  )
+}
