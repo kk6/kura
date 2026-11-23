@@ -1,12 +1,17 @@
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rusqlite::OptionalExtension;
 use serde::Serialize;
 
+use crate::calc::Calc;
 use crate::features;
-use crate::library::{err, Library};
+use crate::import;
+use crate::library::{self, err, Access, Library};
 use crate::manifest::{Aspect, Kind};
-use crate::worker::{Pose, PoseStatus};
+use crate::worker::{Pose, PoseStatus, Value};
 
 /// 結果に出すか（uncomputed）と基準にできるかは、ベクトルの観点だけで決める。
 /// ポーズのない画像（人物なし、未計算）も内容と構図で探せるようにするため（5.6 の「重み」）
@@ -47,6 +52,19 @@ pub enum Skip {
 
 const UNCOMPUTED: &str = "この画像の特徴量はまだ計算していません";
 
+/// 基準。ライブラリの画像か、ライブラリの外の画像（FR-608）の計算したばかりの特徴量
+enum Base {
+    Image {
+        id: i64,
+        hash: String,
+    },
+    /// vectors は vectors(aspects) と同じ並び。pose はポーズの観点を計算していなければ None
+    Outside {
+        vectors: Vec<Vec<f32>>,
+        pose: Option<Pose>,
+    },
+}
+
 /// 基準画像 id に対する、内容と構図の特徴量がそろった全画像の類似度を観点ごとに返す。
 /// 値は基準画像を除いた全画像で平均0・標準偏差1にそろえる（5.6 の「重み」）。
 /// ポーズは基準画像にポーズがあり、missing（モデルのファイルが欠けた観点）に入っていないときだけ比べる
@@ -56,13 +74,57 @@ pub fn similar(
     id: i64,
     missing: &[String],
 ) -> Result<Similar, String> {
-    let vecs = &vectors(aspects)[..];
-    let base_hash =
-        hash_of(lib, id)?.ok_or("ゴミ箱か「見つからない」の画像、または無い画像です")?;
+    let hash = hash_of(lib, id)?.ok_or("ゴミ箱か「見つからない」の画像、または無い画像です")?;
     // 類似画像検索を使ったことのないライブラリには features.db を作らない（設計メモ2章）
     if !features::path(&lib.root).exists() {
         return Err(UNCOMPUTED.into());
     }
+    rank(lib, aspects, Base::Image { id, hash }, missing)
+}
+
+/// ライブラリの外の画像の特徴量 values（computed の観点の並び）に対する、全画像の類似度（FR-608）。
+/// 基準はライブラリにないので、値はすべての画像でそろえる。computed にない観点はモデルのファイルが欠けたものとする
+pub fn similar_to(
+    lib: &mut Library,
+    aspects: &[Aspect],
+    computed: &[Aspect],
+    values: Vec<Value>,
+) -> Result<Similar, String> {
+    let mut vectors = Vec::new();
+    let mut pose = None;
+    let mut values: HashMap<&str, Value> = computed
+        .iter()
+        .map(|a| a.aspect.as_str())
+        .zip(values)
+        .collect();
+    for a in aspects {
+        match (a.kind, values.remove(a.aspect.as_str())) {
+            (Kind::Vector, Some(Value::Vector(v))) => vectors.push(v),
+            (Kind::Vector, _) => return Err("類似画像検索のモデルがそろっていません".into()),
+            (Kind::Pose, Some(Value::Pose(p))) => pose = Some(p),
+            (Kind::Pose, _) => {}
+        }
+    }
+    // 類似画像検索を使ったことのないライブラリには features.db を作らない（設計メモ2章）
+    if !features::path(&lib.root).exists() {
+        return Err("ライブラリの画像の特徴量はまだ計算していません".into());
+    }
+    // 計算しなかった観点は、モデルのファイルが欠けていた
+    let missing: Vec<String> = aspects
+        .iter()
+        .filter(|a| !computed.contains(a))
+        .map(|a| a.aspect.clone())
+        .collect();
+    rank(lib, aspects, Base::Outside { vectors, pose }, &missing)
+}
+
+fn rank(
+    lib: &mut Library,
+    aspects: &[Aspect],
+    base: Base,
+    missing: &[String],
+) -> Result<Similar, String> {
+    let vecs = &vectors(aspects)[..];
     let images: Vec<(i64, String)> = {
         let mut stmt = lib
             .conn
@@ -97,11 +159,19 @@ pub fn similar(
             None => uncomputed += 1,
         }
     }
-    let at = ids.iter().position(|i| *i == id).ok_or(UNCOMPUTED)?;
+    // at は一覧の中の基準画像の位置。ライブラリの外の画像は一覧にいない
+    let (at, base_vecs): (Option<usize>, Vec<&[f32]>) = match &base {
+        Base::Image { id, .. } => {
+            let at = ids.iter().position(|i| i == id).ok_or(UNCOMPUTED)?;
+            (Some(at), rows.iter().map(|row| row[at]).collect())
+        }
+        Base::Outside { vectors, .. } => (None, vectors.iter().map(|v| &v[..]).collect()),
+    };
     let mut names: Vec<String> = vecs.iter().map(|a| a.aspect.clone()).collect();
     let mut scores: Vec<Vec<f32>> = rows
         .iter()
-        .map(|row| standardize(row.iter().map(|v| Some(dot(row[at], v))).collect(), at))
+        .zip(&base_vecs)
+        .map(|(row, b)| standardize(row.iter().map(|v| Some(dot(b, v))).collect(), at))
         .collect();
 
     let mut skipped = BTreeMap::new();
@@ -117,8 +187,12 @@ pub fn similar(
             .with_features(|s| s.load_poses(a))?
             .into_iter()
             .collect();
-        let base = match poses.get(&base_hash).map(|p| p.status) {
-            Some(PoseStatus::Ok) => &poses[&base_hash].people,
+        let base_pose = match &base {
+            Base::Image { hash, .. } => poses.get(hash),
+            Base::Outside { pose, .. } => pose.as_ref(),
+        };
+        let base_people = match base_pose.map(|p| p.status) {
+            Some(PoseStatus::Ok) => &base_pose.unwrap().people,
             Some(PoseStatus::Few) => {
                 skipped.insert(a.aspect.clone(), Skip::Few);
                 continue;
@@ -135,7 +209,11 @@ pub fn similar(
         // ポーズのない画像（人物なし、関節不足、未計算、比べられる組がない）は None。そろえた後の平均0になる
         let raw = hashes
             .iter()
-            .map(|h| poses.get(*h).and_then(|p| pose_similarity(base, &p.people)))
+            .map(|h| {
+                poses
+                    .get(*h)
+                    .and_then(|p| pose_similarity(base_people, &p.people))
+            })
             .collect();
         names.push(a.aspect.clone());
         scores.push(standardize(raw, at));
@@ -147,6 +225,48 @@ pub fn similar(
         uncomputed,
         skipped,
     })
+}
+
+/// 一時フォルダの名前を重ねないための番号
+static SCRATCH: AtomicU64 = AtomicU64::new(0);
+
+/// 消える一時フォルダ。途中で失敗しても残さない
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        if let Err(e) = fs::remove_dir_all(&self.0) {
+            log::warn!("一時フォルダを消せません（{}、{e}）", self.0.display());
+        }
+    }
+}
+
+/// ライブラリの外の画像 path を基準にした結果と、帯に出すサムネイル（JPEG）（FR-608）。
+/// サムネイルはライブラリの画像と同じ作り方で temp の下に作り、特徴量もそこから計算する（ADR-0018）。
+/// 一時フォルダは返す前に消す。ライブラリのファイルにも DB にも書かない
+pub fn search_file(
+    lib: &impl Access,
+    calc: &Calc,
+    aspects: &[Aspect],
+    path: &Path,
+    temp: &Path,
+) -> Result<(Similar, Vec<u8>), String> {
+    if path.is_dir() {
+        return Err("フォルダでは探せません。画像を1枚選んでください".into());
+    }
+    let bytes = fs::read(path).map_err(|e| format!("画像を読めません（{e}）"))?;
+    let format = import::supported(&bytes).ok_or("対応していない形式のファイルでは探せません")?;
+    let hash = import::sha256(&bytes);
+    let n = SCRATCH.fetch_add(1, Ordering::SeqCst);
+    let dir = Scratch(temp.join(format!("kura-search-{}-{n}", std::process::id())));
+    import::render(&dir.0, &bytes, format, &hash, path)?;
+    let thumb_path = library::thumb_path(&dir.0, &hash);
+    let thumb = fs::read(&thumb_path).map_err(err)?;
+    let (computed, values) = calc
+        .compute_once(&thumb_path)
+        .map_err(|e| format!("特徴量を計算できません（{e}）"))?;
+    let result = lib.with(|l| similar_to(l, aspects, &computed, values))?;
+    Ok((result, thumb))
 }
 
 /// 拡大表示に重ねる骨格（FR-606）。ポーズがなければ people は空で、skipped に理由を入れる
@@ -223,11 +343,11 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 
 /// skip（基準画像）と None を除いた値の平均と母標準偏差で、値をそろえる。None は平均（0）にする。
 /// そろえられなければすべて0
-fn standardize(raw: Vec<Option<f32>>, skip: usize) -> Vec<f32> {
+fn standardize(raw: Vec<Option<f32>>, skip: Option<usize>) -> Vec<f32> {
     let others = || {
         raw.iter()
             .enumerate()
-            .filter(|(i, _)| *i != skip)
+            .filter(|(i, _)| Some(*i) != skip)
             .filter_map(|(_, s)| s.map(f64::from))
     };
     let n = others().count() as f64;
@@ -301,6 +421,8 @@ fn person_similarity(a: &[f32], b: &[f32], mirror: bool) -> Option<f32> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use rusqlite::params;
     use tempfile::TempDir;
 
@@ -971,5 +1093,178 @@ mod tests {
         assert_eq!(r.uncomputed, 0);
         assert!(score(&r, 0, near) > 0.0);
         assert!(ready(&mut lib, &a, base).unwrap());
+    }
+
+    fn outside(deg: f32) -> Vec<Value> {
+        vec![
+            Value::Vector(unit(deg).to_vec()),
+            Value::Vector(unit(deg).to_vec()),
+        ]
+    }
+
+    #[test]
+    fn 外の画像の結果はライブラリの画像を基準にした並びと同じで全画像でそろえる() {
+        let (_d, mut lib) = open();
+        let base = image(&mut lib, "base", 0.0);
+        for (i, deg) in [5.0, 30.0, 45.0, 90.0, 120.0, 175.0].iter().enumerate() {
+            image(&mut lib, &format!("h{i}"), *deg);
+        }
+        let a = aspects();
+        let from_image = similar(&mut lib, &a, base, &[]).unwrap();
+        let r = similar_to(&mut lib, &a, &a, outside(0.0)).unwrap();
+        assert_eq!(r.aspects, ["content", "composition"]);
+        assert_eq!(r.ids, from_image.ids);
+        assert_eq!(r.uncomputed, 0);
+        let order = |r: &Similar| {
+            let mut ids = r.ids.clone();
+            ids.sort_by(|x, y| score(r, 0, *y).total_cmp(&score(r, 0, *x)));
+            ids
+        };
+        assert_eq!(order(&r), order(&from_image));
+        // 基準がライブラリにないので、全画像で平均0・標準偏差1
+        for s in &r.scores {
+            let n = s.len() as f64;
+            let mean = s.iter().map(|v| *v as f64).sum::<f64>() / n;
+            let sd = (s.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>() / n).sqrt();
+            assert!(mean.abs() < 1e-5, "平均 {mean}");
+            assert!((sd - 1.0).abs() < 1e-5, "標準偏差 {sd}");
+        }
+    }
+
+    #[test]
+    fn 外の画像のポーズで比べモデルがなければ理由を返す() {
+        let (_d, mut lib) = open();
+        let a = pose_aspects();
+        let same = posed(&mut lib, "same", PoseStatus::Ok, &[person(&RAISE, &[])]);
+        let lie = posed(
+            &mut lib,
+            "lie",
+            PoseStatus::Ok,
+            &[person(&lying(&RAISE), &[])],
+        );
+        posed(&mut lib, "none", PoseStatus::None, &[]);
+        let mut values = outside(0.0);
+        values.push(crate::features::tests::pose(
+            PoseStatus::Ok,
+            &[&person(&RAISE, &[])],
+        ));
+        let r = similar_to(&mut lib, &a, &a, values).unwrap();
+        assert_eq!(r.aspects, ["content", "composition", "pose"]);
+        assert!(score(&r, 2, same) > score(&r, 2, lie));
+
+        // ポーズのモデルがなく、ポーズを計算しなかった
+        let r = similar_to(&mut lib, &a, &a[..2], outside(0.0)).unwrap();
+        assert_eq!(r.aspects, ["content", "composition"]);
+        assert_eq!(r.skipped.get("pose"), Some(&Skip::MissingModels));
+    }
+
+    #[test]
+    fn 外の画像は内容か構図のモデルがないか特徴量のdbがなければerr() {
+        let (_d, mut lib) = open();
+        let a = aspects();
+        assert!(similar_to(&mut lib, &a, &a, outside(0.0)).is_err());
+        assert!(!crate::features::path(&lib.root).exists());
+        image(&mut lib, "x", 0.0);
+        let only = vec![Value::Vector(unit(0.0).to_vec())];
+        assert!(similar_to(&mut lib, &a, &a[..1], only).is_err());
+    }
+
+    /// 偽のワーカー。サムネイルの場所を覚え、いつも 0度の向きを返す
+    struct Fake(Arc<Mutex<Vec<PathBuf>>>);
+
+    impl crate::calc::Compute for Fake {
+        fn compute(
+            &mut self,
+            thumb: &Path,
+            asked: &[Aspect],
+        ) -> Result<Vec<Value>, crate::worker::Failure> {
+            assert!(thumb.exists(), "計算するときにサムネイルがある");
+            self.0.lock().unwrap().push(thumb.to_path_buf());
+            Ok(asked
+                .iter()
+                .map(|_| Value::Vector(unit(0.0).to_vec()))
+                .collect())
+        }
+    }
+
+    fn fake_calc(seen: Arc<Mutex<Vec<PathBuf>>>) -> Calc {
+        Calc::new(crate::calc::Env {
+            enabled: Box::new(|| true),
+            aspects: aspects(),
+            available: Box::new(|_| true),
+            start: Box::new(move |_| {
+                Ok(Box::new(Fake(seen.clone())) as Box<dyn crate::calc::Compute>)
+            }),
+            notify: Box::new(|_| {}),
+        })
+    }
+
+    /// ライブラリの下の全ファイルの中身
+    fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        let mut files = BTreeMap::new();
+        let mut dirs = vec![root.to_path_buf()];
+        while let Some(d) = dirs.pop() {
+            for e in fs::read_dir(d).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    dirs.push(p);
+                } else {
+                    files.insert(p.clone(), fs::read(&p).unwrap());
+                }
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn 外の画像で探してもライブラリのファイルとdbは変わらず一時フォルダも残らない() {
+        let (_d, mut lib) = open();
+        let near = image(&mut lib, "near", 10.0);
+        image(&mut lib, "far", 170.0);
+        let root = lib.root.clone();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let png = outside_dir.path().join("外.png");
+        image::RgbImage::from_pixel(640, 320, image::Rgb([200, 10, 10]))
+            .save(&png)
+            .unwrap();
+        let access = Mutex::new(Some(lib));
+        let before = snapshot(&root);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+
+        let (r, thumb) = search_file(
+            &access,
+            &fake_calc(seen.clone()),
+            &aspects(),
+            &png,
+            temp.path(),
+        )
+        .unwrap();
+
+        assert_eq!(r.ids.len(), 2);
+        assert!(score(&r, 0, near) > 0.0);
+        // サムネイルはライブラリと同じく幅320pxの JPEG
+        let t = image::load_from_memory(&thumb).unwrap();
+        assert_eq!((t.width(), t.height()), (320, 160));
+        let seen = seen.lock().unwrap();
+        assert!(seen[0].starts_with(temp.path()));
+        assert_eq!(snapshot(&root), before);
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn フォルダと対応していない形式では探さない() {
+        let (_d, mut lib) = open();
+        image(&mut lib, "x", 0.0);
+        let dir = tempfile::tempdir().unwrap();
+        let text = dir.path().join("a.txt");
+        fs::write(&text, "画像ではない").unwrap();
+        let access = Mutex::new(Some(lib));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let calc = fake_calc(seen.clone());
+        for p in [dir.path(), &text] {
+            assert!(search_file(&access, &calc, &aspects(), p, dir.path()).is_err());
+        }
+        assert!(seen.lock().unwrap().is_empty());
     }
 }

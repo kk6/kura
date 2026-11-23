@@ -39,13 +39,15 @@ export function changeWeight(weights: Weights, aspect: string, value: number): W
   return { ...weights, [aspect]: others ? value : Math.max(1, value) }
 }
 
-// 観点ごとの値に重みを掛けて足した大きい順の id。基準画像は値によらず先頭に置く
-export function rankSimilar(s: Similar & { base: number }, weights: Weights): number[] {
+// 観点ごとの値に重みを掛けて足した大きい順の id。基準画像は値によらず先頭に置く。
+// base が null（ライブラリの外の画像で探した。FR-608）なら、基準画像は一覧にない
+export function rankSimilar(s: Similar & { base: number | null }, weights: Weights): number[] {
   const w = s.aspects.map((a) => weights[a] ?? 0)
   const total = s.ids.map((_, i) => s.scores.reduce((sum, row, k) => sum + row[i] * w[k], 0))
   const order = s.ids.flatMap((id, i) => (id === s.base ? [] : [i]))
   order.sort((a, b) => total[b] - total[a] || s.ids[a] - s.ids[b])
-  return [s.base, ...order.map((i) => s.ids[i])]
+  const ranked = order.map((i) => s.ids[i])
+  return s.base === null ? ranked : [s.base, ...ranked]
 }
 
 // スライダーの名前（label）と、その下に出す比べるものの短い説明（hint）。キーは設定に保存する観点の名前。
