@@ -11,7 +11,7 @@ import CategoryDialog from './CategoryDialog'
 import MergeDialog from './MergeDialog'
 import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
-import GalleryHeader from './GalleryHeader'
+import GalleryHeader, { SEARCH_BY_IMAGE } from './GalleryHeader'
 import GalleryToolbar, { THUMB_MAX, THUMB_MIN, ThumbSlider, WeightSliders } from './GalleryToolbar'
 import { addTag, dropTag, editImages, named, removeImages, swapTag } from './galleryData'
 import Detail, { NOT_COMPUTED } from './Detail'
@@ -154,8 +154,12 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     Promise.all([reload(), reloadTrash(), reloadMissing()]).then(() => latest.current.scan())
   }, [reload, reloadTrash, reloadMissing])
 
-  // 類似画像検索の結果のモード（FR-601）。押したときの1回分を持ち、計算が進んでも読み直さない
-  const [similar, setSimilar] = useState<(Similar & { base: number; image: Image }) | null>(null)
+  // 類似画像検索の結果のモード（FR-601）。押したときの1回分を持ち、計算が進んでも読み直さない。
+  // base が null なら、ライブラリの外の画像で探した（FR-608）。lead は帯に出す基準画像のサムネイル
+  const [similar, setSimilar] = useState<(Similar & { base: number | null; lead: Lead }) | null>(null)
+  // ライブラリの外の画像のサムネイルは Blob の URL で持つので、結果を閉じたり入れ替えたりしたら捨てる
+  const leadSrc = similar?.lead.src
+  useEffect(() => () => void (leadSrc?.startsWith('blob:') && URL.revokeObjectURL(leadSrc)), [leadSrc])
   // 重み（FR-602）。動かしている間はここだけを変え、手を離したら設定に保存する
   const [weights, setWeights] = useState<Weights>({})
   // スライダーの動きを、2万枚の並べ直しで待たせない
@@ -201,7 +205,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   const listed = inTrash ? trash : inMissing ? missing : images
   // 一覧のスクロールを先頭に戻す契機。画像の中身（タグ・メモなど）の変化では戻さない
   // 組を外したりまとめたりしても戻さない
-  const listKey = JSON.stringify([sort, filter, aside, similar?.base ?? null, groups !== null])
+  const listKey = JSON.stringify([sort, filter, aside, similar?.lead.src ?? null, groups !== null])
   // 結果のモードに入る前の一覧のスクロールの位置。閉じたときに Masonry が読み、読んだら捨てる
   const scrolled = useRef(0)
   const entryTop = useRef(0)
@@ -513,11 +517,67 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     }
     if (!similar && !groups) entryTop.current = scrolled.current
     setWeights(fillWeights(r.aspects, settings.similarity_weights))
-    setSimilar({ ...r, base: image.id, image })
+    setSimilar({
+      ...r,
+      base: image.id,
+      lead: {
+        src: convertFileSrc(`${root}/.kura/thumbs/${image.hash}.jpg`),
+        name: image.file_name,
+        ratio: `${image.width} / ${image.height}`,
+        color: image.color,
+      },
+    })
     // 組の結果は保存しないので、似た画像の結果に入れ替える
     setGroups(null)
     setZoom(false)
   }
+  // 「画像で探す」（FR-608）。ライブラリの外の画像1枚を基準に探す。画像は取り込まない
+  const [searchingFile, setSearchingFile] = useState(false)
+  async function searchByImage(paths: string[]) {
+    if (searchingFile || !settings.similarity_enabled) return
+    if (paths.length !== 1) {
+      setResult({
+        kind: 'error',
+        message: paths.length ? '画像で探せるのは1枚だけです' : '画像のファイルではないので探せません',
+      })
+      return
+    }
+    setSearchingFile(true)
+    let r: Similar & { thumb: number[] }
+    try {
+      r = await invoke<Similar & { thumb: number[] }>('similar_to_file', { path: paths[0] })
+    } catch (e) {
+      setResult({ kind: 'error', message: `画像で探せません（${e}）` })
+      return
+    } finally {
+      setSearchingFile(false)
+    }
+    const { thumb, ...found } = r
+    if (!similar && !groups && !aside) entryTop.current = scrolled.current
+    setWeights(fillWeights(found.aspects, settings.similarity_weights))
+    setSimilar({
+      ...found,
+      base: null,
+      lead: {
+        src: URL.createObjectURL(new Blob([new Uint8Array(thumb)], { type: 'image/jpeg' })),
+        name: paths[0].split('/').pop()!,
+      },
+    })
+    setGroups(null)
+    setSettingsKind(null)
+    setAside(null)
+    setZoom(false)
+    setSelection(EMPTY_SELECTION)
+  }
+  async function pickSearchImage() {
+    const path = await open({
+      title: '似た画像を探す画像を選ぶ',
+      filters: [{ name: '画像', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }],
+    })
+    if (path) searchByImage([path])
+  }
+  // ファイルをドラッグしている間の「画像で探す」の状態。null はドラッグしていない（FR-608）
+  const [fileDrag, setFileDrag] = useState<'outside' | 'over' | null>(null)
   function closeSimilar() {
     if (!similar) return
     restoreTop.current = entryTop.current
@@ -591,6 +651,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     changeSettings,
     findSimilarFromMenu,
     findGroups,
+    searchByImage,
   }
   const latest = useRef(handlers)
   latest.current = handlers
@@ -617,8 +678,19 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       listen('find-origin-groups', () => latest.current.findGroups()),
       // 終わった後に届いた進み具合で、表示を戻さない
       getCurrentWindow().listen<ImportProgress>('origin-progress', (e) => setOriginSearch((s) => s && e.payload)),
+      // 「画像で探す」に落としたら探し、ほかの場所に落としたら取り込む（FR-608）
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type === 'drop') latest.current.start(e.payload.paths)
+        const p = e.payload
+        if (p.type === 'leave') return setFileDrag(null)
+        if (p.type === 'enter') measureTitleBar()
+        const over = onSearchByImage(p.position)
+        if (p.type === 'drop') {
+          setFileDrag(null)
+          if (over) latest.current.searchByImage(p.paths)
+          else latest.current.start(p.paths)
+        } else if (p.type === 'over') setFileDrag((d) => d && (over ? 'over' : 'outside'))
+        // ページの中の画像のドラッグ（ボードへの追加）は paths が空なので、落とし先として目立たせない
+        else if (p.paths.length) setFileDrag(over ? 'over' : 'outside')
       }),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
@@ -871,6 +943,11 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         onFilter={changeFilter}
         busy={scanning ? 'scan' : progress ? 'import' : null}
         onPick={pick}
+        searchByImage={
+          settings.similarity_enabled
+            ? { onPick: pickSearchImage, drag: fileDrag, searching: searchingFile }
+            : undefined
+        }
         onOpenBoard={settings.board_enabled ? openBoard : undefined}
         settingsOpen={settingsOpen}
         onSettings={() => setSettingsKind((k) => (k ? null : 'general'))}
@@ -916,12 +993,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
             similar && (
               <img
                 className="toolbar__base"
-                src={convertFileSrc(`${root}/.kura/thumbs/${similar.image.hash}.jpg`)}
-                alt={`基準の画像 ${similar.image.file_name}`}
-                style={{
-                  aspectRatio: `${similar.image.width} / ${similar.image.height}`,
-                  background: similar.image.color,
-                }}
+                src={similar.lead.src}
+                alt={`基準の画像 ${similar.lead.name}`}
+                style={{ aspectRatio: similar.lead.ratio, background: similar.lead.color }}
               />
             )
           }
@@ -1245,4 +1319,26 @@ function useDialogOpen() {
     return () => observer.disconnect()
   }, [])
   return open
+}
+
+// 類似画像検索の結果の帯に出す基準画像のサムネイル。ratio と color は読み込むまでの場所と色
+type Lead = { src: string; name: string; ratio?: string; color?: string }
+
+// macOS の wry はドラッグの位置を、型は PhysicalPosition だがポイント（CSS のピクセルと同じ）で、
+// ページの上端ではなくウィンドウのタイトルバーを含む上端から数えて渡す（実アプリで測った）。
+// その差を、ドラッグが入るたびにウィンドウの外側の高さとページの高さから求める。全画面ではタイトルバーがなく0になる
+let titleBar = 0
+function measureTitleBar() {
+  const win = getCurrentWindow()
+  Promise.all([win.outerSize(), win.scaleFactor()]).then(
+    ([size, scale]) => (titleBar = Math.max(0, size.height / scale - innerHeight)),
+    // モックの画面にはウィンドウがないので、差はないものとする
+    () => (titleBar = 0),
+  )
+}
+
+// Tauri のドラッグの位置が「画像で探す」の上か（FR-608）
+function onSearchByImage({ x, y }: { x: number; y: number }) {
+  const r = document.getElementById(SEARCH_BY_IMAGE)?.getBoundingClientRect()
+  return !!r && x >= r.left && x <= r.right && y - titleBar >= r.top && y - titleBar <= r.bottom
 }

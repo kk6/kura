@@ -296,6 +296,48 @@ fn similar_images(
     Ok(result)
 }
 
+/// ライブラリの外の画像を基準にした類似度と、帯に出すサムネイル（FR-608）
+#[derive(Serialize)]
+struct SimilarToFile {
+    #[serde(flatten)]
+    similar: similar::Similar,
+    /// サムネイルの JPEG のバイト列。一時フォルダは消すので、ファイルの場所でなく中身を渡す
+    thumb: Vec<u8>,
+}
+
+/// ライブラリの外の画像 path を基準に探す（FR-608）。取り込まず、ライブラリに何も書かない。
+/// ワーカーの起動を待つ間に画面を止めないよう、別のスレッドで計算する
+#[tauri::command]
+async fn similar_to_file(app: AppHandle, path: PathBuf) -> Result<SimilarToFile, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let aspects = app.state::<Models>().manifest()?.aspects.clone();
+        let temp = app.path().temp_dir().map_err(|e| e.to_string())?;
+        let start = std::time::Instant::now();
+        let (similar, thumb) = similar::search_file(
+            &*app.state::<Current>().0,
+            &app.state::<calc::Calc>(),
+            &aspects,
+            &path,
+            &temp,
+        )
+        .inspect_err(|e| {
+            log::warn!(
+                "ライブラリの外の画像で探せません（{}、{e}）",
+                path.display()
+            )
+        })?;
+        log::info!(
+            "ライブラリの外の画像で探しました（{}枚、未計算 {}枚、{:?}）",
+            similar.ids.len(),
+            similar.uncomputed,
+            start.elapsed()
+        );
+        Ok(SimilarToFile { similar, thumb })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 拡大表示に重ねる、画像の今のモデルのポーズ（FR-606）
 #[tauri::command]
 fn image_pose(
@@ -1121,6 +1163,7 @@ fn main() {
             prepare_models,
             features_status,
             similar_images,
+            similar_to_file,
             image_pose,
             find_origin_groups,
             cancel_origin_groups,

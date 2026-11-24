@@ -83,3 +83,17 @@
     transform: rotate(1turn);
   }
 }
+
+/* 「画像で探す」（FR-608）。ファイルをドラッグしている間だけ、選んだサムネイルと同じ枠で落とし先を示す */
+.search-by-image {
+  flex: none;
+}
+
+.search-by-image--outside,
+.search-by-image--over {
+  outline: var(--select-outline);
+}
+
+.search-by-image--over {
+  background: var(--color-selected);
+}

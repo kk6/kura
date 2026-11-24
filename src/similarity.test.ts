@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { changeWeight, DEFAULT_WEIGHT, fillWeights, rankSimilar, type Similar } from './similarity'
 
-const similar = (base: number, rows: [number, number, number][]): Similar & { base: number } => ({
+const similar = (base: number | null, rows: [number, number, number][]): Similar & { base: number | null } => ({
   base,
   aspects: ['content', 'composition'],
   ids: rows.map((r) => r[0]),
@@ -29,6 +29,15 @@ describe('rankSimilar', () => {
 
   test('内容を0にすると構図だけの並びになる', () => {
     expect(rankSimilar(s, { content: 0, composition: 100 })).toEqual([1, 3, 4, 2])
+  })
+
+  test('ライブラリの外の画像で探したときは、基準画像を置かずに値の大きい順に並べる', () => {
+    const outside = similar(null, [
+      [1, 0, 0],
+      [2, 2, -1],
+      [3, -1, 2],
+    ])
+    expect(rankSimilar(outside, { content: 100, composition: 0 })).toEqual([2, 1, 3])
   })
 
   test('同じ値なら id の小さい順', () => {

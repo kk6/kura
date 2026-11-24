@@ -316,6 +316,31 @@ impl Calc {
         self.update(|s| s.running = false);
     }
 
+    /// ライブラリの外の画像1枚の特徴量を計算する（FR-608）。使える観点と、その並びの値を返す。保存はしない。
+    // 計算のスレッドのワーカーは回の中だけで生きるので、順番待ちにすると今の回が終わるまで待たせる。
+    // そのため別のワーカーをその場で起動して1枚だけ頼み、すぐ止める
+    pub fn compute_once(&self, thumb: &Path) -> Result<(Vec<Aspect>, Vec<worker::Value>), String> {
+        if !(self.0.env.enabled)() {
+            return Err("類似画像検索が OFF です".into());
+        }
+        let usable: Vec<Aspect> = self
+            .0
+            .env
+            .aspects
+            .iter()
+            .filter(|a| (self.0.env.available)(a))
+            .cloned()
+            .collect();
+        if usable.is_empty() {
+            return Err("類似画像検索のモデルがありません".into());
+        }
+        let mut worker = (self.0.env.start)(&usable)?;
+        match worker.compute(thumb, &usable) {
+            Ok(values) => Ok((usable, values)),
+            Err(worker::Failure::Image(e) | worker::Failure::Dead(e)) => Err(e),
+        }
+    }
+
     fn mark_failed(&self, root: &Path, hash: &str) {
         lock(&self.0.failed).insert((root.to_path_buf(), hash.to_string()));
         self.update(|s| s.failed += 1);

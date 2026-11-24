@@ -581,6 +581,35 @@ const similarImages: Handler = (args) => {
   return { ...result, aspects: [...result.aspects, 'pose'], scores: [...result.scores, pose] }
 }
 
+// ライブラリの外の画像で探す（FR-608）。本物と同じく拡張子でなく中身で形式を見るが、モックは拡張子で決める。
+// 値は一覧の先頭の計算済みの画像を基準にした similarImages から、その画像を除いたもの（本物の基準はライブラリにない）。
+// サムネイルは、見本の写真があればその写真、なければ灰色の画像。mock.searchWait があればその ms だけ待つ
+const similarToFile: Handler = async (args) => {
+  const name = String(args?.path).split('/').pop()!
+  if (!name.includes('.')) throw 'フォルダでは探せません。画像を1枚選んでください'
+  if (!['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(name.split('.').pop()!.toLowerCase()))
+    throw '対応していない形式のファイルでは探せません'
+  await new Promise((r) => setTimeout(r, Number(sessionStorage.getItem('mock.searchWait') ?? 0)))
+  const base = computedImages()[0].id
+  const r = similarImages({ id: base }) as { ids: number[]; scores: number[][] }
+  const keep = r.ids.flatMap((id, i) => (id === base ? [] : [i]))
+  return {
+    ...r,
+    ids: keep.map((i) => r.ids[i]),
+    scores: r.scores.map((row) => keep.map((i) => row[i])),
+    thumb: [...(await mockThumb(base))],
+  }
+}
+async function mockThumb(id: number): Promise<Uint8Array> {
+  if (photos) return new Uint8Array(await (await fetch(photos[id - 1].url)).arrayBuffer())
+  const canvas = document.createElement('canvas')
+  ;[canvas.width, canvas.height] = [240, 160]
+  const g = canvas.getContext('2d')!
+  g.fillStyle = 'gray'
+  g.fillRect(0, 0, 240, 160)
+  return Uint8Array.from(atob(canvas.toDataURL('image/jpeg').split(',')[1]), (c) => c.charCodeAt(0))
+}
+
 // 骨格の重ね表示（FR-606）。ポーズの有無は similarImages と同じ決まり。ポーズのある画像は、
 // id を4で割って1余れば1人、3余れば2人の、右腕を上げて立つ人を返す。左耳はスコアを低くして描かない点にする
 const STANDING = [
@@ -886,6 +915,7 @@ const handlers: Record<string, Handler> = {
   },
   features_status: featuresStatus,
   similar_images: similarImages,
+  similar_to_file: similarToFile,
   image_pose: imagePose,
   find_origin_groups: findOriginGroups,
   cancel_origin_groups: () => {
