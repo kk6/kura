@@ -11,6 +11,11 @@
 - `similarity-weights`：帯の「写っているもの」「明暗と線の配置」「体の姿勢」のスライダー。最後の値は `settings.json` の `similarity_weights`
 - `similarity-pose`：ポーズの計算（`features.db` の `poses`）と、基準の画像にポーズがないときの理由の表示。ON でポーズのモデルだけがないときは、設定に「「体の姿勢」で比べるには、ポーズのモデル（約70 MB）が必要です」と「ダウンロード」
 - `similarity-filter`：結果をサイドバーのカテゴリ・タグと検索欄で絞る
+- `similarity-merge`：結果で2枚以上を選び「1枚にまとめる…」。1枚を残してほかをゴミ箱へ移し、タグ・元URL・ボードの配置を残す画像に引き継ぐ（FR-610）
+- `similarity-origin-groups`：「ファイル」の「元が同じ画像の組を探す…」と設定の「探す」。ライブラリ全体の組を見出しの行で区切って出し、組ごとにまとめる・外す。進み具合と「中止」（FR-611、NFR-03）
+- `similarity-menu`：「ファイル」の「似た画像を探す」（⇧⌘F）。OFF の間はメニューの2項目が消える（6章、NFR-12）
+- `similarity-pose-overlay`：拡大表示の帯の「骨格を重ねる」（FR-606）
+- `similarity-by-image`：検索欄の右の「画像で探す」。ライブラリの外の画像をドロップするか選んで探す。ライブラリに何も書かない（FR-608）
 
 ## How to get to it (user POV)
 
@@ -19,6 +24,11 @@
 - 画像の右クリックメニューの「似た画像を探す」
 - 結果のモードの帯：基準のサムネイル、「似た画像」と枚数、「未計算 N枚」、「閉じる」、スライダー（グループ「観点ごとの重み」の「写っているもの」「明暗と線の配置」「体の姿勢」）。基準にポーズがなければ「体の姿勢」のスライダーの代わりに理由
 - 設定の「類似画像検索」の「ダウンロード」（ON でポーズのモデルがないときだけ）
+- 結果で2枚以上を選んだときの詳細パネルと右クリックメニューの「1枚にまとめる…」。ダイアログの「まとめる…」→ 確認の「ゴミ箱へ移す」
+- メニューバーの「ファイル」→「似た画像を探す」（⇧⌘F）、「元が同じ画像の組を探す…」。設定の「類似画像検索」の「元が同じ画像の組を探す」の「探す」
+- 組の結果の見出しの行の「1枚にまとめる…」「一覧から外す」、探している間のステータスバーの「中止」
+- 拡大表示の帯の、倍率のスライダーの左の「骨格を重ねる」（ポーズのある画像だけ）
+- ヘッダーの検索欄の右の「画像で探す」（押すとファイル選択、ファイルを落とすと探す）
 
 ## Driving it with computer-use
 
@@ -141,6 +151,78 @@ $R $V model photos     # 設定で ON にすると数秒で計算が終わる
 ```
 
 `$R $V stop photos` の後も `photos-lib` は残る。カテゴリ（`動物/猫` など）が同じ被写体の組になる。似た構図で内容の違う組は、特徴量から候補を出せる（読むだけ）：`features.db` と `kura.db` を WAL ごと別の場所へ写し、構図のベクトルの内積の1位が別の最上位のカテゴリになる組を挙げる。2026-11-16 の写しでは、内容の上位3件の97%が同じカテゴリだった。構図で互いに1位になる組に、風景と犬、人物と小物、ラッコと風景があった（`runs/photos-1/evidence/pairs.txt`）。並びが納得できるかは利用者が画面で決める。
+
+### 元が同じ画像の組を入れたライブラリ（FR-610、FR-611）
+
+見本の写真から `scripts/gen_same_origin.py` で変形した写しを作り、見本のライブラリに足す。見本の写真は読むだけにする。2026-11-23 のしきい値の計測（要件定義書の4章）と同じ写真のフォルダ（231枚）を渡すと、番号が計測と同じになる。
+
+```bash
+B=.claude/tmp/verify-kura
+uv run scripts/gen_same_origin.py /Users/kk6/Projects/kura-library $B/same-out   # 写真ごとに <番号>/original.jpg と9種類の写し。約1分
+mkdir -p $B/same-lib && cp -R $B/template/. $B/same-lib/ && mkdir -p $B/same-lib/同じ元
+O=$B/same-out L=$B/same-lib/同じ元
+# 名前が違う組（0.90 以上）：3組
+for i in 0000 0001 0002; do cp $O/$i/original.jpg $L/p$i-a.jpg; cp $O/$i/scale50.jpg $L/p$i-b.jpg; cp $O/$i/saturation60.jpg $L/p$i-c.jpg; done
+# 名前が写しの形で、0.85 以上 0.90 未満の組（0134 の crop75 は計測で 0.882）
+cp $O/0134/original.jpg "$L/n.jpg"; cp $O/0134/crop75.jpg "$L/n 2.jpg"
+# 名前が違い、0.90 未満の組（0052 の crop75 は計測で 0.895）。組にならないのが正しい
+cp $O/0052/original.jpg $L/m.jpg; cp $O/0052/crop75.jpg $L/k.jpg
+PATH=/usr/bin:/bin:/usr/sbin:/sbin $R $V launch <id> $B/same-lib
+$R $V model <id>   # 設定で ON にし、計算が終わるのを待つ（features.db の embeddings の content が images の枚数にそろう）
+```
+
+- 期待：組は `p0000`、`p0001`、`p0002` の3組（各3枚）と `n` / `n 2` の1組。`m` と `k` は組にならない。見本のダミー画像30枚は内容の特徴量が近く、1つの組になる（2026-11-23 の `fr611-1`）。写真のライブラリでは起きない見込み
+- 0134 と 0052 の値は計測の `features.db`（同じモデル、リリース版）のもの。写真のフォルダの中身が変わると番号がずれるので、そのときは `scripts/measure_same_origin.py` の「変形の下位10件」から選び直す
+- ボードの置き換えを見るときは、まとめる前に、組の残らない方の1枚をボード2つ（1つは開いたまま、1つは閉じる）に置き、片方を回転・グレースケール、もう片方を左右反転にしておく
+
+### 1枚にまとめる（FR-610）
+
+1. 組の1枚（例：`p0000-a.jpg`）で「似た画像を探す」。結果で ⌘ を押しながら同じ組の3枚を選び、右クリック →「1枚にまとめる…」
+2. ダイアログの初期値：残す画像は画素数の一番大きい `p0000-a.jpg`（`scale50` の倍）。タグは3枚のタグの和集合で、× で外せる。カテゴリを変えて「まとめる…」→「ゴミ箱へ移す」
+3. 確かめる：
+   - ステータスバーに「完了：1枚にまとめ、ゴミ箱へ移した 2枚」。2枚が結果から消える
+   - `$V db <id> "select id, file_name, category_id, deleted_at is not null from images where file_name like 'p0000%'"`、`ls runs/<id>/lib/.kura/trash/`、残した画像のファイルが選んだカテゴリのフォルダにある
+   - 元URL：残す画像に記録がなく、ほかにあれば、残す画像に付く（`select image_id, kind, url from source_urls` の形。`gen_source_urls.py` の `one.png`、`two.png` を組に混ぜると見られる）
+   - ボード：両方のボードで配置の `image_id` が残した画像に変わり、表示の幅と中心、回転・反転・グレースケールが元のまま、トリミングは外れる（`$V db <id> "select b.name, i.image_id, i.active, i.width, i.height, round(i.x,2), round(i.y,2), round(i.scale,4), i.rotation, i.flipped, i.grayscale, i.crop_x from board_items i join boards b on b.id = i.board_id"`）。開いていたボードはそのまま描き直される
+   - `select count(*) from pending_ops` が0
+4. ゴミ箱で2枚を「元に戻す」。元のカテゴリに戻り、自分のタグと元URLを持っている。残した画像のタグ・元URL、ボードの配置は変わらない
+
+2026-11-23 の `runs/fr610-2/evidence/`（デバッグ版）：`merge-2-menu.jpg`〜`merge-10-restored.jpg`、`merge-db-boards-before.txt`、`merge-db-after.txt`、`restore-db-after.txt`。
+
+### 元が同じ画像の組を探す（FR-611、6章）
+
+1. OFF の間：メニューバーの「ファイル」に「似た画像を探す」「元が同じ画像の組を探す…」がない。⇧⌘F が効かない
+2. ON にし、「ファイル」→「元が同じ画像の組を探す…」。組の一覧が出る。帯に「元が同じ画像」と組の数。`app.log` に `元が同じ画像の組を探しました（N組、…ms）`
+3. 上のライブラリの期待どおりの組が出るか。`n` / `n 2` が組になり、`m` / `k` がならない
+4. 組の見出しの「1枚にまとめる…」で、上の「1枚にまとめる」と同じダイアログが組の全部で開く。まとめた組は消える。「一覧から外す」で組が消え、画像は変わらない
+5. 設定の「類似画像検索」の「探す」でも同じ結果になる
+6. 画像を1枚選び、「ファイル」→「似た画像を探す」と ⇧⌘F で、詳細パネルのボタンと同じ結果のモードになる。検索欄の中とダイアログの間は ⇧⌘F が効かない
+7. 進み具合と「中止」：数十枚では約0.1秒で終わり、押せない。2万枚のライブラリ（上の節の `lib20k`）なら、ステータスバーに「元が同じ画像の組を探し中」が出ている間に「中止」を押せる。時間は `app.log` の `元が同じ画像の組を探しました（…ms）`。Rust の計測は `cargo test --release 元が同じ画像の組の2万件の計測 -- --ignored --nocapture`（2026-11-24、1.06〜1.40 秒）
+
+2026-11-23 の `runs/fr611-1/evidence/`（リリース版）：`groups-1-top.jpg`、`groups-2-photos.jpg`、`groups-3-merge-dialog.jpg`、`groups-4-after-merge.jpg`、`groups-db.txt`、`menu-find-similar.jpg`、`settings-find.jpg`。このときは `n` / `m` の組を入れていない。
+
+### 骨格の重ね表示（FR-606）
+
+上の「ポーズの確認用のライブラリ」で行う。
+
+1. ポーズのある画像（`status` 2）をダブルクリックで拡大表示する。帯の倍率のスライダーの左に「骨格を重ねる」がある。押すと白い線と点（黒の縁取り）が関節に重なる。2人の画像（`組/`）では2人とも出る
+2. ⌘＋で拡大し、ドラッグで動かしても骨格が関節に重なったまま。線の太さは変わらない
+3. 左右キーで前後へ移っても ON のまま。`status` 0 か 1 の画像では「骨格を重ねる」が出ない
+4. 類似画像検索を OFF にすると出ない
+
+2026-11-24 の `runs/pose606/evidence/`：`pose-1-off.jpg`、`pose-2-on-two-people.jpg`、`pose-3-zoomed-panned.jpg`、`pose-4-no-person.jpg`、`pose-db.txt`。
+
+### 画像で探す（FR-608）
+
+ライブラリの外の画像は、run の中（例：`runs/<id>/outside/`）に作る。Finder からのドラッグは computer-use で Finder のウィンドウから Kura の「画像で探す」へ運ぶ。
+
+1. 前の状態を残す：`find runs/<id>/lib -type f -not -name '*-wal' -not -name '*-shm' | sort | xargs shasum > before-files.txt`、`$V db <id> "select id, file_name, category_id from images"` と `$V db <id> "select hash, aspect, computed_at from embeddings" features`
+2. ライブラリの画像（例：`ref_00005.jpg`）を `sips -Z 200` で縮小した写しを `outside/` に作り、「画像で探す」に落とす。ドラッグの間はボタンに枠、上に来ると地がグレー。結果の帯の基準に落とした画像が出て、先頭に `ref_00005.jpg` が来る
+3. 「画像で探す」を押してファイル選択から選んでも同じ結果になる（2026-11-24 は e2e だけで確かめた）
+4. 2枚、フォルダ、`.txt` を落とすと、探さずにステータスバーに理由が出る。一覧のほかの場所に落とすと、いつもどおり取り込む
+5. 後の状態を1と同じ方法で取り、`diff` が空。`$TMPDIR` に `kura-search-*` のフォルダが残らない（`ls "$TMPDIR" | grep kura-search`）
+
+2026-11-24 の `runs/fr608-4/evidence/`：`desktop-1-dragging.jpg`、`desktop-2-over.jpg`、`desktop-3-result.jpg`、`shrunk-1-result.jpg`、`shrunk-2-top-is-ref_00005.jpg`、`before-*.txt` と `after-*.txt`。
 
 ### 確かめること（phase3-check との対応）
 

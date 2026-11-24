@@ -8,11 +8,15 @@
 - `sync-move`：別のカテゴリのフォルダへ移した画像のカテゴリが変わる（タグとメモは残る）
 - `sync-missing`：消した画像が「見つからない」画像になる
 - `sync-startup`：起動時にも同じ反映をする
+- `sync-tidy-duplicate`：「登録しなかったファイル」の一覧の重複の行の「整理…」。残す場所を選び、残らない方のファイルを DB の行を作らずに `.kura/trash/.duplicates/` へ移す（FR-109）
+- `sync-set-aside`：対応していない形式のファイルを `_未対応ファイル/` へ移す。一覧のボタンでまとめて、または設定の「一般」のスイッチで差分の確認のたびに（FR-108）
 
 ## How to get to it (user POV)
 
 - サイドバーの「カテゴリ」の見出しの ↻（aria-label「差分を確認」）
 - アプリの起動
+- 差分の確認の後のステータスバーの「注意：スキップ N枚」→「登録しなかったファイル」の一覧。重複の行の「整理…」→「重複を整理する」の「登録済みの画像の場所に残す」「このファイルの場所に残す」→「整理する」。一覧の下の「対応していない形式のファイルを _未対応ファイル/ へ移す（N件）」
+- 設定（⌘,）の「一般」の「差分検出で、対応していない形式のファイルを _未対応ファイル/ へ移す」
 
 ## Driving it with computer-use
 
@@ -24,6 +28,22 @@ Preconditions:
 - **足す・移す・消す。** シェルで `runs/<id>/lib` の中を変える：`$V src <id> 31` で作った画像のうち見本にない `ref_00030.*`（`find runs/<id>/src -name 'ref_00030*'`。今は `ポーズ/座り/ref_00030.gif`）を `lib/src/手/` へ `cp`、`lib/src/服飾/` の1枚を `lib/src/手/` へ `mv`、`lib/src/背景/室内/` の1枚を run の中のライブラリの外（例：`runs/<id>/outside/`）へ `mv`（Finder でゴミ箱へ入れるのと同じく、ライブラリから消える）。
 - **反映する。** サイドバーの「差分を確認」を押す。ステータスバーに「完了：差分を反映（登録 1枚、移動 1枚）」と、別のリンク「注意：見つからない画像 1枚」。`app.log` に `差分を反映しました：登録 1、移動 1、更新 0、見つからない 1、スキップ 0件`。
 - **確かめる。** 「手」の件数が2増え、「服飾」と「室内」が1減る。`$V db <id> "select file_name, category_id, missing_at from images where missing_at is not null"` に消した1枚。サイドバーに「見つからない 1」が現れる（2026-11-14、run `mvs-a` で確認）。押すと右パネル（aria-label「見つからない画像」、「一覧から外す」）が出て、一覧にその1枚が出る。
+
+### 登録しなかったファイルを整理する（FR-109、FR-108）
+
+ファイルを動かすので、見本のライブラリの写し（`$V launch <id>`）で行う。
+
+1. シェルで、重複と対応していない形式のファイルを足す：`cp runs/<id>/lib/src/手/ref_00005.jpg runs/<id>/lib/src/服飾/dup_a.jpg`、`cp runs/<id>/lib/src/服飾/ref_00006.jpg runs/<id>/lib/src/手/dup_b.jpg`、`printf x > runs/<id>/lib/src/clip.mp4; printf x > runs/<id>/lib/src/手/clip.mp4`
+2. ↻ を押す。ステータスバーの「注意：スキップ 4枚」を押すと、「登録しなかったファイル」に重複2件と対応していない形式2件
+3. `dup_a.jpg` の行の「整理…」→「このファイルの場所に残す」→「整理する」。登録済みの `ref_00005.jpg` が `src/服飾/` へ移り、DB のカテゴリも「服飾」になる。`dup_a.jpg` は `.kura/trash/.duplicates/` へ移り、アプリのゴミ箱には出ない（`images` に行がない）
+4. `dup_b.jpg` の行の「整理…」→「登録済みの画像の場所に残す」。`ref_00006.jpg` は動かず、`dup_b.jpg` が `.kura/trash/.duplicates/` へ移る
+5. 「対応していない形式のファイルを _未対応ファイル/ へ移す（2件）」。`_未対応ファイル/clip.mp4` と `clip (2).mp4` ができ、行が「対応していない形式なので、_未対応ファイル/ へ移しました」に変わる。もう一度 ↻ を押しても一覧に出ない
+6. 設定の「一般」でスイッチをオンにし、`printf x > runs/<id>/lib/src/movie.mov` の後に ↻。自動で `_未対応ファイル/movie.mov` へ移り、一覧に移したと出る
+7. アプリのゴミ箱に1枚以上入れてから「ゴミ箱を空にする」。`.kura/trash/.duplicates/` も消える
+8. オンのまま、ライブラリの外のフォルダ（`ext.mp4` を含む）を取り込む。`ext.mp4` はスキップに出るだけで、`_未対応ファイル/` へ移らない
+9. どの手順の後も `$V db <id> "select count(*) from pending_ops"` が0。`relaunch` してもスイッチはオンのまま
+
+2026-11-23 の `runs/fr108/evidence/`（デバッグ版）：`1-skipped.jpg`〜`12-setting-after-restart.jpg`、`5-files-db.txt`、`9-after-empty.txt`、`11-import.txt`。
 
 ## Gotchas
 
