@@ -43,6 +43,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - ダミーライブラリの生成：`npm run dev-library -- <枚数>`（`dev-library/` に出力。空でないと止まる）
 - 元URLの記録（拡張属性）を付けたダミー画像の生成：`uv run scripts/gen_source_urls.py <出力先>`（macOS だけ。通常の取り込み・重複・Finder・補完の確認用に分けて作る）
 - 元が同じ画像（FR-610、FR-611）のしきい値の計測：(1) `uv run scripts/gen_same_origin.py <見本の写真のフォルダ> <出力先>` で、写真ごとに縮小・トリミング・彩度と明るさ・JPEG の再圧縮の写しを作る (2) 出力先を、`verify-kura` で隔離して起動したリリース版のライブラリの中に写し、類似画像検索を ON にして特徴量を計算させる (3) `uv run scripts/measure_same_origin.py <出力先> <ライブラリ>/.kura/features.db` で、変形の種類ごとと別の写真どうしの類似度の分布を出す。Pillow で真似たサムネイルは値がずれるので、アプリが計算した値を使う
+- 元が同じ画像の組の見え方の確認（本物のライブラリで利用者が流す。DB は読むだけで開く）：`uv run scripts/origin_group_sizes.py <ライブラリ> --ids <id> ...` で、しきい値ごとの組の大きさの分布と、指定した画像の入った組の大きさを出す。しきい値を変える前に、一番大きい組の枚数を確かめる。`uv run scripts/pair_similarity.py <ライブラリ> <ファイル名> ...` で、指定した画像どうしの内容の類似度と、特徴量の有無を出す
 - テスト（Rust）：`cargo test`（`src-tauri/` で実行）
 - テスト（Rust、別のファイルシステム）：`hdiutil create -size 64m -fs ExFAT -volname KURAEX <名前>.dmg` で作ったイメージを `hdiutil attach -nobrowse` でマウントし、`KURA_TEST_DIR=<マウント先> cargo test fileops` で同じテストを流す（HFS+ や大文字・小文字を区別する APFS も同じ）
 - テスト（画面の単体テスト）：`npm test`（Vitest。`src/**/*.test.ts` を流す）
@@ -53,7 +54,7 @@ spikes/       使い捨てのプロトタイプ。結果は各 README と要件�
 - テスト（同梱したワーカー）：`npm run tauri build` の後に、`.app` の `Contents/Resources/worker/` の `kura-worker` と `model.json`、モデルを置いたフォルダを `KURA_WORKER`、`KURA_MANIFEST`、`KURA_MODEL_DIR` に渡し、`PATH=/usr/bin:/bin "$(command -v cargo)" test 同梱したワーカー -- --ignored`（`src-tauri/` で実行。uv のない `PATH` で流す）。モデルは `model.json` の `file.name` の名前で置く
 - テスト（Python）：`uv run pytest`（`ml/` で実行）
 - ワーカー（特徴量の計算）：初回に `uv sync --project ml` を実行する。開発版のアプリ（`npm run tauri dev`）は `ml/.venv/bin/python -m kura_worker` でワーカーを起動するので、`.venv` がないと計算を始められない。リポジトリのルートから `ml/.venv/bin/python -m kura_worker --manifest ml/model.json --model-dir <モデルのフォルダ>` で起動し、標準入力と標準出力で1行1件の JSON をやりとりする（`docs/tasks/phase3-design.md` の1章）
-- テスト（scripts/）：`uv run --with pillow --with pytest pytest scripts/`
+- テスト（scripts/）：`uv run --with pillow --with numpy --with pytest pytest scripts/`
 - 整形（TypeScript と設定ファイル）：`npm run format`（Prettier）
 - 整形（Rust）：`cargo fmt`（`src-tauri/` で実行）
 - 整形（Python）：`uvx ruff@0.17.3 format`
