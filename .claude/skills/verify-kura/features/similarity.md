@@ -154,25 +154,26 @@ $R $V model photos     # 設定で ON にすると数秒で計算が終わる
 
 ### 元が同じ画像の組を入れたライブラリ（FR-610、FR-611）
 
-見本の写真から `scripts/gen_same_origin.py` で変形した写しを作り、見本のライブラリに足す。見本の写真は読むだけにする。2026-11-23 のしきい値の計測（要件定義書の4章）と同じ写真のフォルダ（231枚）を渡すと、番号が計測と同じになる。
+見本の写真から `scripts/gen_same_origin.py` で変形した写しを作り、見本のライブラリに足す。見本の写真は読むだけにする。しきい値は 0.98、名前が写しの形の2枚は 0.85（`src-tauri/src/origin.rs`）。写真のフォルダの中身が変わると番号がずれる（2026-11-23 の計測は231枚、2026-11-25 は228枚）。
 
 ```bash
 B=.claude/tmp/verify-kura
 uv run scripts/gen_same_origin.py /Users/kk6/Projects/kura-library $B/same-out   # 写真ごとに <番号>/original.jpg と9種類の写し。約1分
 mkdir -p $B/same-lib && cp -R $B/template/. $B/same-lib/ && mkdir -p $B/same-lib/同じ元
 O=$B/same-out L=$B/same-lib/同じ元
-# 名前が違う組（0.90 以上）：3組
-for i in 0000 0001 0002; do cp $O/$i/original.jpg $L/p$i-a.jpg; cp $O/$i/scale50.jpg $L/p$i-b.jpg; cp $O/$i/saturation60.jpg $L/p$i-c.jpg; done
-# 名前が写しの形で、0.85 以上 0.90 未満の組（0134 の crop75 は計測で 0.882）
+# 名前が違う組（0.98 以上）：3組。縮小 1/2 と JPEG の再圧縮は、写真の計測で中央値が 0.998 以上
+for i in 0000 0001 0002; do cp $O/$i/original.jpg $L/p$i-a.jpg; cp $O/$i/scale50.jpg $L/p$i-b.jpg; cp $O/$i/recompress.jpg $L/p$i-c.jpg; done
+# 名前が写しの形で、0.85 以上 0.98 未満の組
 cp $O/0134/original.jpg "$L/n.jpg"; cp $O/0134/crop75.jpg "$L/n 2.jpg"
-# 名前が違い、0.90 未満の組（0052 の crop75 は計測で 0.895）。組にならないのが正しい
+# 名前が違い、0.98 未満の組。組にならないのが正しい
 cp $O/0052/original.jpg $L/m.jpg; cp $O/0052/crop75.jpg $L/k.jpg
 PATH=/usr/bin:/bin:/usr/sbin:/sbin $R $V launch <id> $B/same-lib
 $R $V model <id>   # 設定で ON にし、計算が終わるのを待つ（features.db の embeddings の content が images の枚数にそろう）
 ```
 
-- 期待：組は `p0000`、`p0001`、`p0002` の3組（各3枚）と `n` / `n 2` の1組。`m` と `k` は組にならない。見本のダミー画像30枚は内容の特徴量が近く、1つの組になる（2026-11-23 の `fr611-1`）。写真のライブラリでは起きない見込み
-- 0134 と 0052 の値は計測の `features.db`（同じモデル、リリース版）のもの。写真のフォルダの中身が変わると番号がずれるので、そのときは `scripts/measure_same_origin.py` の「変形の下位10件」から選び直す
+- 期待：組は `p0000`、`p0001`、`p0002` の3組（各3枚）と `n` / `n 2` の1組。`m` と `k` は組にならない。見本のダミー画像30枚は組にならない（0.90 の頃は1つの組になった）
+- 2026-11-25 の `mvs-25c`（デバッグ版、228枚）：`n` / `n 2` が 0.972、`m` / `k` が 0.955 で、期待どおり。`p000N-c`（再圧縮）は 0.9935〜0.9995。彩度 0.6倍の写しも足すと 0.988〜0.997 で組に入り、組は 4枚・4枚・4枚・2枚の4組になった
+- 2枚の値は `features.db` を写した先に `uv run scripts/pair_similarity.py <写した先> <ファイル名> ...` で測る（Kura は DB を排他モードで開くので、`.kura/` の `kura.db*` と `features.db*` を `<写した先>/.kura/` へ写す）。期待から外れたら、`scripts/measure_same_origin.py` の「変形の下位10件」から番号を選び直す
 - ボードの置き換えを見るときは、まとめる前に、組の残らない方の1枚をボード2つ（1つは開いたまま、1つは閉じる）に置き、片方を回転・グレースケール、もう片方を左右反転にしておく
 
 ### 1枚にまとめる（FR-610）
