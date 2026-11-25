@@ -39,7 +39,7 @@ Preconditions:
 - 2026-11-23、run `fr416` で上の4つを確認（証跡は `evidence/` の `up-*`、`existing-*`、`new-*`、`zoom-up-*` と `fr416-db.txt`、`fr416-files.txt`）。
 - **最近使ったタグの設定（FR-419）。** 1枚目にタグを7個付ける（`t1`〜`t6`、`seven`）。2枚目を選ぶと「最近使ったタグ」が5個。⌘, →「タグ」で「出す件数」を10件にし、「ギャラリーに戻る」。2枚目の候補が7個になる。設定で「最近使ったタグを出す」をオフにすると、候補の欄が消える。`cat "runs/<id>/home/Library/Application Support/dev.kk6.kura/debug/settings.json"`（リリース用ビルドは `debug/` なし）で `recent_tags` が `false`、`recent_tags_count` が `10`。
 - **起動し直して残る。** `$V relaunch <id>` で起動し直し、⌘, →「タグ」でオフ・10件のままであることを確かめる。最近使ったタグの中身（どのタグか）は起動し直すと空になる。
-- **設定の「タグ」のタグ管理（FR-408）。** 同じ画面の「タグを探す」に `se` と入れると「seven」だけが出る。「名前を変更」で `seven` を `t7` にすると、`$V db <id> "select id, name from tags"` に残る。
+- **設定の「タグ」のタグ管理（FR-408）。** 同じ画面の「タグを探す」に `se` と入れると「seven」だけが出る。「名前を変える」（aria-label「「seven」の名前を変える」）で `seven` を `t7` にすると、`$V db <id> "select id, name from tags"` に残る。
 - 2026-11-23、run `fr419` で上の3つを確認（証跡は `evidence/fr419-*.jpg`、`fr419-settings-before-relaunch.txt`、`fr419-tags-db.txt`）。
 
 ## Gotchas
