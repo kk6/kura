@@ -52,7 +52,7 @@ mkdir -p .claude/tmp/tla && curl -fsSL -o .claude/tmp/tla/tla2tools-1.7.4.jar ht
 
 `check.sh` の `DRIFT` は、上の関数の本体（空白を詰めたもの）が `coverage.tsv` の指紋と違うことを示す。整形だけの変更でも出る。
 
-**同期したコミット：`28c0622`**（`002d834` から、`library.rs` の `apply_op` に、DB に行のないファイルを動かす2つの種類（`skipped.rs` の `SET_ASIDE` と `TRASH_DUPLICATE`。FR-108、FR-109）を足した。どちらも DB を変えない `apply_none` で、`transfer` の移動（`copy: false`、`OnConflict::Number`）をそのまま使う。段階の順番もトランザクションの区切りも変わらないので、モデルは変更せず、TLC と6つの故障モデルで確かめた。前の同期は `002d834`）
+**同期したコミット：`1ffa469`**（`28c0622` から、移動の手順に関わるファイル（`fileops.rs`、`library.rs`、`import.rs`、`category.rs`、`trash.rs`、`skipped.rs`、`merge.rs`）は変わっていない。増えたコード（`origin.rs`、`similar.rs`、`calc.rs` など。FR-606、FR-608、FR-610、FR-611）は `transfer` も `pending_ops` も使わない。モデルは変えず、TLC と6つの故障モデルで確かめた。その前の同期は `28c0622`：`002d834` から、`library.rs` の `apply_op` に、DB に行のないファイルを動かす2つの種類（`skipped.rs` の `SET_ASIDE` と `TRASH_DUPLICATE`。FR-108、FR-109）を足した。どちらも DB を変えない `apply_none` で、`transfer` の移動（`copy: false`、`OnConflict::Number`）をそのまま使う。段階の順番もトランザクションの区切りも変わらないので、モデルは変更せず、TLC と6つの故障モデルで確かめた。前の同期は `002d834`）
 
 ## DRIFT や FAIL が出たとき
 

@@ -52,7 +52,9 @@ TLC の出力は `.claude/tmp/tla/out/board-save/<cfg 名>.txt` に残る。部�
 
 `DRIFT` は、`saveQueue.ts` の空白を詰めた中身が `coverage.tsv` の指紋と違うことを示す。
 
-1. `git diff <同期したコミット> -- src/board/saveQueue.ts` で、変わった所を読む。同期したコミットは、`coverage.tsv` を最後に変えたコミット（`git log -1 --format=%h -- .claude/skills/verify-board-save/coverage.tsv`）。
+**同期したコミット：`1ffa469`**（`cc8cf25` から、`saveQueue.ts` は変わっていない。BoardApp に、キューを通らずにボードを書き換える道が2つ増えた。一覧からのドロップ（`dropImages`。FR-713）は `queue.flush()` を待ってから `drop_on_board` を呼び、まとめの置き換え（`board-replaced`。FR-610）は Rust が `windows::settle` で保存を待ってから配置を置き換える。どちらも間の編集を `revealing` か `held` で止める。キューの使い方は `flush()` の呼び出しが1つ増えただけなので、モデルは変えず、TLC と6つの故障モデルで確かめた。その前の同期は `cc8cf25`）
+
+1. `git diff <同期したコミット> -- src/board/saveQueue.ts src/board/BoardApp.tsx` で、変わった所を読む。
 2. 下の「モデルとコードの対応」のどの行が変わったかを見る。対応する行がなければ、モデルは変えない。手順が変わったら（`await` の位置、`running` を null にする所、`pending` の扱い、`flush()` の判定）、`BoardSaveQueue.tla` のアクションをコードと同じに直す。
 3. `FAIL` なら、TLC の出力を `/pstack:statechart` で読み、反例を手順に直す。反例の各段階がコードの1つの塊（`await` と `await` の間）に当たるなら本物の不具合。性質を緩めて通さない。コードではありえない段階があれば、モデルの誤り。
 4. 本物の不具合なら、反例をテストか小さなスクリプトで実際のコードに流して確かめる。マイクロタスクの順番が要る反例は、`Promise.resolve().then()` を何段か重ねた後に操作を入れて試す。
@@ -77,7 +79,7 @@ TLC の出力は `.claude/tmp/tla/out/board-save/<cfg 名>.txt` に残る。部�
 - 検証の範囲：編集3回、保存の失敗2回まで（約1,000状態）。図は編集2回、失敗1回（約200状態）。
 - `send()` の中（`invoke('save_board')` と revision の更新）は1つの塊とみなす。サーバーは受け取った版を保存する。
 - 同じ回の中のマイクロタスクの順番は区別せず、`await` の間ならどこでも別の操作が入りうるとしている。
-- BoardApp の `held` と `revealing`（閉じる間の編集の受け付けを止める）は入れていない。表示の保存（`displayQueue`）も同じ `saveQueue` を使うが、モデルは配置の保存の使い方だけを見ている。
+- BoardApp の `held` と `revealing`（閉じる間や、ドロップ・置き換えの間の編集の受け付けを止める）は入れていない。`drop_on_board` と `board-replaced` は、キューを通らずにボードを書き換える。これらとキューの保存が重ならないことは、`held` と `revealing` に頼っていて、このモデルでは確かめていない。表示の保存（`displayQueue`）も同じ `saveQueue` を使うが、モデルは配置の保存の使い方だけを見ている。
 
 ## ファイル
 
