@@ -58,6 +58,16 @@ test('検索・選択・拡大表示・タグ付け・ゴミ箱・設定をキ�
   await page.keyboard.press('Escape')
   await page.evaluate(() => (document.activeElement as HTMLElement).blur())
 
+  // ⇧⌘F はメニューの「似た画像を探す」のキー。検索欄へ移さず、メニューに届くよう既定の動作を止めない
+  await page.evaluate(() =>
+    window.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'f') (window as unknown as { shiftF: boolean }).shiftF = e.defaultPrevented
+    }),
+  )
+  await page.keyboard.press('Meta+Shift+f')
+  expect(await page.evaluate(() => (window as unknown as { shiftF?: boolean }).shiftF)).toBe(false)
+  await expect(search).not.toBeFocused()
+
   // 矢印キーで選ぶ。何も選んでいなければ先頭から
   await page.keyboard.press('ArrowRight')
   await expect(detail.getByRole('heading')).toHaveText('ref_00001.jpg')

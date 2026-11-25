@@ -273,7 +273,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     // ダイアログの中の操作は奪わない
     if ((e.target as Element).closest('dialog')) return
     const key = e.key.toLowerCase()
-    if (e.metaKey && key === 'f') {
+    // ⇧⌘F はメニューの「似た画像を探す」。ここで止めるとメニューに届かない
+    if (e.metaKey && !e.shiftKey && key === 'f') {
       e.preventDefault()
       document.getElementById('search')?.focus()
       return
