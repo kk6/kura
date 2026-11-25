@@ -9,7 +9,7 @@ use crate::library::{err, Access};
 use crate::manifest::Aspect;
 
 /// 元が同じとみなす、内容のそろえる前のコサイン類似度
-pub const SAME: f32 = 0.90;
+pub const SAME: f32 = 0.98;
 /// 拡張子を除いた名前が写しの形の2枚に使う、第2のしきい値
 pub const SAME_NAMED: f32 = 0.85;
 /// 比べる観点。構図とポーズは使わない（5.6 の「元が同じ画像の整理」）
@@ -308,8 +308,8 @@ mod tests {
 
     #[test]
     fn しきい値は名前が写しの形の2枚だけ下がる() {
-        assert!(same(0.90, "a.jpg", "b.jpg"));
-        assert!(!same(0.899, "a.jpg", "b.jpg"));
+        assert!(same(0.98, "a.jpg", "b.jpg"));
+        assert!(!same(0.979, "a.jpg", "b.jpg"));
         assert!(same(0.85, "a.jpg", "a 2.jpg"));
         assert!(!same(0.849, "a.jpg", "a 2.jpg"));
         // 名前だけでは元が同じとみなさない
@@ -324,7 +324,7 @@ mod tests {
         assert!((dot(&a, &b) - plain).abs() < 1e-4);
     }
 
-    /// 長さ1の2次元ベクトル。角度（度）で向きを決める。cos(25.8°) ≒ 0.90、cos(31.8°) ≒ 0.85
+    /// 長さ1の2次元ベクトル。角度（度）で向きを決める。cos(11.5°) ≒ 0.98、cos(31.8°) ≒ 0.85
     fn unit(deg: f32) -> [f32; 2] {
         let r = deg.to_radians();
         [r.cos(), r.sin()]
@@ -375,10 +375,10 @@ mod tests {
     #[test]
     fn 元が同じ2枚をつないで組にする() {
         let (_d, lib) = open();
-        // a と b、b と c は元が同じ（20°差）。a と c は40°差で、b を通して1つの組になる
+        // a と b、b と c は元が同じ（10°差）。a と c は20°差で、b を通して1つの組になる
         let a = add(&lib, "a.jpg", "", Some(0.0));
-        let b = add(&lib, "b.jpg", "", Some(20.0));
-        let c = add(&lib, "c.jpg", "", Some(40.0));
+        let b = add(&lib, "b.jpg", "", Some(10.0));
+        let c = add(&lib, "c.jpg", "", Some(20.0));
         // 離れた2枚の組と、どこにもつながらない1枚
         let d = add(&lib, "d.jpg", "", Some(120.0));
         let e = add(&lib, "e.jpg", "", Some(130.0));
@@ -389,7 +389,7 @@ mod tests {
     #[test]
     fn 名前が写しの形の組は名前の違う組より見つかりやすい() {
         let (_d, lib) = open();
-        // どちらの組も30°差（0.866）。0.90 には届かず、0.85 は超える
+        // どちらの組も30°差（0.866）。0.98 には届かず、0.85 は超える
         let a = add(&lib, "abcde.jpg", "", Some(0.0));
         let a2 = add(&lib, "abcde 2.jpg", "", Some(30.0));
         add(&lib, "x.jpg", "", Some(100.0));

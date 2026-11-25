@@ -181,12 +181,12 @@ uv run scripts/gen_same_origin.py /Users/kk6/Projects/kura-library .claude/tmp/k
 ```bash
 O=.claude/tmp/kura-same L=<試し用のライブラリ>/同じ元
 mkdir -p "$L"
-for i in 0000 0001 0002; do cp $O/$i/original.jpg "$L/p$i-a.jpg"; cp $O/$i/scale50.jpg "$L/p$i-b.jpg"; cp $O/$i/saturation60.jpg "$L/p$i-c.jpg"; done
+for i in 0000 0001 0002; do cp $O/$i/original.jpg "$L/p$i-a.jpg"; cp $O/$i/scale50.jpg "$L/p$i-b.jpg"; cp $O/$i/recompress.jpg "$L/p$i-c.jpg"; done
 cp $O/0134/original.jpg "$L/n.jpg"; cp $O/0134/crop75.jpg "$L/n 2.jpg"   # 名前が写しの形。類似度 0.882
 cp $O/0052/original.jpg "$L/m.jpg"; cp $O/0052/crop75.jpg "$L/k.jpg"     # 名前が違う。類似度 0.895
 ```
 
-- 期待する組：`p0000`、`p0001`、`p0002` の3組（各3枚）と、`n.jpg` / `n 2.jpg` の1組。`m.jpg` と `k.jpg` は組にならない（しきい値 0.90 に届かず、名前も写しの形ではない）
+- 期待する組：`p0000`、`p0001`、`p0002` の3組（各3枚）と、`n.jpg` / `n 2.jpg` の1組。`m.jpg` と `k.jpg` は組にならない（しきい値 0.98 に届かず、名前も写しの形ではない）。縮小 1/2 と JPEG の再圧縮は、写真の計測で中央値が 0.998 以上。写しが 0.98 に届かずに組から外れたら、別の番号の写真で試す
 - `dev-library/` のダミー画像は内容の特徴量が近いので、まとめて1つの大きな組になることがあります。写真の組だけを見るときは、サイドバーで `同じ元` を選んでから探します（条件に合う画像を含む組だけが出ます）
 - 類似画像検索を ON にし、特徴量の計算が終わってから試します
 
