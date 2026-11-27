@@ -85,10 +85,12 @@ fn stem(file_name: &str) -> &str {
 }
 
 /// 拡張子を除いた名前が写しの形の2枚か。写しの印を外した名前が同じで、元の名前は違う。
-/// 名前がまったく同じ2枚（別のフォルダの「IMG_0001」など）はカメラの連番がぶつかっただけのことが多いので含めない
+/// 名前がまったく同じ2枚（別のフォルダの「IMG_0001」など）はカメラの連番がぶつかっただけのことが多いので含めない。
+/// 印を外すと数字だけになる名前（「18」と「18 (1)」）も、別の撮影の連番がぶつかっただけのことが多いので含めない
 fn copy_named(a: &str, b: &str) -> bool {
     let (a, b) = (stem(a), stem(b));
-    a != b && base_name(a) == base_name(b)
+    let base = base_name(a);
+    a != b && base == base_name(b) && !base.chars().all(|c| c.is_ascii_digit())
 }
 
 /// 2枚が元が同じか
@@ -304,6 +306,18 @@ mod tests {
         assert!(!copy_named("abcde.jpg", "abcde.png"));
         assert!(!copy_named("IMG_0001.jpg", "IMG_0002.jpg"));
         assert!(!copy_named("abcde.jpg", "fghij 2.jpg"));
+    }
+
+    #[test]
+    fn 印を外すと数字だけになる名前は写しの形ではない() {
+        // 別の撮影の連番どうしが、低いしきい値でつながって大きな組になったため
+        assert!(!copy_named("18.png", "18 (1).png"));
+        assert!(!copy_named("18 (1).png", "18 (2).png"));
+        assert!(!copy_named("09.png", "09 2.png"));
+        assert!(!copy_named("2024 01.jpg", "2024 02.jpg"));
+        // 数字のほかの文字があれば、今までどおり写しの形
+        assert!(copy_named("p18.png", "p18 (1).png"));
+        assert!(copy_named("撮影 18.png", "撮影 18 (1).png"));
     }
 
     #[test]
