@@ -47,6 +47,20 @@ pub fn link(image_url: Option<&str>, page_url: Option<&str>) -> Option<String> {
         .or_else(|| image_url.and_then(valid))
 }
 
+/// Google レンズで探す URL（FR-612）。有効な画像URLがあれば URL での検索、なければ画像を貼り付けるページ
+pub fn lens_url(image_url: Option<&str>) -> String {
+    match image_url.and_then(valid) {
+        Some(url) => {
+            tauri::Url::parse_with_params("https://lens.google.com/uploadbyurl", [("url", url)])
+                .map(String::from)
+                .unwrap_or_else(|_| LENS.into())
+        }
+        None => LENS.into(),
+    }
+}
+
+const LENS: &str = "https://lens.google.com/";
+
 /// path の拡張属性を直接読む。Spotlight（mdls）は値を返さないことがあるので使わない。属性がなければ None
 fn xattr(path: &Path) -> io::Result<Option<Vec<u8>>> {
     let path = CString::new(path.as_os_str().as_bytes())?;
@@ -182,6 +196,29 @@ pub(crate) mod tests {
 
     const IMAGE: &str = "https://img.example.com/a.jpg";
     const PAGE: &str = "https://example.com/gallery";
+
+    #[test]
+    fn 画像url_があれば_google_レンズの_url_での検索を符号化して開く() {
+        assert_eq!(
+            lens_url(Some(IMAGE)),
+            "https://lens.google.com/uploadbyurl?url=https%3A%2F%2Fimg.example.com%2Fa.jpg"
+        );
+        // クエリと日本語も、url の値の中に収まるように符号化する
+        assert_eq!(
+            lens_url(Some("https://img.example.com/写真.jpg?a=1&b=2")),
+            "https://lens.google.com/uploadbyurl?url=https%3A%2F%2Fimg.example.com%2F%25E5%2586%2599%25E7%259C%259F.jpg%3Fa%3D1%26b%3D2"
+        );
+    }
+
+    #[test]
+    fn 画像url_がないか開けない_url_なら画像を貼り付ける_google_レンズを開く() {
+        assert_eq!(lens_url(None), "https://lens.google.com/");
+        assert_eq!(
+            lens_url(Some("file:///Users/a.jpg")),
+            "https://lens.google.com/"
+        );
+        assert_eq!(lens_url(Some("not a url")), "https://lens.google.com/");
+    }
 
     pub(crate) fn binary(items: &[&str]) -> Vec<u8> {
         let value = plist::Value::Array(

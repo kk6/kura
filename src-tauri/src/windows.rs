@@ -302,18 +302,41 @@ pub(crate) fn set_board_display(
 /// ギャラリーの状態のうち、メニューとボードの最前面に効くもの（NFR-12、FR-705）
 #[derive(Default, Clone, Copy)]
 pub(crate) struct GalleryState {
-    /// ギャラリーが手前のウィンドウか
+    /// メインのウィンドウが手前のウィンドウか
     pub(crate) front: bool,
+    /// ギャラリーを出しているか。ライブラリ選択画面では false
+    gallery: bool,
     /// 追加できる画像を選んでいるか
     addable: bool,
     /// 選んだ1枚で「似た画像を探す」を押せるか
     similar: bool,
+    /// 選んだ画像を「ゴミ箱へ移す」を押せるか
+    trash: bool,
+    /// 選んだ1枚で「Google 画像検索で探す」を押せるか
+    google: bool,
     /// ギャラリーでダイアログを開いているか
     dialog: bool,
 }
 
-/// ギャラリーの状態を変え、「ボードに追加…」の有効・無効に当てる。追加できるのは、ギャラリーが手前で
-/// 追加できる画像を選び、ダイアログを開いていないときだけ（FR-701）
+/// メニューの項目ごとの押せるか（6章）。画像に効く項目は、ギャラリーが手前でダイアログを開いていず、
+/// 詳細パネルや右クリックメニューの同じ操作を押せるときだけ。設定…、検索、詳細パネル、隠すモードは、
+/// ギャラリーが手前のときだけ
+fn menu_states(g: &GalleryState) -> [(&'static str, bool); 8] {
+    let front = g.front && g.gallery;
+    let image = front && !g.dialog;
+    [
+        (menu::ADD_TO_BOARD, image && g.addable),
+        (menu::FIND_SIMILAR, image && g.similar),
+        (menu::SEARCH_GOOGLE, image && g.google),
+        (menu::TRASH, image && g.trash),
+        (menu::SETTINGS, front),
+        (menu::FIND, front),
+        (menu::DETAIL, front),
+        (menu::HIDE_MODE, front),
+    ]
+}
+
+/// ギャラリーの状態を変え、メニューの項目の有効・無効に当てる
 pub(crate) fn update_gallery(app: &AppHandle, change: impl FnOnce(&mut GalleryState)) {
     let g = {
         let state = app.state::<Mutex<GalleryState>>();
@@ -321,14 +344,10 @@ pub(crate) fn update_gallery(app: &AppHandle, change: impl FnOnce(&mut GallerySt
         change(&mut g);
         *g
     };
-    if let Err(e) = menu::enable(app, menu::ADD_TO_BOARD, g.front && g.addable && !g.dialog) {
-        log::warn!("「ボードに追加…」の有効・無効を変えられません：{e}");
-    }
-    if let Err(e) = menu::enable(app, menu::FIND_SIMILAR, g.front && g.similar && !g.dialog) {
-        log::warn!("「似た画像を探す」の有効・無効を変えられません：{e}");
-    }
-    if let Err(e) = menu::enable(app, menu::HIDE_MODE, g.front) {
-        log::warn!("「隠すモード」の有効・無効を変えられません：{e}");
+    for (id, enabled) in menu_states(&g) {
+        if let Err(e) = menu::enable(app, id, enabled) {
+            log::warn!("メニューの項目（{id}）の有効・無効を変えられません：{e}");
+        }
     }
 }
 
@@ -343,13 +362,24 @@ fn pinned(app: &AppHandle, always_on_top: bool) -> bool {
             .dialog
 }
 
-/// ギャラリーが、追加できる画像を選んでいるか、「似た画像を探す」を押せるかと、ダイアログを開いているかを
-/// 知らせる。ライブラリ選択画面へ戻るときはすべて false で知らせる
+/// ギャラリーが、選んだ画像に効く操作を押せるかと、ダイアログを開いているかを知らせる。
+/// ライブラリ選択画面へ戻るときは gallery を含めてすべて false で知らせる
 #[tauri::command]
-pub(crate) fn report_gallery(app: AppHandle, addable: bool, similar: bool, dialog: bool) {
+pub(crate) fn report_gallery(
+    app: AppHandle,
+    gallery: bool,
+    addable: bool,
+    similar: bool,
+    trash: bool,
+    google: bool,
+    dialog: bool,
+) {
     update_gallery(&app, |g| {
+        g.gallery = gallery;
         g.addable = addable;
         g.similar = similar;
+        g.trash = trash;
+        g.google = google;
         g.dialog = dialog;
     });
     let Some(w) = app.get_webview_window(BOARD) else {
@@ -360,5 +390,116 @@ pub(crate) fn report_gallery(app: AppHandle, addable: bool, similar: bool, dialo
         .unwrap_or_default();
     if let Err(e) = w.set_always_on_top(pinned(&app, always_on_top)) {
         log::warn!("アイデアボードの最前面の固定を変えられません：{e}");
+    }
+}
+
+/// ヘルプのウィンドウのラベル（NFR-14）
+pub(crate) const HELP: &str = "help";
+
+/// ヘルプのウィンドウを開く。開いていれば手前に出す（NFR-14）。中身はビルドで画面に入れた
+/// docs/user-guide.md なので、ネットワークにつながっていなくても読める。保存するものはないので、
+/// 閉じるときに保存を待たない
+pub(crate) fn show_help(app: &AppHandle) {
+    let app = app.clone();
+    // メニューの処理の中でウィンドウを作ると止まる環境があるので、別のタスクで作る
+    tauri::async_runtime::spawn(async move {
+        let shown = match app.get_webview_window(HELP) {
+            Some(w) => w
+                .unminimize()
+                .and_then(|_| w.show())
+                .and_then(|_| w.set_focus()),
+            None => WebviewWindowBuilder::new(&app, HELP, WebviewUrl::App("index.html".into()))
+                .title(format!("{} ヘルプ", app.package_info().name))
+                .inner_size(880.0, 760.0)
+                .min_inner_size(480.0, 320.0)
+                .disable_drag_drop_handler()
+                .build()
+                .map(|_| ()),
+        };
+        if let Err(e) = shown {
+            log::error!("ヘルプを開けません：{e}");
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enabled(g: GalleryState) -> Vec<&'static str> {
+        menu_states(&g)
+            .into_iter()
+            .filter(|(_, on)| *on)
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    const ALL: GalleryState = GalleryState {
+        front: true,
+        gallery: true,
+        addable: true,
+        similar: true,
+        trash: true,
+        google: true,
+        dialog: false,
+    };
+
+    #[test]
+    fn ギャラリーが手前なら画面の操作を押せ_画像の操作は押せる画像を選んだときだけ押せる() {
+        assert_eq!(
+            enabled(ALL),
+            [
+                menu::ADD_TO_BOARD,
+                menu::FIND_SIMILAR,
+                menu::SEARCH_GOOGLE,
+                menu::TRASH,
+                menu::SETTINGS,
+                menu::FIND,
+                menu::DETAIL,
+                menu::HIDE_MODE
+            ]
+        );
+        let none = GalleryState {
+            addable: false,
+            similar: false,
+            trash: false,
+            google: false,
+            ..ALL
+        };
+        assert_eq!(
+            enabled(none),
+            [menu::SETTINGS, menu::FIND, menu::DETAIL, menu::HIDE_MODE]
+        );
+        let google_only = GalleryState {
+            google: true,
+            ..none
+        };
+        assert!(enabled(google_only).contains(&menu::SEARCH_GOOGLE));
+        assert!(!enabled(google_only).contains(&menu::TRASH));
+    }
+
+    #[test]
+    fn ダイアログの間は画像の操作を押せない() {
+        assert_eq!(
+            enabled(GalleryState {
+                dialog: true,
+                ..ALL
+            }),
+            [menu::SETTINGS, menu::FIND, menu::DETAIL, menu::HIDE_MODE]
+        );
+    }
+
+    #[test]
+    fn ボードかヘルプが手前か_ライブラリ選択画面なら何も押せない() {
+        assert!(enabled(GalleryState {
+            front: false,
+            ..ALL
+        })
+        .is_empty());
+        assert!(enabled(GalleryState {
+            gallery: false,
+            ..ALL
+        })
+        .is_empty());
     }
 }

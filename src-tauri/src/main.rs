@@ -2,6 +2,7 @@ mod backfill;
 pub mod board;
 mod calc;
 mod category;
+mod clipboard;
 mod features;
 mod fileops;
 mod gallery;
@@ -738,6 +739,29 @@ fn open_source_url(current: State<Current>, id: i64) -> Result<(), String> {
     source::open("open", &url)
 }
 
+/// 画像を Google 画像検索で探す（FR-612）。アプリ自身は通信せず、既定のブラウザで Google レンズを開く。
+/// 元URL（画像URL）があれば URL で探させる。なければ元の画像をクリップボードに写し、true を返す
+/// （画面が ⌘V を促す）。画面からは URL もパスも受け取らず DB から組み立てる
+#[tauri::command]
+fn search_google(current: State<Current>, id: i64) -> Result<bool, String> {
+    let detail = current.0.with(|lib| gallery::detail(lib, id))?;
+    let image_url = detail.source.and_then(|s| s.image_url);
+    let url = source::lens_url(image_url.as_deref());
+    let copy = image_url.as_deref().and_then(source::valid).is_none();
+    if copy {
+        clipboard::copy_image(&detail.path)?;
+    }
+    source::open("open", &url)?;
+    Ok(copy)
+}
+
+/// ヘルプの中の外へのリンクを既定のブラウザで開く（NFR-14）。HTTP と HTTPS 以外は開かない
+#[tauri::command]
+fn open_help_link(url: String) -> Result<(), String> {
+    let url = source::valid(&url).ok_or(format!("開けない URL です（{url}）"))?;
+    source::open("open", &url)
+}
+
 #[tauri::command]
 fn set_memo(current: State<Current>, id: i64, memo: String) -> Result<(), String> {
     current.0.with(|lib| gallery::set_memo(lib, id, &memo))
@@ -1188,8 +1212,12 @@ fn main() {
                 toggle_hide_mode(app);
                 return;
             }
-            // 「編集」の項目は手前のウィンドウに効かせる。メニューを開いても手前のウィンドウは変わらない（NFR-12）
-            if let Some(edit) = menu::EDITS.iter().find(|id| event.id() == **id) {
+            if event.id() == menu::HELP {
+                windows::show_help(app);
+                return;
+            }
+            // キーと同じ項目は手前のウィンドウに効かせる。メニューを開いても手前のウィンドウは変わらない（NFR-12）
+            if let Some(edit) = menu::KEYS.iter().find(|id| event.id() == **id) {
                 let front = app
                     .webview_windows()
                     .into_values()
@@ -1209,6 +1237,7 @@ fn main() {
                 menu::ADD_TO_BOARD,
                 menu::FIND_SIMILAR,
                 menu::FIND_ORIGIN_GROUPS,
+                menu::SEARCH_GOOGLE,
             ] {
                 if event.id() == id {
                     if let Err(e) = app.emit_to("main", id, ()) {
@@ -1219,6 +1248,8 @@ fn main() {
         })
         .on_window_event(|window, event| match event {
             // 閉じる前に保存を待つ。ギャラリーを閉じたらボードも保存して終了し、ボードだけならギャラリーを残す
+            // ヘルプには保存するものがないので、そのまま閉じる
+            WindowEvent::CloseRequested { .. } if window.label() == windows::HELP => {}
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 if window.label() == BOARD {
@@ -1276,6 +1307,8 @@ fn main() {
             image_detail,
             show_in_finder,
             open_source_url,
+            search_google,
+            open_help_link,
             set_memo,
             set_rating,
             set_hidden,

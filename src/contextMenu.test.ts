@@ -13,12 +13,13 @@ describe('imageMenu', () => {
       ...CATEGORY,
       'rule',
       'reveal',
+      'google',
       'rule',
       'trash',
     ])
   })
 
-  it('一覧の複数枚では、1枚にしか効かない Finder で表示を出さない', () => {
+  it('一覧の複数枚では、1枚にしか効かない Finder で表示と Google 画像検索を出さない', () => {
     expect(imageMenu('gallery', { ...ALL_ON, count: 3 })).toEqual([
       'similar',
       'board',
@@ -34,6 +35,7 @@ describe('imageMenu', () => {
       ...CATEGORY,
       'rule',
       'reveal',
+      'google',
       'rule',
       'trash',
     ])
@@ -55,6 +57,7 @@ describe('imageMenu', () => {
       ...CATEGORY,
       'rule',
       'reveal',
+      'google',
       'rule',
       'trash',
     ])
@@ -64,6 +67,7 @@ describe('imageMenu', () => {
       ...CATEGORY,
       'rule',
       'reveal',
+      'google',
       'rule',
       'trash',
     ])
@@ -91,6 +95,7 @@ describe('imageMenu', () => {
       ...CATEGORY,
       'rule',
       'reveal',
+      'google',
       'hide',
       'rule',
       'trash',

@@ -7,6 +7,7 @@
 // - 終わったフェーズ（要件定義書の9章の「（完了：<版>）」）の記述が、途中のまま残っていないか
 // - 検証のスキル（.claude/skills/verify-*）が CLAUDE.md と開発ガイドに載っているか
 // - docs/ の文書が、ほかの文書からリンクされているか
+// - ヘルプ（NFR-14）に入れる docs/user-guide.md の画像が docs/images/ にあるか。見出しへのリンクは src/help/guide.test.ts が見る
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -149,10 +150,16 @@ for (const file of markdown.filter((f) => f.startsWith('docs/'))) {
     problems.push(`${file} がどの文書からもリンクされていない（役目を終えたなら消す）`)
 }
 
+// ヘルプはビルドのときに docs/images/ の画像を入れる。ない画像はヘルプで欠ける
+const bundled = new Set(readdirSync('docs/images'))
+for (const [, name] of read('docs/user-guide.md').matchAll(/\]\(images\/([^)]+)\)/g)) {
+  if (!bundled.has(name)) problems.push(`docs/user-guide.md の images/${name} が docs/images/ にない（ヘルプで欠ける）`)
+}
+
 if (problems.length) {
   console.error(`ドキュメントの食い違い（${problems.length}件）:\n${problems.join('\n')}`)
   process.exit(1)
 }
 console.log(
-  `ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件、モデルの大きさ、バージョン ${versions['package.json']}、完了したフェーズ ${[...done].join('・')} の記述、検証のスキル、文書のリンクを確かめた`,
+  `ドキュメントの検査：トークン ${doc.size}件、npm のコマンド、Tauri のコマンド ${rust.size}件、モデルの大きさ、バージョン ${versions['package.json']}、完了したフェーズ ${[...done].join('・')} の記述、検証のスキル、文書のリンク、ヘルプの画像を確かめた`,
 )

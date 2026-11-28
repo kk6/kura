@@ -41,6 +41,7 @@ export type ImageAction =
   | 'category'
   | 'parent'
   | 'reveal'
+  | 'google'
   | 'hide'
   | 'unhide'
   | 'merge'
@@ -56,6 +57,7 @@ export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = 
   category: 'カテゴリを変える…',
   parent: '1つ上のカテゴリへ移す',
   reveal: 'Finderで表示',
+  google: 'Google 画像検索で探す',
   hide: 'NSFWとしてマークする',
   unhide: '隠す印を外す',
   merge: '1枚にまとめる…',
@@ -91,7 +93,8 @@ export function imageMenu(
     // FR-416
     ['category', 'parent'],
     [
-      ...(o.count === 1 ? ['reveal' as const] : []),
+      // FR-612 も1枚だけに効く
+      ...(o.count === 1 ? (['reveal', 'google'] as const) : []),
       ...(o.unmarked ? ['hide' as const] : []),
       ...(o.marked ? ['unhide' as const] : []),
     ],

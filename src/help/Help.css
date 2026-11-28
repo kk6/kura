@@ -1,0 +1,87 @@
+/* ヘルプ（NFR-14）。docs/user-guide.md を読む幅の1段で出す */
+.help {
+  max-width: var(--size-settings);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-6) var(--space-7);
+  font-size: var(--font-size-lg);
+}
+
+.help h1,
+.help h2,
+.help h3,
+.help h4 {
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height);
+  margin: var(--space-7) 0 var(--space-3);
+}
+
+.help h1 {
+  margin-top: 0;
+  font-size: var(--font-size-xl);
+}
+
+.help h2 {
+  font-size: var(--font-size-xl);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border);
+}
+
+.help h3,
+.help h4 {
+  font-size: var(--font-size-lg);
+}
+
+.help p,
+.help ul,
+.help ol,
+.help table {
+  margin: 0 0 var(--space-4);
+}
+
+.help ul,
+.help ol {
+  padding-left: var(--space-6);
+}
+
+.help a {
+  color: inherit;
+}
+
+.help img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: var(--border);
+}
+
+.help code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-raise);
+  font-size: var(--font-size-md);
+}
+
+.help table {
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+}
+
+.help th,
+.help td {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.help th {
+  background: var(--color-raise);
+  font-weight: var(--font-weight-bold);
+}
+
+.help blockquote {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-4);
+  border-left: var(--border);
+  color: var(--color-text-sub);
+}
