@@ -18,6 +18,7 @@ mod settings;
 mod settle;
 mod similar;
 mod skipped;
+mod smart_folder;
 mod source;
 mod sync;
 mod tag;
@@ -855,6 +856,37 @@ fn delete_tag(current: State<Current>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn list_smart_folders(current: State<Current>) -> Result<Vec<smart_folder::SmartFolder>, String> {
+    current.0.with(|lib| smart_folder::list(lib))
+}
+
+/// 今の絞り込みをスマートフォルダとして保存する（FR-510）
+#[tauri::command]
+fn create_smart_folder(
+    current: State<Current>,
+    name: String,
+    filter: String,
+) -> Result<smart_folder::SmartFolder, String> {
+    current
+        .0
+        .with(|lib| smart_folder::create(lib, &name, &filter))
+}
+
+#[tauri::command]
+fn rename_smart_folder(
+    current: State<Current>,
+    id: i64,
+    name: String,
+) -> Result<smart_folder::SmartFolder, String> {
+    current.0.with(|lib| smart_folder::rename(lib, id, &name))
+}
+
+#[tauri::command]
+fn delete_smart_folder(current: State<Current>, id: i64) -> Result<(), String> {
+    current.0.with(|lib| smart_folder::delete(lib, id))
+}
+
+#[tauri::command]
 fn load_trash(current: State<Current>) -> Result<Vec<gallery::Image>, String> {
     current.0.with(|lib| gallery::trash(lib))
 }
@@ -1263,6 +1295,10 @@ fn main() {
             set_category_reading,
             merge_tag,
             delete_tag,
+            list_smart_folders,
+            create_smart_folder,
+            rename_smart_folder,
+            delete_smart_folder,
             load_trash,
             trash_images,
             merge_images,

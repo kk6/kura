@@ -184,6 +184,14 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     ALTER TABLE categories ADD COLUMN reading TEXT NOT NULL DEFAULT ''",
     // 隠す印（FR-513）。タグで代用すると、タグの名前の変更・統合・削除で外れるため列に持つ（ADR-0014）
     "ALTER TABLE images ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
+    // スマートフォルダ（FR-510）。条件は画面の絞り込みの状態の JSON で、Rust は中身を見ない。
+    // 列に分けないのは、絞り込みの項目が増えるたびにマイグレーションが要らないようにするため
+    "CREATE TABLE smart_folders(
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        name_key TEXT NOT NULL UNIQUE,
+        filter TEXT NOT NULL CHECK(json_valid(filter))
+    )",
 ];
 
 pub struct Library {
