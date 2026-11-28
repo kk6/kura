@@ -755,6 +755,13 @@ fn search_google(current: State<Current>, id: i64) -> Result<bool, String> {
     Ok(copy)
 }
 
+/// ヘルプの中の外へのリンクを既定のブラウザで開く（NFR-14）。HTTP と HTTPS 以外は開かない
+#[tauri::command]
+fn open_help_link(url: String) -> Result<(), String> {
+    let url = source::valid(&url).ok_or(format!("開けない URL です（{url}）"))?;
+    source::open("open", &url)
+}
+
 #[tauri::command]
 fn set_memo(current: State<Current>, id: i64, memo: String) -> Result<(), String> {
     current.0.with(|lib| gallery::set_memo(lib, id, &memo))
@@ -1301,6 +1308,7 @@ fn main() {
             show_in_finder,
             open_source_url,
             search_google,
+            open_help_link,
             set_memo,
             set_rating,
             set_hidden,

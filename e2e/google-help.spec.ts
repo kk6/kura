@@ -92,9 +92,14 @@ test('ヘルプのウインドウに docs/user-guide.md の見出しと画像を
   await expect(help.getByRole('heading', { name: 'キーボードショートカット' })).toBeInViewport()
   await page.screenshot({ path: 'test-results/help-anchor.png' })
 
-  // 外のページへのリンクは開かない（扱いが決まるまで）
+  // 外へのリンクはヘルプのウインドウで開かず、既定のブラウザに渡す。相対リンクは GitHub の URL にする
+  const browser: string[] = []
+  page.on('console', (m) => m.text().startsWith('browser:') && browser.push(m.text()))
   await help.getByRole('link', { name: 'Unsplash' }).click()
   await expect(help).toBeVisible()
+  await expect.poll(() => browser).toEqual(['browser: https://unsplash.com/ja'])
+  await help.locator('a[href^="https://github.com/kk6/kura/blob/main/README.md#"]').click()
+  await expect.poll(() => browser).toHaveLength(2)
   expect(outside).toEqual([])
   expect(errors).toEqual([])
 })

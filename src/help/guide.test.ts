@@ -32,6 +32,14 @@ describe('renderGuide', () => {
     expect(srcs.filter((s) => !s.startsWith('/assets/'))).toEqual([])
   })
 
+  it('外のページへのリンクはそのまま、ほかの文書への相対リンクは GitHub の URL にする', () => {
+    expect(renderGuide('[a](https://unsplash.com/ja) [b](../README.md#ライセンス) [c](#例)', {})).toBe(
+      '<p><a href="https://unsplash.com/ja">a</a> ' +
+        `<a href="https://github.com/kk6/kura/blob/main/README.md#${encodeURIComponent('ライセンス')}">b</a> ` +
+        '<a href="#例">c</a></p>\n',
+    )
+  })
+
   it('同じ見出しが2つあれば、2つ目に -1 を付ける', () => {
     expect(renderGuide('## 例\n\n## 例\n', {})).toBe('<h2 id="例">例</h2>\n<h2 id="例-1">例</h2>\n')
   })

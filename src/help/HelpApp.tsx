@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { useEffect, useMemo } from 'react'
 import guide from '../../docs/user-guide.md?raw'
 import { renderGuide } from './guide'
@@ -23,9 +24,11 @@ export default function HelpApp() {
       // 中身はアプリに入れた docs/user-guide.md だけ
       dangerouslySetInnerHTML={{ __html: html }}
       onClick={(e) => {
-        // 目次と本文の中の見出しへのリンクだけを動かす。ほかの文書と外のページのリンクは扱いを決めていないので開かない
-        const a = (e.target as Element).closest('a')
-        if (a && !a.getAttribute('href')?.startsWith('#')) e.preventDefault()
+        // 見出しへのリンクはヘルプの中で移る。外へのリンクはヘルプのウインドウで開かず、既定のブラウザで開く
+        const href = (e.target as Element).closest('a')?.getAttribute('href')
+        if (!href || href.startsWith('#')) return
+        e.preventDefault()
+        invoke('open_help_link', { url: href }).catch((err) => console.error(err))
       }}
     />
   )

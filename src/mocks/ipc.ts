@@ -1048,6 +1048,7 @@ const handlers: Record<string, Handler> = {
   show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),
   open_source_url: openSourceUrl,
   search_google: searchGoogle,
+  open_help_link: (args) => console.info(`browser: ${args?.url}`),
   set_memo: setMemo,
   set_rating: setRating,
   set_hidden: setHidden,
