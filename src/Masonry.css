@@ -70,3 +70,15 @@
 .list__section--first {
   border-top: none;
 }
+
+/* 範囲選択（FR-512）で囲んでいる範囲。ボードの範囲選択と同じ線で描く */
+.list__band {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  box-sizing: border-box;
+  border: var(--border);
+  border-color: var(--color-text);
+  pointer-events: none;
+}

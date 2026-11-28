@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { EMPTY_SELECTION, keepOnly, select } from './selection'
+import { enclose, EMPTY_SELECTION, keepOnly, select } from './selection'
 
 const order = [10, 20, 30, 40, 50]
 const plain = { shift: false, meta: false }
@@ -48,5 +48,24 @@ describe('keepOnly', () => {
   test('選択が変わらなければ同じ値を返し、再描画を起こさない', () => {
     const s = { ids: new Set([10, 20]), anchor: 10 }
     expect(keepOnly(s, new Set([10, 20, 30]))).toBe(s)
+  })
+})
+
+describe('enclose', () => {
+  const base = { ids: new Set([10, 50]), anchor: 50 }
+
+  test('修飾キーなしでは、囲んだ画像だけを選び、並びの先頭を起点にする', () => {
+    const s = enclose(base, [20, 30], false)
+    expect(ids(s)).toEqual([20, 30])
+    expect(s.anchor).toBe(20)
+  })
+
+  test('⌘ か Shift を押していれば、押したときの選択に足す', () => {
+    expect(ids(enclose(base, [20, 30], true))).toEqual([10, 20, 30, 50])
+  })
+
+  test('何も囲んでいなければ、足すときは押したときの選択のまま、足さないときは何も選ばない', () => {
+    expect(enclose(base, [], true)).toEqual(base)
+    expect(enclose(base, [], false)).toEqual(EMPTY_SELECTION)
   })
 })

@@ -147,9 +147,12 @@ export function TagEditor({
   onCreated,
   onTagged,
   onUntagged,
+  stamp = '',
 }: {
   ids: number[]
   tags: Tag[]
+  // 選んだ画像の付いているタグ。詳細パネルの外で変わったら（サイドバーへのドラッグ。FR-514）読み直す
+  stamp?: string
   // この起動の間に付けたタグの id。新しい順。入力欄の下に出し、押すと付ける
   recent: number[]
   // 最近使ったタグを出す件数。0 は出さない（設定の「タグ」。FR-419）
@@ -178,7 +181,7 @@ export function TagEditor({
       current = false
     }
     // タグ管理（FR-408）で名前が変わったり消えたりしたら読み直す
-  }, [refresh, tags])
+  }, [refresh, tags, stamp])
 
   const run = async (op: Promise<unknown>) => {
     try {

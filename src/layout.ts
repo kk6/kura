@@ -65,6 +65,13 @@ export function visible(l: Layout, top: number, bottom: number): number[] {
   return out
 }
 
+/** 範囲（一覧の座標）に一部でもかかる画像の番号を、並び順で返す（FR-512）。描いていない画像も含めて、配置から求める */
+export function within(l: Layout, r: { left: number; top: number; right: number; bottom: number }): number[] {
+  return visible(l, r.top, r.bottom)
+    .filter((i) => l.x[i] <= r.right && l.x[i] + l.columnWidth >= r.left)
+    .sort((a, b) => a - b)
+}
+
 export type Arrow = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown'
 
 /** 矢印キーで移る先の画像の番号（NFR-12）。左右は並び順の前後、上下は同じ列の上下。端では undefined */

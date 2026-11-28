@@ -29,7 +29,7 @@ import StatusbarResult, { FeaturesProgress, OriginProgress, type Result } from '
 import MissingPanel from './MissingPanel'
 import TrashPanel from './TrashPanel'
 import type { Boards } from './board/types'
-import type { Detail as DetailData, Done, Image, Merged, Restored, Settings } from './galleryTypes'
+import type { Detail as DetailData, Done, Image, Merged, Restored, Settings, Tag } from './galleryTypes'
 import type {
   Backfill,
   BackfillCounts,
@@ -527,14 +527,47 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     setMenuAt(at)
   }
   // 開いているボードのウィンドウへ運ぶ（FR-713）。選んでいない画像をつかんだら、その画像だけを選んで運ぶ（Finder と同じ）
+  // サイドバーのカテゴリとタグへ落としても分類する（FR-514）
   function startDrag(id: number, e: React.DragEvent) {
-    // ゴミ箱と見つからない画像はボードに置けないので、つかませない
+    // ゴミ箱と見つからない画像はボードに置けず、分類もできないので、つかませない
     if (aside) return e.preventDefault()
-    if (!settings.board_enabled) return
     const dragged = selection.ids.has(id) ? order.filter((i) => selection.ids.has(i)) : [id]
     if (!selection.ids.has(id)) setSelection({ ids: new Set([id]), anchor: id })
+    carrying.current = dragged
     e.dataTransfer.setData(IMAGE_DRAG, JSON.stringify(dragged))
     e.dataTransfer.effectAllowed = 'copy'
+  }
+  // 運んでいる画像。ドラッグが終わっても消さない。Tauri の drop は dragend より後に届くことがあり、
+  // 次のページの中のドラッグは必ず dragstart で入れ直すため
+  const carrying = useRef<number[]>([])
+  // 運んでいる画像の下にあるサイドバーの落とし先（data-classify の値）
+  const [classifyOver, setClassifyOver] = useState<string | null>(null)
+  // 落とした所に合わせて、カテゴリを変えるかタグを付ける（FR-514）。詳細パネルと同じコマンドと結果の出し方を使う
+  async function classify(target: string) {
+    const ids = carrying.current
+    const [kind, id] = target.split(':')
+    if (kind === 'uncategorized' || kind === 'category') {
+      await lib
+        .assign(ids, kind === 'category' ? Number(id) : null)
+        .catch((e) => setResult({ kind: 'error', message: `カテゴリを変えられません（${e}）` }))
+      return
+    }
+    const tag = data.tags.find((t) => t.id === Number(id))
+    if (!tag) return
+    try {
+      await invoke<Tag>('add_tag', { ids, name: tag.name })
+    } catch (e) {
+      setResult({ kind: 'error', message: `タグを付けられません（${e}）` })
+      return
+    }
+    setRecentTags((r) => rememberTag(r, tag.id))
+    lib.update((d) => editImages(d, ids, (i) => (i.tags.includes(tag.id) ? i : { ...i, tags: [...i.tags, tag.id] })))
+  }
+  // Tauri のドラッグのイベントのうち、ページの中の画像のもの（paths が空）
+  function carry(type: 'enter' | 'over' | 'drop' | 'leave', at: { x: number; y: number } | null) {
+    const target = at && classifyAt(at)
+    setClassifyOver(type === 'drop' ? null : target)
+    if (type === 'drop' && target) classify(target)
   }
   async function addToLastBoard() {
     if (!lastBoard || !canAdd) return
@@ -696,6 +729,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     findSimilarFromMenu,
     findGroups,
     searchByImage,
+    carry,
   }
   const latest = useRef(handlers)
   latest.current = handlers
@@ -725,16 +759,20 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       // 「画像で探す」に落としたら探し、ほかの場所に落としたら取り込む（FR-608）
       getCurrentWebview().onDragDropEvent((e) => {
         const p = e.payload
+        if (p.type === 'enter') {
+          measureTitleBar()
+          // ページの中の画像のドラッグ（ボードへの追加とサイドバーへの分類。FR-514）は paths が空。over と leave は paths を持たない
+          pageDrag = !p.paths.length
+        }
+        if (pageDrag) return latest.current.carry(p.type, p.type === 'leave' ? null : p.position)
         if (p.type === 'leave') return setFileDrag(null)
-        if (p.type === 'enter') measureTitleBar()
         const over = onSearchByImage(p.position)
         if (p.type === 'drop') {
           setFileDrag(null)
           if (over) latest.current.searchByImage(p.paths)
           else latest.current.start(p.paths)
         } else if (p.type === 'over') setFileDrag((d) => d && (over ? 'over' : 'outside'))
-        // ページの中の画像のドラッグ（ボードへの追加）は paths が空なので、落とし先として目立たせない
-        else if (p.paths.length) setFileDrag(over ? 'over' : 'outside')
+        else setFileDrag(over ? 'over' : 'outside')
       }),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
@@ -1052,6 +1090,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
             await invoke('rename_smart_folder', { id, name })
             await reloadSmart()
           }}
+          classifyOver={classifyOver}
           onDeleteSmart={(id) =>
             invoke('delete_smart_folder', { id })
               .then(reloadSmart)
@@ -1139,6 +1178,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           // ゴミ箱の元の画像は画面から読めず、見つからない画像は元の画像がないので、拡大表示しない
           onOpen={() => !aside && setZoom(true)}
           onContextMenu={openContextMenu}
+          onEnclose={setSelection}
           onDragStart={startDrag}
           active={selection.anchor}
           reveal={revealed}
@@ -1435,6 +1475,14 @@ function measureTitleBar() {
     // モックの画面にはウィンドウがないので、差はないものとする
     () => (titleBar = 0),
   )
+}
+
+// 今のドラッグがページの中の画像のものか。入ったとき（enter）の paths で決める
+let pageDrag = false
+
+// Tauri のドラッグの位置の下にある、サイドバーの落とし先（FR-514）
+function classifyAt({ x, y }: { x: number; y: number }) {
+  return document.elementFromPoint(x, y - titleBar)?.closest<HTMLElement>('[data-classify]')?.dataset.classify ?? null
 }
 
 // Tauri のドラッグの位置が「画像で探す」の上か（FR-608）

@@ -2,7 +2,8 @@ import { Icon, ICONS } from './icons'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { Image } from './galleryTypes'
-import { type Arrow, layout, neighbor, visible } from './layout'
+import { type Arrow, layout, neighbor, visible, within } from './layout'
+import { enclose, type Selection } from './selection'
 import './Masonry.css'
 
 type Props = {
@@ -23,6 +24,8 @@ type Props = {
   selected: Set<number>
   // id が null のときは画像のない所を押した
   onSelect: (id: number | null, e: MouseEvent) => void
+  // 画像のない所からのドラッグで囲んだ選択（FR-512）。離したときに呼ぶ
+  onEnclose: (selection: Selection) => void
   onOpen: () => void
   // 画像の右クリック。なければ WebView の初期のメニューを出す
   onContextMenu?: (id: number, e: MouseEvent) => void
@@ -37,6 +40,10 @@ type Props = {
 }
 
 const ARROWS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
+// 範囲選択とみなす動きの距離（px）。クリックで選択を外すのと区別する
+const DRAG_START = 4
+
+type Point = { x: number; y: number }
 
 export default function Masonry({
   root,
@@ -49,6 +56,7 @@ export default function Masonry({
   sections,
   selected,
   onSelect,
+  onEnclose,
   onContextMenu,
   onDragStart,
   onOpen,
@@ -131,9 +139,61 @@ export default function Masonry({
     return () => window.removeEventListener('keydown', onKey)
   }, [keys, l, images, active, gap, onMove])
 
+  // 範囲選択（FR-512）。from は押した位置（配置の座標）、to は今のポインターの画面の位置。
+  // 囲む画像は描いている画像ではなく配置から求めるので、ドラッグ中にスクロールしても画面の外の画像まで選べる
+  const press = useRef<{ from: Point; to: Point; base: Selection; additive: boolean; moved: boolean } | null>(null)
+  const [band, setBand] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null)
+  // ドラッグ中の選択。一覧の中だけで描き、離したときに onEnclose で確定する。
+  // 毎フレーム確定すると、2万枚で数千枚を囲んだときに詳細パネルまで描き直し、フレームを落とすため（NFR-01）
+  const [live, setLive] = useState<Selection | null>(null)
+  const shownSelected = live?.ids ?? selected
+  // 範囲選択の後のクリックで、選んだばかりの選択を外さない
+  const enclosed = useRef(false)
+  const frame = useRef(0)
+  const toLayout = (client: Point): Point => {
+    const el = ref.current!
+    const r = el.getBoundingClientRect()
+    return { x: client.x - r.left + el.scrollLeft - gap, y: client.y - r.top + el.scrollTop - gap }
+  }
+  const apply = () => {
+    const p = press.current
+    if (!p || !l) return
+    const to = toLayout(p.to)
+    const rect = {
+      left: Math.min(p.from.x, to.x),
+      top: Math.min(p.from.y, to.y),
+      right: Math.max(p.from.x, to.x),
+      bottom: Math.max(p.from.y, to.y),
+    }
+    const next = enclose(
+      p.base,
+      within(l, rect).map((i) => images[i].id),
+      p.additive,
+    )
+    setBand(rect)
+    setLive(next)
+    return next
+  }
+  // ポインターの動きとスクロールのたびに呼ぶ。選び直すのは1フレームに1回まで（NFR-01）
+  const stretch = () => {
+    if (frame.current) return
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0
+      apply()
+    })
+  }
+  const endBand = () => {
+    press.current = null
+    cancelAnimationFrame(frame.current)
+    frame.current = 0
+    setBand(null)
+    setLive(null)
+  }
+
   // スクロールのたびに描き直さず、1フレームに1回だけ反映する
   const onScroll = () => {
     const el = ref.current!
+    if (press.current?.moved) stretch()
     requestAnimationFrame(() => {
       setScrollTop(el.scrollTop)
       onScrolled?.(el.scrollTop)
@@ -149,7 +209,41 @@ export default function Masonry({
       className="gallery__list"
       aria-label="画像の一覧"
       onScroll={onScroll}
+      onPointerDown={(e) => {
+        const el = ref.current!
+        const target = e.target as HTMLElement
+        // 画像の上から押したら画像を運ぶ（FR-713、FR-514）。見出しの行とスクロールバーの上からは始めない
+        if (e.button !== 0 || e.ctrlKey || target.dataset.id || target.closest('.list__section') || !l) return
+        if (e.clientX - el.getBoundingClientRect().left >= el.clientWidth) return
+        const at = { x: e.clientX, y: e.clientY }
+        press.current = {
+          from: toLayout(at),
+          to: at,
+          base: { ids: selected, anchor: active },
+          additive: e.metaKey || e.shiftKey,
+          moved: false,
+        }
+        // 一覧の外まで動かしても受け続ける
+        el.setPointerCapture(e.pointerId)
+      }}
+      onPointerMove={(e) => {
+        const p = press.current
+        if (!p) return
+        p.to = { x: e.clientX, y: e.clientY }
+        const to = toLayout(p.to)
+        p.moved ||= Math.hypot(to.x - p.from.x, to.y - p.from.y) >= DRAG_START
+        if (p.moved) stretch()
+      }}
+      onPointerUp={() => {
+        // 次のフレームを待たずに、離した位置で選び直す
+        enclosed.current = !!press.current?.moved
+        const last = enclosed.current && apply()
+        endBand()
+        if (last) onEnclose(last)
+      }}
+      onPointerCancel={endBand}
       onClick={(e) => {
+        if (enclosed.current) return void (enclosed.current = false)
         const id = (e.target as HTMLElement).dataset.id
         onSelect(id ? Number(id) : null, e)
       }}
@@ -184,10 +278,20 @@ export default function Masonry({
                   </div>
                 ),
             )}
+            {band && (
+              <div
+                className="list__band"
+                style={{
+                  width: band.right - band.left,
+                  height: band.bottom - band.top,
+                  transform: `translate(${band.left + gap}px, ${band.top + gap}px)`,
+                }}
+              />
+            )}
             {shown.map((i) => [
               <img
                 key={images[i].id}
-                className={selected.has(images[i].id) ? 'list__thumb list__thumb--selected' : 'list__thumb'}
+                className={shownSelected.has(images[i].id) ? 'list__thumb list__thumb--selected' : 'list__thumb'}
                 src={convertFileSrc(`${root}/.kura/thumbs/${images[i].hash}.jpg`)}
                 alt={images[i].file_name}
                 decoding="async"
@@ -201,7 +305,7 @@ export default function Masonry({
                 }}
               />,
               // 枠だけでは選択中かが見分けにくいので、左上に印を重ねる。表示だけで、押しても何も起きない
-              selected.has(images[i].id) && (
+              shownSelected.has(images[i].id) && (
                 <span
                   key={`check${images[i].id}`}
                   className="list__check"

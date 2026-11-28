@@ -233,6 +233,7 @@ export default function Detail(props: Props) {
           key={ids.join(',')}
           ids={ids}
           tags={tags}
+          stamp={selected.map((i) => i.tags.join('.')).join(',')}
           recent={props.recentTags}
           recentLimit={props.recentLimit}
           onCreated={props.onTagCreated}
