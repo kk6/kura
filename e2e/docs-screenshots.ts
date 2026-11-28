@@ -124,7 +124,7 @@ test('アイデアボード', async ({ page }) => {
   })
   const { items } = await boardWith(page, 6)
   // 専用ウィンドウの初めの大きさで撮る。狭いギャラリーではサムネイルを押しにくいので、ボードを開いてから縮める
-  await page.setViewportSize({ width: 1040, height: 640 })
+  await page.setViewportSize({ width: 1100, height: 640 })
   await page.getByRole('button', { name: '全体を表示' }).click()
   await items.nth(2).click()
   await expect(page.getByRole('status')).toHaveText('保存済み')
