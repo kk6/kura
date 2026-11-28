@@ -62,6 +62,7 @@ const IMAGES: Image[] = Array.from({ length: COUNT }, (_, i) => {
     // 1枚目はメモと「あおり」「座り」を持つ。2〜10枚目はタグなし、11枚目からは id で決まるタグを持つ
     memo: i === 0 ? (photo ? '毛並みの流れと\n光の当たり方を見る' : '腕の角度と\n肩の線を見る') : '',
     tags: i === 0 ? [1, 2] : i < 10 ? [] : [1, 2, 3].filter((t) => (i + 1) % (t * 2 + 1) === 0),
+    hidden: false,
   }
 })
 
@@ -167,6 +168,11 @@ const setMemo: Handler = (args) => {
 const setRating: Handler = (args) => {
   const image = IMAGES.find((i) => i.id === args?.id)!
   image.rating = Number(args?.rating)
+}
+
+const setHidden: Handler = (args) => {
+  const ids = new Set(args?.ids as number[])
+  for (const image of [...IMAGES, ...TRASH, ...MISSING]) if (ids.has(image.id)) image.hidden = Boolean(args?.hidden)
 }
 
 // e2e で失敗の表示を確かめるため、ref_00007 は移せない
@@ -538,6 +544,7 @@ const DEFAULT_SETTINGS: Settings = {
   similarity_enabled: false,
   similarity_weights: {},
   board_window: { always_on_top: false, opacity: 100, frame: null },
+  hide_mode: false,
 }
 
 // 類似画像検索のモデル（NFR-08）。本物と同じく、そろっていれば進み具合を送らずに終わる。
@@ -859,6 +866,7 @@ const placeImages = (data: MockBoards, board: MockBoard, ids: number[], at?: { x
         width: image.width,
         height: image.height,
         status: 'available',
+        hidden: image.hidden,
       },
       geometry: {
         width: image.width,
@@ -953,7 +961,7 @@ const handlers: Record<string, Handler> = {
   save_settings: (args) => {
     if (sessionStorage.getItem('mock.failSettings')) throw '設定を保存できません（Permission denied）'
     const before = stored('mock.settings', DEFAULT_SETTINGS)
-    const next = { ...(args?.settings as Settings), board_window: before.board_window }
+    const next = { ...(args?.settings as Settings), board_window: before.board_window, hide_mode: before.hide_mode }
     store('mock.settings', next)
     if (!before.similarity_enabled && next.similarity_enabled) {
       sessionStorage.removeItem('mock.features')
@@ -996,6 +1004,7 @@ const handlers: Record<string, Handler> = {
   open_source_url: openSourceUrl,
   set_memo: setMemo,
   set_rating: setRating,
+  set_hidden: setHidden,
   set_category: setCategory,
   rename_image: renameImage,
   create_category: createCategory,

@@ -19,6 +19,10 @@ export const moveImages = (d: Gallery, moved: Assigned['moved'], category: numbe
   }
 }
 
+// 隠すモード（FR-513）の間に出す画像。一覧・件数・類似画像検索の結果・元が同じ画像の組は、どれもこれを通した一覧から作る
+export const hideMarked = <T extends { hidden: boolean }>(images: T[], on: boolean): T[] =>
+  on ? images.filter((i) => !i.hidden) : images
+
 export const removeImages = (d: Gallery, gone: Set<number>): Gallery => ({
   ...d,
   images: d.images.filter((i) => !gone.has(i.id)),

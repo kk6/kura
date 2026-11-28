@@ -200,9 +200,14 @@ async fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(
         }
         // OFF ではボードの項目と ⌘B をメニューから外し、開いているボードを閉じる（FR-711）。
         // 類似画像検索が OFF なら、その項目と ⇧⌘F を外す（6章）
-        menu::build(&app, after.board_enabled, after.similarity_enabled)
-            .and_then(|m| app.set_menu(m))
-            .map_err(|e| format!("メニューを変えられません（{e}）"))?;
+        menu::build(
+            &app,
+            after.board_enabled,
+            after.similarity_enabled,
+            after.hide_mode,
+        )
+        .and_then(|m| app.set_menu(m))
+        .map_err(|e| format!("メニューを変えられません（{e}）"))?;
         // 作り直した項目は無効で始まるので、今のギャラリーの状態を当て直す
         windows::update_gallery(&app, |_| {});
         if !after.board_enabled {
@@ -216,6 +221,43 @@ async fn save_settings(app: AppHandle, settings: settings::Settings) -> Result<(
         Some((true, false)) => app.state::<calc::Calc>().halt(),
         _ => {}
     }
+    Ok(())
+}
+
+/// 隠すモードを切り替えて保存し、メニューの印をそろえ、ギャラリーとボードに hide-mode で今の値を知らせる（FR-513）。
+/// 保存できなければモードを変えず、ファイルの値のままを知らせる
+fn toggle_hide_mode(app: &AppHandle) {
+    let on = match settings_file(app).and_then(|f| {
+        settings::update(&f, |s| s.hide_mode = !s.hide_mode)
+            .map_err(|e| format!("設定を保存できません（{e}）"))?;
+        Ok(settings::load(&f).hide_mode)
+    }) {
+        Ok(on) => on,
+        Err(e) => {
+            log::error!("隠すモードを切り替えられません：{e}");
+            settings_file(app).is_ok_and(|f| settings::load(&f).hide_mode)
+        }
+    };
+    if let Err(e) = menu::check(app, menu::HIDE_MODE, on) {
+        log::warn!("「隠すモード」の印を変えられません：{e}");
+    }
+    if let Err(e) = app.emit("hide-mode", on) {
+        log::warn!("隠すモードを画面に知らせられません：{e}");
+    }
+}
+
+/// 隠す印を付け外しする（FR-513）。開いているボードが引き直す
+#[tauri::command]
+fn set_hidden(
+    app: AppHandle,
+    current: State<Current>,
+    ids: Vec<i64>,
+    hidden: bool,
+) -> Result<(), String> {
+    current
+        .0
+        .with(|lib| gallery::set_hidden(lib, &ids, hidden))?;
+    notify_board(&app);
     Ok(())
 }
 
@@ -1103,11 +1145,15 @@ fn main() {
             let s = settings_file(app)
                 .map(|file| settings::load(&file))
                 .unwrap_or_default();
-            menu::build(app, s.board_enabled, s.similarity_enabled)
+            menu::build(app, s.board_enabled, s.similarity_enabled, s.hide_mode)
         })
         .on_menu_event(|app, event| {
             if event.id() == menu::QUIT {
                 windows::quit(app);
+                return;
+            }
+            if event.id() == menu::HIDE_MODE {
+                toggle_hide_mode(app);
                 return;
             }
             // 「編集」の項目は手前のウィンドウに効かせる。メニューを開いても手前のウィンドウは変わらない（NFR-12）
@@ -1200,6 +1246,7 @@ fn main() {
             open_source_url,
             set_memo,
             set_rating,
+            set_hidden,
             set_category,
             rename_image,
             create_category,

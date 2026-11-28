@@ -35,6 +35,8 @@ type Props = {
   onMemo: (id: number, memo: string) => void
   // 選んだ画像をゴミ箱へ移す（FR-511）
   onTrash: (ids: number[]) => void
+  // 選んだ画像に隠す印を付ける・外す（FR-513）
+  onMark: (ids: number[], hidden: boolean) => void
   // 選んだ画像の「ボードに追加」。アイデアボードが OFF ならなく、ボタンを出さない（FR-711）
   onAddToBoard?: () => void
   // 選んだ画像の「1枚にまとめる…」（FR-610）。類似画像検索の結果のモードで2枚以上を選んでいるときだけあり、ボタンを出す
@@ -246,6 +248,21 @@ export default function Detail(props: Props) {
       ボードに追加
     </button>
   )
+  // 印のない画像を含めば「付ける」、印のある画像を含めば「外す」を出す（右クリックのメニューと同じ）
+  const mark = (
+    <>
+      {selected.some((i) => !i.hidden) && (
+        <button type="button" className="button" onClick={() => props.onMark(ids, true)}>
+          NSFWとしてマークする
+        </button>
+      )}
+      {selected.some((i) => i.hidden) && (
+        <button type="button" className="button" onClick={() => props.onMark(ids, false)}>
+          隠す印を外す
+        </button>
+      )}
+    </>
+  )
   // 元に戻せるので確認は出さない
   const trash = (
     <button type="button" className="button" onClick={() => props.onTrash(ids)}>
@@ -281,6 +298,7 @@ export default function Detail(props: Props) {
                 1枚にまとめる…
               </button>
             )}
+            {mark}
             {trash}
           </div>
         </>
@@ -353,6 +371,7 @@ export default function Detail(props: Props) {
               <Icon d={ICONS.folder} />
               Finderで表示
             </button>
+            {mark}
             {trash}
           </div>
           {props.onFindSimilar && detail && !detail.similar && (

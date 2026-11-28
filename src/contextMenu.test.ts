@@ -83,6 +83,32 @@ describe('imageMenu', () => {
     expect(imageMenu('gallery', { ...ALL_ON, count: 2 })).not.toContain('merge')
   })
 
+  it('印のない画像を含めば「NSFWとしてマークする」、印のある画像を含めば「隠す印を外す」を Finder で表示の後に出す', () => {
+    expect(imageMenu('gallery', { ...ALL_ON, unmarked: true })).toEqual([
+      'similar',
+      'board',
+      'rule',
+      ...CATEGORY,
+      'rule',
+      'reveal',
+      'hide',
+      'rule',
+      'trash',
+    ])
+    expect(imageMenu('gallery', { ...ALL_ON, count: 2, unmarked: true, marked: true })).toEqual([
+      'similar',
+      'board',
+      'rule',
+      ...CATEGORY,
+      'rule',
+      'hide',
+      'unhide',
+      'rule',
+      'trash',
+    ])
+    expect(imageMenu('trash', { ...ALL_ON, unmarked: true, marked: true })).toEqual(['restore', 'purge'])
+  })
+
   it('ゴミ箱と見つからない画像では、その画面の操作だけを出し、カテゴリを変える操作は出さない', () => {
     expect(imageMenu('trash', ALL_ON)).toEqual(['restore', 'purge'])
     expect(imageMenu('missing', ALL_ON)).toEqual(['forget'])

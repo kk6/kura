@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { useEffect, useState } from 'react'
 import Gallery from './Gallery'
 import type { Settings } from './galleryTypes'
@@ -43,6 +44,12 @@ export default function App() {
       setScreen({ kind: 'select', error: String(e) })
     }
   }
+
+  // メニューバーの「隠すモード」（FR-513）。Rust が保存してから今の値を知らせる
+  useEffect(() => {
+    const off = listen<boolean>('hide-mode', (e) => setSettings((s) => s && { ...s, hide_mode: e.payload }))
+    return () => void off.then((f) => f())
+  }, [])
 
   // 起動時は前回のライブラリを開く。見つからなければ選択画面にその旨を出す（NFR-13）
   useEffect(() => {

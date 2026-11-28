@@ -327,6 +327,9 @@ pub(crate) fn update_gallery(app: &AppHandle, change: impl FnOnce(&mut GallerySt
     if let Err(e) = menu::enable(app, menu::FIND_SIMILAR, g.front && g.similar && !g.dialog) {
         log::warn!("「似た画像を探す」の有効・無効を変えられません：{e}");
     }
+    if let Err(e) = menu::enable(app, menu::HIDE_MODE, g.front) {
+        log::warn!("「隠すモード」の有効・無効を変えられません：{e}");
+    }
 }
 
 /// ボードを最前面に固定するか。ギャラリーでダイアログを開いている間は外す。固定したボードの後ろに

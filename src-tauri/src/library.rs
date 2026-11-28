@@ -182,6 +182,8 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     // 読み仮名（FR-418）。ひらがなで持ち、空の文字列は付けていないこと
     "ALTER TABLE tags ADD COLUMN reading TEXT NOT NULL DEFAULT '';
     ALTER TABLE categories ADD COLUMN reading TEXT NOT NULL DEFAULT ''",
+    // 隠す印（FR-513）。タグで代用すると、タグの名前の変更・統合・削除で外れるため列に持つ（ADR-0014）
+    "ALTER TABLE images ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
 ];
 
 pub struct Library {

@@ -41,6 +41,8 @@ export type ImageAction =
   | 'category'
   | 'parent'
   | 'reveal'
+  | 'hide'
+  | 'unhide'
   | 'merge'
   | 'trash'
   | 'restore'
@@ -54,6 +56,8 @@ export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = 
   category: 'カテゴリを変える…',
   parent: '1つ上のカテゴリへ移す',
   reveal: 'Finderで表示',
+  hide: 'NSFWとしてマークする',
+  unhide: '隠す印を外す',
   merge: '1枚にまとめる…',
   trash: 'ゴミ箱へ移す',
   restore: '元に戻す',
@@ -64,8 +68,17 @@ export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = 
 // 一覧と拡大表示で同じメニューにし、詳細パネルの操作を出す。ゴミ箱と見つからない画像は、その画面のパネルの操作だけ
 export function imageMenu(
   place: 'gallery' | 'trash' | 'missing',
-  // lastBoard：最後に画像を追加したボードが残っているか（FR-712）。merge：類似画像検索の結果のモードか（FR-610）
-  o: { count: number; board: boolean; lastBoard?: boolean; similarity: boolean; merge?: boolean },
+  // lastBoard：最後に画像を追加したボードが残っているか（FR-712）。merge：類似画像検索の結果のモードか（FR-610）。
+  // unmarked、marked：選んだ画像に、隠す印のない画像、ある画像を含むか（FR-513）
+  o: {
+    count: number
+    board: boolean
+    lastBoard?: boolean
+    similarity: boolean
+    merge?: boolean
+    unmarked?: boolean
+    marked?: boolean
+  },
 ): (ImageAction | 'rule')[] {
   if (place === 'trash') return ['restore', 'purge']
   if (place === 'missing') return ['forget']
@@ -77,7 +90,11 @@ export function imageMenu(
     ],
     // FR-416
     ['category', 'parent'],
-    o.count === 1 ? ['reveal'] : [],
+    [
+      ...(o.count === 1 ? ['reveal' as const] : []),
+      ...(o.unmarked ? ['hide' as const] : []),
+      ...(o.marked ? ['unhide' as const] : []),
+    ],
     [...(o.merge && o.count >= 2 ? ['merge' as const] : []), 'trash'],
   ]
   return groups.filter((g) => g.length).flatMap((g, i) => (i ? ['rule' as const, ...g] : g))

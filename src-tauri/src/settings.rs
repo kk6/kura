@@ -35,6 +35,8 @@ pub struct Settings {
     pub similarity_weights: BTreeMap<String, u32>,
     /// ボードの専用ウィンドウの表示（FR-705、FR-707）。board_enabled を切っても消さない（FR-711）
     pub board_window: BoardWindow,
+    /// 隠すモード（FR-513）。切り替えるのはメニューバーの「表示」の「隠すモード」だけ
+    pub hide_mode: bool,
 }
 
 /// 不透明度（%）の範囲（FR-707）
@@ -137,6 +139,7 @@ impl Default for Settings {
             similarity_enabled: false,
             similarity_weights: BTreeMap::new(),
             board_window: BoardWindow::default(),
+            hide_mode: false,
         }
     }
 }
@@ -167,9 +170,11 @@ pub fn save_and_apply(
     let _writing = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
     let before = load(file);
     // ギャラリーの画面は、開いたときに読んだ設定をまるごと送ってくる。ボードのウィンドウの表示は
-    // ボードの側が後から変えているので、送られてきた古い値ではなくファイルの値を残す
+    // ボードの側が後から変えているので、送られてきた古い値ではなくファイルの値を残す。
+    // 隠すモードもメニューバーが後から変えるので同じ
     let settings = &Settings {
         board_window: before.board_window,
+        hide_mode: before.hide_mode,
         ..settings.clone()
     };
     save(file, settings).map_err(|e| format!("設定を保存できません（{e}）"))?;
@@ -253,6 +258,7 @@ mod tests {
                     height: 500.0,
                 }),
             },
+            hide_mode: true,
         };
 
         save(&file, &s).unwrap();
@@ -382,6 +388,7 @@ mod tests {
             similarity_enabled: false,
             similarity_weights: BTreeMap::new(),
             board_window: BoardWindow::default(),
+            hide_mode: false,
         };
         save(&file, &before).unwrap();
         if !lock(dir.path()) {
@@ -468,6 +475,24 @@ mod tests {
         let s = load(&file);
         assert!(!s.board_enabled);
         assert_eq!(s.board_window, window);
+    }
+
+    #[test]
+    fn ギャラリーが古い設定を保存しても隠すモードは残る() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        let stale = Settings::default();
+        update(&file, |s| s.hide_mode = true).unwrap();
+
+        let wider = Settings {
+            thumb_width: 300,
+            ..stale
+        };
+        save_and_apply(&file, &wider, |_, _| Ok(())).unwrap();
+
+        let s = load(&file);
+        assert_eq!(s.thumb_width, 300);
+        assert!(s.hide_mode);
     }
 
     #[test]

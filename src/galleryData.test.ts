@@ -6,6 +6,7 @@ import {
   editCategories,
   editImages,
   moveImages,
+  hideMarked,
   named,
   removeCategory,
   removeImages,
@@ -26,6 +27,7 @@ const image = (id: number, fields: Partial<Image> = {}): Image => ({
   imported_at: 0,
   memo: '',
   tags: [],
+  hidden: false,
   ...fields,
 })
 
@@ -141,5 +143,13 @@ describe('タグ', () => {
     const after = dropTag(gallery([image(1, { tags: [10, 20] })]), 10, null)
     expect(after.tags.map((t) => t.id)).toEqual([20])
     expect(after.images[0].tags).toEqual([20])
+  })
+})
+
+describe('hideMarked', () => {
+  test('隠すモードの間は隠す印の付いた画像を外し、モードでなければそのまま返す', () => {
+    const images = [image(1), image(2, { hidden: true }), image(3)]
+    expect(hideMarked(images, true).map((i) => i.id)).toEqual([1, 3])
+    expect(hideMarked(images, false)).toBe(images)
   })
 })

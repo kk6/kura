@@ -99,6 +99,7 @@ export default function Canvas({
   onArrange,
   onReveal,
   onDropImages,
+  hideMode,
 }: {
   board: Board
   // 画像 ID から元画像のパス。読み込むまでは枠だけを出す
@@ -107,6 +108,8 @@ export default function Canvas({
   selected: Set<number>
   // この配置がすべて見える位置と倍率に表示を移す。移したら onFitted を呼ぶ
   fit: number[] | null
+  // 隠すモード（FR-513）。隠す印の付いた画像の配置を、同じ位置と大きさの無地の箱で描く
+  hideMode: boolean
   // 編集を受け付けない間は true。操作を始めない
   locked: () => boolean
   // 続けて届くホイールが前の結果に重なるよう、今の表示から次の表示を作る関数で渡す
@@ -248,7 +251,9 @@ export default function Canvas({
   const one = chosen.length === 1 ? chosen[0] : null
   // 元画像を出せない枠（ゴミ箱・見つからない・削除された画像）では加工させない。結果を見て確かめられないため。
   // 動かす・大きさを変える・重なり順を変える・外すは枠でもできる。復元されたら、前の加工のまま出る
-  const editable = one?.source.status === 'available' ? one : null
+  // 無地の箱にした配置は、中身の見える切り抜きや回転の操作も出さない
+  const veiled = (item: Item) => hideMode && item.source.hidden
+  const editable = one?.source.status === 'available' && !veiled(one) ? one : null
   // 選択が変わったら、範囲を選ぶのをやめる。取り消しや配置を外す操作で、選ぶ相手がなくなることがある
   useEffect(() => {
     if (cropping !== null && editable?.id !== cropping) setCropping(null)
@@ -433,17 +438,20 @@ export default function Canvas({
             const v = visible(g)
             const path = item.source.image_id === null ? undefined : paths[item.source.image_id]
             const status = item.source.status === 'available' ? null : STATUS[item.source.status]
+            const blank = veiled(item)
             return (
               <div
                 key={item.id}
                 className={selected.has(item.id) ? 'board__item board__item--selected' : 'board__item'}
                 role="img"
-                aria-label={status ? `${item.source.file_name}（${status}）` : item.source.file_name}
+                aria-label={
+                  blank ? '隠している画像' : status ? `${item.source.file_name}（${status}）` : item.source.file_name
+                }
                 aria-selected={selected.has(item.id)}
                 data-id={item.id}
                 style={{ ...place(g), zIndex: g.stack_order }}
               >
-                {status ? (
+                {blank ? null : status ? (
                   <span className="board__status">
                     <span>{status}</span>
                     <span>{item.source.file_name}</span>
@@ -565,10 +573,10 @@ export default function Canvas({
             type="button"
             role="menuitem"
             className="menu__item"
-            disabled={!one || one.source.image_id === null}
+            disabled={!one || one.source.image_id === null || veiled(one)}
             onClick={() => {
               menu.setAt(null)
-              if (one && one.source.image_id !== null) onReveal(one.source.image_id)
+              if (one && one.source.image_id !== null && !veiled(one)) onReveal(one.source.image_id)
             }}
           >
             ギャラリーで表示

@@ -12,6 +12,8 @@ export type Image = {
   memo: string
   // 付いているタグの id
   tags: number[]
+  // 隠す印（FR-513）。隠すモードの間は一覧・詳細・拡大表示に出さない
+  hidden: boolean
 }
 
 // collapsed：サイドバーで閉じている（ライブラリの DB に残る）
@@ -91,6 +93,9 @@ export type Settings = {
   // ボードの専用ウィンドウの表示（FR-705、FR-707）。変えるのはボードの画面の set_board_display だけで、
   // save_settings で送った値は Rust が捨てる
   board_window: BoardDisplay & { frame: { x: number; y: number; width: number; height: number } | null }
+  // 隠すモード（FR-513）。変えるのはメニューバーの「隠すモード」だけで、Rust が hide-mode イベントで知らせる。
+  // save_settings で送った値は Rust が捨てる
+  hide_mode: boolean
 }
 
 // 最前面に固定するかと、不透明度（30〜100 の %）
