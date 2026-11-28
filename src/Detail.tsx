@@ -253,7 +253,7 @@ export default function Detail(props: Props) {
     <>
       {selected.some((i) => !i.hidden) && (
         <button type="button" className="button" onClick={() => props.onMark(ids, true)}>
-          隠す印を付ける
+          NSFWとしてマークする
         </button>
       )}
       {selected.some((i) => i.hidden) && (

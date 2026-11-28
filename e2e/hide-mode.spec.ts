@@ -19,7 +19,7 @@ test('隠す印を付けた画像は、隠すモードの間は一覧と件数�
   await page.getByRole('menuitem', { name: 'NSFWとしてマークする' }).click()
   await thumb(page, 3).click()
   const detail = page.getByRole('complementary', { name: '詳細' })
-  await detail.getByRole('button', { name: '隠す印を付ける' }).click()
+  await detail.getByRole('button', { name: 'NSFWとしてマークする' }).click()
   await expect(detail.getByRole('button', { name: '隠す印を外す' })).toBeVisible()
   await page.screenshot({ path: 'test-results/hide-before.png' })
 
@@ -98,7 +98,7 @@ test('隠すモードの間、印の付いた画像は似た画像を探した�
 
   // 2 に印を付けてから 1 で似た画像を探す。モックの組は 1〜2、3〜5、6〜7
   await thumb(page, 2).click()
-  await detail.getByRole('button', { name: '隠す印を付ける' }).click()
+  await detail.getByRole('button', { name: 'NSFWとしてマークする' }).click()
   await thumb(page, 1).click()
   await detail.getByRole('button', { name: '似た画像を探す' }).click()
   await expect(page.locator('.gallery__toolbar')).toContainText('閉じる')
