@@ -20,13 +20,16 @@ export function CategorySelect({
   selected,
   categories,
   onAssign,
+  uncategorized = true,
 }: {
   // ラベルと結ぶ id。詳細パネルの欄と、右クリックの「カテゴリを変える…」のダイアログの欄（FR-416）を分ける
   id?: string
-  selected: Image[]
+  selected: Pick<Image, 'id' | 'category_id'>[]
   categories: Category[]
   // 移せなかった画像はステータスバーに出すので、reject するのはカテゴリがないときなど全体の失敗だけ
   onAssign: (ids: number[], category: number | null) => Promise<void>
+  // false なら未分類を候補に出さず、カテゴリがないときは空欄にする（カテゴリの統合の統合先。FR-417）
+  uncategorized?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,8 +41,10 @@ export function CategorySelect({
   useKeepActiveVisible(listId, active)
   const first = selected[0].category_id
   const mixed = selected.some((i) => i.category_id !== first)
-  const current = mixed ? '' : (categoryOptions(categories).find((o) => o.id === first)?.label ?? '未分類')
-  const shown = text === null ? [] : categoryCandidates(categories, text)
+  const current = mixed
+    ? ''
+    : (categoryOptions(categories).find((o) => o.id === first)?.label ?? (uncategorized ? '未分類' : ''))
+  const shown = text === null ? [] : categoryCandidates(categories, text, uncategorized)
 
   const close = () => {
     setText(null)

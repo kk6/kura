@@ -99,6 +99,10 @@ describe('categoryCandidates', () => {
     { id: 4, name: '服飾', parent_id: null, collapsed: false },
   ]
 
+  it('未分類を外すと、カテゴリだけを返す（カテゴリの統合の統合先）', () => {
+    expect(categoryCandidates(categories, '', false).map((c) => c.id)).toEqual([1, 2, 4])
+  })
+
   it('空の入力では、未分類とツリーの順のすべてのカテゴリを返す', () => {
     expect(categoryCandidates(categories, '')).toEqual([
       { id: null, label: '未分類' },

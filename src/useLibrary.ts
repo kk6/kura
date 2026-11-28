@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { useCallback, useState } from 'react'
 import { addCategory, editCategories, editImages, moveImages, named, removeCategory, replaceTag } from './galleryData'
-import type { Assigned, Deleted, Gallery, Image, Tag } from './galleryTypes'
+import type { Assigned, Deleted, Gallery, Image, MergedCategory, Tag } from './galleryTypes'
 import type { Failed, Result } from './StatusbarResult'
 
 const EMPTY: Gallery = { images: [], categories: [], tags: [] }
@@ -127,6 +127,27 @@ export function useLibrary(report: (result: Result) => void) {
     report({ kind: 'deleted', name, moved: r.moved.length })
   }
 
+  // カテゴリの統合（FR-417）。子カテゴリの付け替えと削除が入り組むので、一覧は読み直す
+  async function mergeCategory(id: number, into: number) {
+    const nameOf = (c: number) => data.categories.find((x) => x.id === c)?.name ?? ''
+    let r: MergedCategory
+    try {
+      r = await invoke<MergedCategory>('merge_category', { id, into })
+    } catch (e) {
+      report({ kind: 'error', message: `カテゴリを統合できません（${e}）` })
+      return
+    }
+    const failed = named(r.failed, data.images)
+    await reload()
+    // 消えたカテゴリにあったゴミ箱の画像は、元のカテゴリが消えた印が付く
+    await reloadTrash()
+    if (r.error !== null) {
+      report({ kind: 'error', message: `「${nameOf(id)}」を統合しきれません（${r.error}）`, failed })
+      return
+    }
+    report({ kind: 'categoryMerged', name: nameOf(id), into: nameOf(into), moved: r.moved })
+  }
+
   async function renameTag(id: number, name: string) {
     const tag = await invoke<Tag>('rename_tag', { id, name })
     setData((d) => replaceTag(d, tag))
@@ -150,6 +171,7 @@ export function useLibrary(report: (result: Result) => void) {
     moveCategory,
     collapseCategories,
     deleteCategory,
+    mergeCategory,
     renameTag,
   }
 }

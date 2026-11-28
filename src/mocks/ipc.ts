@@ -1,7 +1,7 @@
 import { emit } from '@tauri-apps/api/event'
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
 import { subtree } from '../categoryTree'
-import type { Assigned, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
+import type { Assigned, Category, Done, Gallery, Image, Restored, Settings } from '../galleryTypes'
 import type { FeaturesStatus, Report, ScanReport, Skipped } from '../importTypes'
 import type { Added, BoardSummary, EditingBoard, Item, Snapshot, Target, Viewport } from '../board/types'
 import photos from 'virtual:docs-photos'
@@ -239,6 +239,43 @@ const deleteCategory: Handler = (args) => {
   if (out.failed.length) return { ...out, error: '未分類へ移せない画像があるので、カテゴリを削除しませんでした' }
   GALLERY.categories = GALLERY.categories.filter((x) => !ids.has(x.id))
   return { ...out, error: null }
+}
+
+// src-tauri/src/category.rs の merge と同じく、画像を移して子カテゴリを付け替え、統合先に同じ名前の子カテゴリがあれば
+// 中身も統合する。移せない画像（ref_00007 は「座り」にある）があれば、そのカテゴリと親を残す
+const mergeCategory: Handler = (args) => {
+  const from = categoryOf(args?.id)
+  const into = categoryOf(args?.into)
+  if (subtree(GALLERY.categories, from.id).has(into.id)) throw 'カテゴリを自分自身や子孫へは統合できません'
+  const out = { moved: 0, failed: [] as Assigned['failed'], error: null as string | null }
+  const merge = (src: Category, dst: Category): boolean => {
+    const r = setCategory({
+      ids: IMAGES.filter((i) => i.category_id === src.id).map((i) => i.id),
+      category: dst.id,
+    }) as Assigned
+    out.moved += r.moved.length
+    out.failed.push(...r.failed)
+    let keep = r.failed.length > 0
+    for (const child of GALLERY.categories.filter((c) => c.parent_id === src.id)) {
+      const twin = GALLERY.categories.find(
+        (c) => c.parent_id === dst.id && c.id !== from.id && key(c.name) === key(child.name),
+      )
+      if (twin) keep = !merge(child, twin) || keep
+      else {
+        const ids = subtree(GALLERY.categories, child.id)
+        out.moved += IMAGES.filter((i) => i.category_id !== null && ids.has(i.category_id)).length
+        child.parent_id = dst.id
+      }
+    }
+    if (keep) {
+      out.error ??= `移せないものがあるので、${src.name} を残しました`
+      return false
+    }
+    GALLERY.categories = GALLERY.categories.filter((c) => c.id !== src.id)
+    return true
+  }
+  merge(from, into)
+  return out
 }
 
 // 画像のファイル名の変更。Rust と同じく、同じフォルダ（カテゴリ）に同名があればエラーにする
@@ -954,6 +991,7 @@ const handlers: Record<string, Handler> = {
   rename_category: renameCategory,
   move_category: moveCategory,
   delete_category: deleteCategory,
+  merge_category: mergeCategory,
   set_categories_collapsed: setCollapsed,
   image_tags: countTags,
   add_tag: addTag,

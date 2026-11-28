@@ -49,9 +49,14 @@ export function categoryOptions(categories: Category[]): { id: number; label: st
 
 // 詳細パネルのカテゴリの候補。未分類（id が null）とツリーの順のカテゴリのうち、入力した文字を道筋に含むもの。
 // 何も入れていなければ全部を返す
-export function categoryCandidates(categories: Category[], typed: string): { id: number | null; label: string }[] {
+// uncategorized が false なら未分類を出さない（カテゴリの統合の統合先。FR-417）
+export function categoryCandidates(
+  categories: Category[],
+  typed: string,
+  uncategorized = true,
+): { id: number | null; label: string }[] {
   const key = tagKey(typed)
-  const all = [{ id: null, label: '未分類' }, ...categoryOptions(categories)]
+  const all = [...(uncategorized ? [{ id: null, label: '未分類' }] : []), ...categoryOptions(categories)]
   return key ? all.filter((c) => tagKey(c.label).includes(key)) : all
 }
 

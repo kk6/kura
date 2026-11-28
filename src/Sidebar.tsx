@@ -9,6 +9,8 @@ import {
 import { subtree } from './categoryTree'
 import { tagsByName } from './choices'
 import ConfirmDialog from './ConfirmDialog'
+import { useContextMenu } from './contextMenu'
+import MergeCategoryDialog from './MergeCategoryDialog'
 import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import { type countImages, type Filter, selectCategory, selectTags, toggleExclude } from './filter'
@@ -29,6 +31,8 @@ type Props = {
   onCreate: (parent: number | null, name: string) => Promise<void>
   onMove: (id: number, parent: number | null) => void
   onDelete: (id: number) => void
+  // カテゴリの統合（FR-417）。id を into に統合する
+  onMerge: (id: number, into: number) => void
   // カテゴリを閉じる・開く。閉じた状態はライブラリの DB に残る
   onCollapse: (ids: number[], collapsed: boolean) => void
   // カテゴリを移すときに確認する（アプリの設定）。確認で「今後は確認しない」を選ぶと onSkipConfirm を呼ぶ
@@ -131,6 +135,17 @@ export default function Sidebar(props: Props) {
   const over = drag && typeof drag.hit === 'object' ? (drag.hit.target ?? ROOT) : null
   // 確認ダイアログで答えを待っている削除
   const [deleting, setDeleting] = useState<number | null>(null)
+  // 統合先を選んでいるカテゴリ（FR-417）
+  const [merging, setMerging] = useState<number | null>(null)
+  // 右クリックしたカテゴリと、そのメニューの位置
+  const [menuFor, setMenuFor] = useState<number | null>(null)
+  const { at: menuAt, setAt: setMenuAt, ref: menuRef } = useContextMenu()
+  const menuItems: [string, (id: number) => void][] = [
+    // 読み仮名の欄は FR-418 で足す。今は名前だけをダブルクリックと同じ欄で変える
+    ['名前と読み仮名を変更…', (id) => setEditing({ kind: 'rename', id, name: nameOf(id) ?? '' })],
+    ['統合…', setMerging],
+    ['削除…', setDeleting],
+  ]
 
   // HTML5 のドラッグ＆ドロップは使わない。Tauri がファイルのドロップ（取り込み）を受けるために
   // ウェブビューのドラッグを横取りし、drop がページに届かないため。ポインターの動きで自前に行う
@@ -184,6 +199,11 @@ export default function Sidebar(props: Props) {
     document.body.classList.toggle('is-dragging', dragging)
   }, [dragging])
 
+  // カテゴリと子孫のカテゴリにある画像の枚数。削除と統合の確認に出す
+  const imagesIn = (id: number) => {
+    const ids = subtree(gallery.categories, id)
+    return gallery.images.filter((i) => i.category_id !== null && ids.has(i.category_id)).length
+  }
   const nameOf = (id: number | null) => gallery.categories.find((c) => c.id === id)?.name
   const place = (parent: number | null) => (parent === null ? '一番上の階層' : `「${nameOf(parent)}」の下`)
   const dragLabel = (hit: Hit) => {
@@ -249,6 +269,11 @@ export default function Sidebar(props: Props) {
               data-drop={c.id}
               title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
               onDoubleClick={() => setEditing({ kind: 'rename', id: c.id, name: c.name })}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setMenuFor(c.id)
+                setMenuAt({ x: e.clientX, y: e.clientY })
+              }}
               onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
               // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない。
               // 既定の動きを止めるとフォーカスも移らず、入力中のカテゴリ名が blur で取り消されないので、自分で外す
@@ -542,10 +567,40 @@ export default function Sidebar(props: Props) {
           {dragLabel(drag.hit)}
         </div>
       )}
+      {menuAt && menuFor !== null && (
+        <div ref={menuRef} className="menu" role="menu" popover="manual" style={{ top: menuAt.y, left: menuAt.x }}>
+          {menuItems.map(([label, run]) => (
+            <button
+              key={label}
+              type="button"
+              role="menuitem"
+              className="menu__item"
+              onClick={() => {
+                setMenuAt(null)
+                run(menuFor)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {merging !== null && (
+        <MergeCategoryDialog
+          id={merging}
+          categories={gallery.categories}
+          images={imagesIn(merging)}
+          onConfirm={(into) => {
+            props.onMerge(merging, into)
+            setMerging(null)
+          }}
+          onClose={() => setMerging(null)}
+        />
+      )}
       {deleting !== null &&
         (() => {
           const ids = subtree(gallery.categories, deleting)
-          const images = gallery.images.filter((i) => i.category_id !== null && ids.has(i.category_id)).length
+          const images = imagesIn(deleting)
           return (
             <ConfirmDialog
               title="カテゴリを削除する"

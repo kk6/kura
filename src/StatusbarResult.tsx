@@ -18,6 +18,8 @@ export type Result =
   | { kind: 'scan'; report: ScanReport }
   | { kind: 'error'; message: string; failed?: Failed }
   | { kind: 'deleted'; name: string; moved: number }
+  // カテゴリの統合（FR-417）
+  | { kind: 'categoryMerged'; name: string; into: string; moved: number }
   | { kind: 'assigned'; moved: number; failed: Failed }
   // ゴミ箱（FR-511）。uncategorized は元のカテゴリがなく未分類へ戻した枚数
   | { kind: 'trashed'; count: number; failed: Failed }
@@ -93,6 +95,12 @@ function Content({ backfill, scanning, progress, result, onShowFailed, onShowMis
       return (
         <Status kind="success">
           「{result.name}」を削除。未分類へ {result.moved}枚
+        </Status>
+      )
+    case 'categoryMerged':
+      return (
+        <Status kind="success">
+          「{result.name}」を「{result.into}」に統合。移した画像 {result.moved}枚
         </Status>
       )
     case 'assigned':

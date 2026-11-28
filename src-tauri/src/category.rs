@@ -331,21 +331,7 @@ pub struct Deleted {
 /// 移せない画像が1枚でもあれば、カテゴリもフォルダも消さない
 pub fn delete(lib: &mut Library, id: i64) -> Result<Deleted, String> {
     let src = dir(lib, Some(id))?;
-    let ids = {
-        let mut stmt = lib
-            .conn
-            .prepare(&format!(
-                "{SUBTREE} SELECT id FROM images
-                 WHERE deleted_at IS NULL AND category_id IN sub ORDER BY id"
-            ))
-            .map_err(err)?;
-        let ids = stmt
-            .query_map([id], |r| r.get::<_, i64>(0))
-            .map_err(err)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(err)?;
-        ids
-    };
+    let ids = ids(lib, &live_in_subtree(), id)?;
     let Assigned { moved, failed } = assign(lib, &ids, None)?;
     let mut out = Deleted {
         moved,
@@ -357,36 +343,151 @@ pub fn delete(lib: &mut Library, id: i64) -> Result<Deleted, String> {
         return Ok(out);
     }
 
+    if let Err(e) = trash_folder(lib, id, &src) {
+        out.error = Some(e);
+    }
+    Ok(out)
+}
+
+/// 配下に画像の残っていないカテゴリを、子カテゴリごとフォルダを .kura/trash/ へ移して消す（FR-404、FR-417）。
+/// 移した先で .DS_Store だけか空のフォルダを消し、管理外のファイルが残ったフォルダはゴミ箱に残す
+fn trash_folder(lib: &mut Library, id: i64, src: &Path) -> Result<(), String> {
     // 空のフォルダも含めてまとめてゴミ箱へ移し、カテゴリの行の削除と1つの操作にする。
     // ライブラリの中で先にフォルダを消していくと、途中で失敗したときにフォルダのないカテゴリが残るため
     let trash = Path::new(TRASH_DIR);
     let name = src.file_name().unwrap().to_string_lossy().into_owned();
-    let result = fs::create_dir_all(lib.root.join(trash))
-        .map_err(|e| format!("ゴミ箱のフォルダを作れません（{e}）"))
-        .and_then(|_| {
-            fileops::transfer(
-                lib,
-                Request {
-                    kind: TRASH_CATEGORY,
-                    target_id: Some(id),
-                    copy: false,
-                    src: &src,
-                    dst_dir: trash,
-                    name: &name,
-                    on_conflict: OnConflict::Number,
-                },
-                &apply_trash_category,
-            )
-        });
-    match result {
-        Ok(dst) => {
-            if let Err(e) = prune(&lib.root.join(&dst)) {
-                log::warn!("ゴミ箱の空のフォルダを消せません（{}、{e}）", dst.display());
+    fs::create_dir_all(lib.root.join(trash))
+        .map_err(|e| format!("ゴミ箱のフォルダを作れません（{e}）"))?;
+    let dst = fileops::transfer(
+        lib,
+        Request {
+            kind: TRASH_CATEGORY,
+            target_id: Some(id),
+            copy: false,
+            src,
+            dst_dir: trash,
+            name: &name,
+            on_conflict: OnConflict::Number,
+        },
+        &apply_trash_category,
+    )?;
+    if let Err(e) = prune(&lib.root.join(&dst)) {
+        log::warn!("ゴミ箱の空のフォルダを消せません（{}、{e}）", dst.display());
+    }
+    Ok(())
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct Merged {
+    /// 統合先へ移した画像の枚数。子カテゴリごと移した画像も数える
+    pub moved: usize,
+    pub failed: Vec<Failed>,
+    /// 消せずに残したカテゴリがあれば、その理由（最初の1つ）。None なら元のカテゴリは子カテゴリごと消えた
+    pub error: Option<String>,
+}
+
+/// カテゴリ src を dst に統合する（FR-417）。src の画像を dst へ移し、子カテゴリを dst の子にする。
+/// dst に同じ名前の子カテゴリがあれば、その2つも同じ手順で統合する。空になった src はカテゴリの削除と同じく消す。
+/// 移せない画像や子カテゴリがあれば、それを含むカテゴリは消さずに残し、残りを続ける
+pub fn merge(lib: &mut Library, src: i64, dst: i64) -> Result<Merged, String> {
+    let (from, to) = (dir(lib, Some(src))?, dir(lib, Some(dst))?);
+    // フォルダは1対1なので、パスの包含で子孫を判定できる
+    if to.starts_with(&from) {
+        return Err("カテゴリを自分自身や子孫へは統合できません".into());
+    }
+    let mut out = Merged::default();
+    merge_into(lib, src, dst, src, &mut out)?;
+    Ok(out)
+}
+
+/// src を dst に統合し、src を消せたかを返す。root は利用者が選んだ統合元
+fn merge_into(
+    lib: &mut Library,
+    src: i64,
+    dst: i64,
+    root: i64,
+    out: &mut Merged,
+) -> Result<bool, String> {
+    let images = ids(
+        lib,
+        "SELECT id FROM images WHERE deleted_at IS NULL AND category_id = ?1 ORDER BY id",
+        src,
+    )?;
+    let Assigned { moved, failed } = assign(lib, &images, Some(dst))?;
+    out.moved += moved.len();
+    let mut keep = !failed.is_empty();
+    out.failed.extend(failed);
+
+    let kids = children(lib, src)?;
+    let twins = children(lib, dst)?;
+    for (child, name) in kids {
+        // 同じ名前はフォルダの名前と同じく、正規化と大文字・小文字の違いを無視して比べる。
+        // 親へ統合するとき、統合元自身は同じ名前の子に当たっても統合先にしない（消えるカテゴリへ移すことになるため）。
+        // その子はフォルダの名前がぶつかって移せず、残る
+        let key = fileops::key(name.as_ref());
+        let twin = twins
+            .iter()
+            .find(|(id, n)| *id != root && fileops::key(n.as_ref()) == key);
+        match twin {
+            Some(&(twin, _)) => keep |= !merge_into(lib, child, twin, root, out)?,
+            None => {
+                let count = ids(lib, &live_in_subtree(), child)?.len();
+                match move_to(lib, child, Some(dst)) {
+                    Ok(()) => out.moved += count,
+                    Err(e) => {
+                        keep = true;
+                        out.error.get_or_insert(e);
+                    }
+                }
             }
         }
-        Err(e) => out.error = Some(e),
     }
-    Ok(out)
+
+    let name = dir(lib, Some(src))?;
+    if keep {
+        out.error.get_or_insert(format!(
+            "移せないものがあるので、{} を残しました",
+            name.display()
+        ));
+        return Ok(false);
+    }
+    match trash_folder(lib, src, &name) {
+        Ok(()) => Ok(true),
+        Err(e) => {
+            out.error.get_or_insert(e);
+            Ok(false)
+        }
+    }
+}
+
+fn children(lib: &Library, id: i64) -> Result<Vec<(i64, String)>, String> {
+    let mut stmt = lib
+        .conn
+        .prepare("SELECT id, name FROM categories WHERE parent_id = ?1 ORDER BY id")
+        .map_err(err)?;
+    let rows = stmt
+        .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(err)?;
+    Ok(rows)
+}
+
+// ?1 のカテゴリと子孫のカテゴリにある、ゴミ箱にない画像
+fn live_in_subtree() -> String {
+    format!(
+        "{SUBTREE} SELECT id FROM images WHERE deleted_at IS NULL AND category_id IN sub ORDER BY id"
+    )
+}
+
+fn ids(lib: &Library, sql: &str, id: i64) -> Result<Vec<i64>, String> {
+    let mut stmt = lib.conn.prepare(sql).map_err(err)?;
+    let ids = stmt
+        .query_map([id], |r| r.get::<_, i64>(0))
+        .map_err(err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(err)?;
+    Ok(ids)
 }
 
 /// TRASH_CATEGORY の DB の更新。カテゴリを子孫ごと消す。ゴミ箱の画像は category_id を空にし、
@@ -1432,6 +1533,191 @@ pub(crate) mod tests {
 
         assert_eq!(categories(&lib), ["ポーズ"]);
         assert!(lib.root.join("ポーズ").is_dir());
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 統合すると画像と子カテゴリが統合先へ移り元のカテゴリが消える() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let b = put(&lib, Some(sit), "b.jpg", "B");
+        fs::write(lib.root.join("ポーズ/メモ.txt"), b"memo").unwrap();
+
+        let r = merge(&mut lib, pose, wear).unwrap();
+
+        assert_eq!(r.error, None);
+        assert_eq!(r.failed, []);
+        // 子カテゴリごと移した画像も数える
+        assert_eq!(r.moved, 2);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(wear)));
+        assert_eq!(row(&lib, b), ("b.jpg".into(), Some(sit)));
+        assert_eq!(cat(&lib, sit), ("座り".into(), Some(wear)));
+        assert_eq!(files(&lib, "服飾"), ["a.jpg", "座り"]);
+        assert_eq!(files(&lib, "服飾/座り"), ["b.jpg"]);
+        assert_eq!(files(&lib, ""), [".kura", "_未分類", "服飾"]);
+        // 管理外のファイルはカテゴリの削除と同じくフォルダごとゴミ箱に残る
+        assert_eq!(files(&lib, ".kura/trash/ポーズ"), ["メモ.txt"]);
+        assert_eq!(categories(&lib), ["座り", "服飾"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 統合先に同じ名前の子カテゴリがあれば下の階層まで中身を統合する() {
+        let (_d, mut lib) = setup();
+        let woman = create(&mut lib, None, "女性").unwrap();
+        let sit = create(&mut lib, Some(woman), "Sit").unwrap();
+        let chair = create(&mut lib, Some(sit), "椅子").unwrap();
+        let man = create(&mut lib, None, "男性").unwrap();
+        // 大文字・小文字の違いは、カテゴリを作るときと同じく同じ名前とみなす
+        let sit2 = create(&mut lib, Some(man), "sit").unwrap();
+        let chair2 = create(&mut lib, Some(sit2), "椅子").unwrap();
+        let a = put(&lib, Some(chair), "a.jpg", "A1");
+        let b = put(&lib, Some(sit), "b.jpg", "B");
+        let old = put(&lib, Some(chair2), "a.jpg", "A2");
+
+        let r = merge(&mut lib, woman, man).unwrap();
+
+        assert_eq!(r.error, None);
+        assert_eq!(r.moved, 2);
+        // 同じ名前のファイルには、カテゴリの設定と同じく番号を付ける
+        assert_eq!(row(&lib, a), ("a (2).jpg".into(), Some(chair2)));
+        assert_eq!(row(&lib, b), ("b.jpg".into(), Some(sit2)));
+        assert_eq!(row(&lib, old), ("a.jpg".into(), Some(chair2)));
+        assert_eq!(files(&lib, "男性/sit/椅子"), ["a (2).jpg", "a.jpg"]);
+        assert_eq!(read(&lib, "男性/sit/椅子/a (2).jpg"), "A1");
+        assert_eq!(files(&lib, "男性/sit"), ["b.jpg", "椅子"]);
+        assert_eq!(files(&lib, ""), [".kura", "_未分類", "男性"]);
+        assert_eq!(categories(&lib), ["男性", "sit", "椅子"]);
+        assert_eq!(files(&lib, TRASH_DIR), Vec::<String>::new());
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 自分自身と子孫には統合できない() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+
+        assert!(merge(&mut lib, pose, pose).is_err());
+        assert!(merge(&mut lib, pose, sit).is_err());
+        assert!(merge(&mut lib, pose, 999).is_err());
+        assert_eq!(categories(&lib), ["ポーズ", "座り"]);
+    }
+
+    #[test]
+    fn 親へ統合すると同じ名前の子は元のカテゴリと重なるので残す() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let inner = create(&mut lib, Some(sit), "座り").unwrap();
+        let a = put(&lib, Some(sit), "a.jpg", "A");
+        let b = put(&lib, Some(inner), "b.jpg", "B");
+
+        let r = merge(&mut lib, sit, pose).unwrap();
+
+        assert!(r.error.is_some());
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(pose)));
+        assert_eq!(row(&lib, b), ("b.jpg".into(), Some(inner)));
+        assert_eq!(categories(&lib), ["ポーズ", "座り", "座り"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 移せない画像があればそのカテゴリと親を残し残りは移す() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let sit = create(&mut lib, Some(pose), "座り").unwrap();
+        let stand = create(&mut lib, Some(pose), "立ち").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        let sit2 = create(&mut lib, Some(wear), "座り").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let gone = put(&lib, Some(sit), "gone.jpg", "G");
+        fs::remove_file(lib.root.join("ポーズ/座り/gone.jpg")).unwrap();
+        let stuck = put(&lib, Some(sit), "stuck.jpg", "S");
+        let c = put(&lib, Some(stand), "c.jpg", "C");
+        // 書き込めないフォルダからはファイルを出せない（移す途中の rename が失敗する）
+        let locked = lib.root.join("ポーズ/座り");
+        if !lock(&locked) {
+            return;
+        }
+
+        let r = merge(&mut lib, pose, wear);
+
+        unlock(&locked);
+        let r = r.unwrap();
+        assert!(r.error.is_some());
+        assert_eq!(r.moved, 2);
+        let failed: Vec<i64> = r.failed.iter().map(|f| f.id).collect();
+        assert_eq!(failed, [gone, stuck]);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(wear)));
+        assert_eq!(row(&lib, c), ("c.jpg".into(), Some(stand)));
+        assert_eq!(cat(&lib, stand), ("立ち".into(), Some(wear)));
+        assert_eq!(row(&lib, gone), ("gone.jpg".into(), Some(sit)));
+        assert_eq!(row(&lib, stuck), ("stuck.jpg".into(), Some(sit)));
+        assert_eq!(files(&lib, "ポーズ/座り"), ["stuck.jpg"]);
+        assert_eq!(files(&lib, "ポーズ"), ["座り"]);
+        assert_eq!(categories(&lib), ["ポーズ", "座り", "立ち", "服飾", "座り"]);
+        assert_eq!(cat(&lib, sit2), ("座り".into(), Some(wear)));
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn dbに書けない画像は予定を残して元のカテゴリも残し起動時に移動を終える() {
+        let (d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let b = put(&lib, Some(pose), "b.jpg", "B");
+        lib.conn
+            .execute_batch(&format!(
+                "CREATE TRIGGER fail_b BEFORE UPDATE ON images WHEN old.id = {b}
+                 BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;"
+            ))
+            .unwrap();
+
+        let r = merge(&mut lib, pose, wear).unwrap();
+
+        assert!(r.error.is_some());
+        assert_eq!(r.moved, 1);
+        assert_eq!(r.failed.len(), 1);
+        assert!(r.failed[0].message.contains("injected"), "{:?}", r.failed);
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(wear)));
+        // ファイルは移った後なので、予定を残して起動時の後始末に任せる。元のカテゴリは消さない
+        assert_eq!(read(&lib, "服飾/b.jpg"), "B");
+        assert_eq!(pending(&lib), 1);
+        assert_eq!(categories(&lib), ["ポーズ", "服飾"]);
+
+        lib.conn.execute_batch("DROP TRIGGER fail_b").unwrap();
+        drop(lib);
+        let lib = library::open(d.path()).unwrap();
+
+        assert_eq!(row(&lib, b), ("b.jpg".into(), Some(wear)));
+        assert_eq!(files(&lib, "服飾"), ["a.jpg", "b.jpg"]);
+        assert_eq!(pending(&lib), 0);
+    }
+
+    #[test]
+    fn 元のカテゴリをゴミ箱へ移せなければカテゴリを残す() {
+        let (_d, mut lib) = setup();
+        let pose = create(&mut lib, None, "ポーズ").unwrap();
+        let wear = create(&mut lib, None, "服飾").unwrap();
+        let a = put(&lib, Some(pose), "a.jpg", "A");
+        let trash = lib.root.join(TRASH_DIR);
+        fs::create_dir_all(&trash).unwrap();
+        if !lock(&trash) {
+            return;
+        }
+
+        let r = merge(&mut lib, pose, wear).unwrap();
+
+        unlock(&trash);
+        assert!(r.error.is_some());
+        assert_eq!(row(&lib, a), ("a.jpg".into(), Some(wear)));
+        assert!(lib.root.join("ポーズ").is_dir());
+        assert_eq!(categories(&lib), ["ポーズ", "服飾"]);
         assert_eq!(pending(&lib), 0);
     }
 }

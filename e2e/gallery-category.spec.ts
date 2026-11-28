@@ -355,3 +355,59 @@ test('カテゴリ名の入力中に別のカテゴリを押すと、名前は�
   await sidebar.getByRole('button', { name: '服飾 を閉じる' }).click()
   await expect(input).toHaveCount(0)
 })
+
+test('カテゴリの右クリックで名前の変更、統合、削除を選べ、統合すると画像と子カテゴリが統合先へ移る（FR-417）', async ({
+  page,
+}) => {
+  await openGallery(page)
+  const sidebar = page.getByRole('navigation', { name: 'サイドバー' })
+  const categories = sidebar.getByRole('list', { name: 'カテゴリ' })
+  const item = (name: string) => categories.locator('.sidebar__item--category').getByText(name, { exact: true })
+  const menu = page.getByRole('menu')
+  const dialog = page.getByRole('dialog', { name: '「服飾」を統合する' })
+  const status = page.getByRole('contentinfo')
+
+  // 名前と読み仮名を変更…はダブルクリックと同じ欄を開き、削除…は行のゴミ箱のボタンと同じ確認を出す
+  await item('背景').click({ button: 'right' })
+  await expect(menu.getByRole('menuitem')).toHaveText(['名前と読み仮名を変更…', '統合…', '削除…'])
+  await page.screenshot({ path: 'test-results/category-menu.png' })
+  await menu.getByRole('menuitem', { name: '名前と読み仮名を変更…' }).click()
+  await expect(sidebar.getByRole('textbox', { name: 'カテゴリ名' })).toHaveValue('背景')
+  await page.keyboard.press('Escape')
+  await item('背景').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '削除…' }).click()
+  await expect(page.getByRole('dialog', { name: 'カテゴリを削除する' })).toContainText('「背景」を削除します')
+  await page.keyboard.press('Escape')
+
+  // 統合先には、元のカテゴリ自身とその子孫と未分類は出さない
+  await item('服飾').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '統合…' }).click()
+  await expect(dialog.getByRole('button', { name: '統合する' })).toBeDisabled()
+  await dialog.getByRole('combobox').click()
+  await expect(dialog.getByRole('option')).toHaveText(['ポーズ', 'ポーズ / 座り', 'ポーズ / 振り返り', '背景'])
+  await dialog.getByRole('option', { name: '背景' }).click()
+  await expect(dialog).toContainText('画像 600枚と子カテゴリ 1個を「背景」へ移し、「服飾」を削除します')
+  await page.screenshot({ path: 'test-results/category-merge-dialog.png' })
+  await dialog.getByRole('button', { name: '統合する' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(item('服飾')).toHaveCount(0)
+  await expect(categories.getByRole('listitem').filter({ hasText: '背景' }).getByText('制服')).toBeVisible()
+  await expect(status).toContainText('「服飾」を「背景」に統合。移した画像 600枚')
+  await page.screenshot({ path: 'test-results/category-merged.png' })
+
+  // 統合先に同じ名前の子カテゴリがあれば中身も統合する。移せない画像（モックの ref_00007 は「座り」にある）があれば、
+  // そのカテゴリと親を残して知らせる
+  await sidebar.getByRole('button', { name: '背景 の下にカテゴリを作る' }).click()
+  await sidebar.getByRole('textbox', { name: '新しいカテゴリ名' }).fill('座り')
+  await page.keyboard.press('Enter')
+  await item('ポーズ').click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: '統合…' }).click()
+  await page.getByRole('dialog', { name: '「ポーズ」を統合する' }).getByRole('combobox').fill('背景')
+  await page.getByRole('option', { name: '背景', exact: true }).click()
+  await page.getByRole('button', { name: '統合する' }).click()
+  await expect(status).toContainText('「ポーズ」を統合しきれません（移せないものがあるので')
+  await expect(item('ポーズ')).toBeVisible()
+  await expect(categories.getByRole('listitem').filter({ hasText: '背景' }).getByText('振り返り')).toBeVisible()
+  await status.getByRole('button', { name: /移せない 1枚/ }).click()
+  await expect(page.getByRole('dialog', { name: '移せなかった画像（1枚）' })).toContainText('ref_00007.jpg')
+})

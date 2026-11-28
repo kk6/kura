@@ -43,6 +43,10 @@ export type Assigned = {
 // src-tauri/src/category.rs の Deleted（delete_category コマンドの返り値）。error が null ならカテゴリは子カテゴリごと消えた
 export type Deleted = Assigned & { error: string | null }
 
+// src-tauri/src/category.rs の Merged（merge_category コマンドの返り値）。moved は統合先へ移した枚数。
+// error が null なら元のカテゴリは子カテゴリごと消えた
+export type MergedCategory = { moved: number; failed: Assigned['failed']; error: string | null }
+
 // src-tauri/src/trash.rs の Done（trash_images と empty_trash コマンドの返り値）
 export type Done = { done: number[]; failed: { id: number; message: string }[] }
 
