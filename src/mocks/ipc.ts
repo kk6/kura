@@ -158,6 +158,15 @@ const openSourceUrl: Handler = (args) => {
   console.info(`browser: ${SOURCES[Number(args?.id)]?.link}`)
 }
 
+// src-tauri/src/source.rs の lens_url と同じ URL を開いたことをコンソールに出す。画像URLがなければクリップボードに写す（FR-612）
+const searchGoogle: Handler = (args) => {
+  const url = SOURCES[Number(args?.id)]?.image_url
+  const image = url && /^https?:\/\//.test(url) ? url : null
+  if (image) console.info(`browser: https://lens.google.com/uploadbyurl?url=${encodeURIComponent(image)}`)
+  else console.info(`clipboard: ${args?.id}\nbrowser: https://lens.google.com/`)
+  return !image
+}
+
 // e2e で失敗の表示を確かめるため、「失敗」を含むメモは保存しない
 const setMemo: Handler = (args) => {
   const memo = String(args?.memo)
@@ -1038,6 +1047,7 @@ const handlers: Record<string, Handler> = {
   // e2e が確かめられるように、開いたものをコンソールに出す
   show_in_finder: (args) => console.info(`finder: ${args?.id ?? 'root'}`),
   open_source_url: openSourceUrl,
+  search_google: searchGoogle,
   set_memo: setMemo,
   set_rating: setRating,
   set_hidden: setHidden,
@@ -1138,6 +1148,7 @@ export function installMockIPC() {
   // ドラッグ＆ドロップは getCurrentWebview() で受けるので、ウィンドウの情報も用意する
   // ボードの画面は ?board で開く。本物では専用ウィンドウ（ラベル board）で開く
   if (new URLSearchParams(location.search).has('board')) mockWindows('board', 'main')
+  else if (new URLSearchParams(location.search).has('help')) mockWindows('help', 'main')
   else mockWindows('main')
   // listen と emit を IPC なしで動かす。e2e ではドロップを tauri://drag-drop の emit で起こす
   mockIPC(

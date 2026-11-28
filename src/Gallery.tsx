@@ -490,18 +490,43 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   // 外すのに使う。固定したボードの後ろにダイアログが隠れないように（FR-701、FR-705）
   // 押せる条件は詳細パネルのボタンと同じ。メニューの「似た画像を探す」の有効・無効にも使う（6章）
   const canFindSimilar = settings.similarity_enabled && only !== null && !!shown?.detail?.similar
+  // メニューの「ゴミ箱へ移す」と「Google 画像検索で探す」も、⌘Delete と右クリックメニューと同じ条件で押せる（6章）
+  const canTrash = !aside && !settingsOpen && ids.length > 0
+  const canGoogle = only !== null && !settingsOpen
   const dialogOpen = useDialogOpen()
   useEffect(() => {
-    invoke('report_gallery', { addable: canAdd, similar: canFindSimilar, dialog: dialogOpen }).catch((e) =>
-      console.error(e),
-    )
-  }, [canAdd, canFindSimilar, dialogOpen])
+    invoke('report_gallery', {
+      gallery: true,
+      addable: canAdd,
+      similar: canFindSimilar,
+      trash: canTrash,
+      google: canGoogle,
+      dialog: dialogOpen,
+    }).catch((e) => console.error(e))
+  }, [canAdd, canFindSimilar, canTrash, canGoogle, dialogOpen])
   useEffect(
     () => () => {
-      invoke('report_gallery', { addable: false, similar: false, dialog: false }).catch((e) => console.error(e))
+      const off = { gallery: false, addable: false, similar: false, trash: false, google: false, dialog: false }
+      invoke('report_gallery', off).catch((e) => console.error(e))
     },
     [],
   )
+
+  // Google 画像検索で探す（FR-612）。元URLがなければ、Rust が画像をクリップボードに写してから Google レンズを開く
+  async function searchGoogle(id: number) {
+    try {
+      if (await invoke<boolean>('search_google', { id }))
+        setResult({ kind: 'info', message: '画像をコピーしました。開いたページで ⌘V を押してください' })
+    } catch (e) {
+      setResult({ kind: 'error', message: `Google 画像検索で探せません（${e}）` })
+    }
+  }
+  function searchGoogleFromMenu() {
+    // ほかのメニューの項目と同じく、ダイアログの間は効かせない
+    if (only === null || !canGoogle || document.querySelector('dialog[open]')) return
+    setMenuAt(null)
+    searchGoogle(only)
+  }
 
   const { at: menuAt, setAt: setMenuAt, ref: contextMenu } = useContextMenu()
   // 最後に画像を追加したボード。右クリックの「「<ボード名>」に追加」の追加先（FR-712）
@@ -727,6 +752,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     revealImage,
     changeSettings,
     findSimilarFromMenu,
+    searchGoogleFromMenu,
     findGroups,
     searchByImage,
     carry,
@@ -754,6 +780,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       listen('add-to-board', () => document.hasFocus() && latest.current.addToBoard()),
       listen('find-similar', () => latest.current.findSimilarFromMenu()),
       listen('find-origin-groups', () => latest.current.findGroups()),
+      listen('search-google', () => latest.current.searchGoogleFromMenu()),
       // 終わった後に届いた進み具合で、表示を戻さない
       getCurrentWindow().listen<ImportProgress>('origin-progress', (e) => setOriginSearch((s) => s && e.payload)),
       // 「画像で探す」に落としたら探し、ほかの場所に落としたら取り込む（FR-608）
@@ -942,6 +969,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     else if (action === 'board') addToBoard()
     else if (action === 'lastBoard') addToLastBoard()
     else if (action === 'reveal') reveal(ids[0])
+    else if (action === 'google') searchGoogle(ids[0])
     else if (action === 'hide') mark(ids, true)
     else if (action === 'unhide') mark(ids, false)
     else if (action === 'merge') setMerging(selected)
