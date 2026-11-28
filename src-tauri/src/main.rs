@@ -787,6 +787,22 @@ fn rename_tag(current: State<Current>, id: i64, name: String) -> Result<gallery:
 }
 
 #[tauri::command]
+fn set_tag_reading(current: State<Current>, id: i64, reading: String) -> Result<String, String> {
+    current.0.with(|lib| tag::set_reading(lib, id, &reading))
+}
+
+#[tauri::command]
+fn set_category_reading(
+    current: State<Current>,
+    id: i64,
+    reading: String,
+) -> Result<String, String> {
+    current
+        .0
+        .with(|lib| category::set_reading(lib, id, &reading))
+}
+
+#[tauri::command]
 fn merge_tag(current: State<Current>, from: i64, into: i64) -> Result<(), String> {
     current.0.with(|lib| tag::merge(lib, from, into))
 }
@@ -1196,6 +1212,8 @@ fn main() {
             add_tag,
             remove_tag,
             rename_tag,
+            set_tag_reading,
+            set_category_reading,
             merge_tag,
             delete_tag,
             load_trash,

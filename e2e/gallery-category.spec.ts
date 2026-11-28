@@ -193,7 +193,8 @@ test('サイドバーでカテゴリ名を変え、ドラッグで別のカテ�
   const saved = await page.evaluate(() => (window as unknown as TauriWindow).__TAURI_INTERNALS__.invoke('load_gallery'))
   expect((saved as { categories: unknown[] }).categories).toEqual([
     { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
-    { id: 2, name: '制服', parent_id: null, collapsed: false },
+    // 名前を変えても読み仮名は残る（FR-418）
+    { id: 2, name: '制服', parent_id: null, collapsed: false, reading: 'すわり' },
     { id: 3, name: '振り返り', parent_id: 4, collapsed: false },
     { id: 4, name: '服飾', parent_id: null, collapsed: false },
     { id: 5, name: '制服', parent_id: 4, collapsed: false },

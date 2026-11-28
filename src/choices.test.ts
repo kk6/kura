@@ -4,6 +4,7 @@ import {
   categoryCandidates,
   categoryOptions,
   filterCandidates,
+  matches,
   moveActive,
   recentCandidates,
   recentLimit,
@@ -18,9 +19,39 @@ const TAGS = [
   { id: 3, name: '振り返り' },
 ]
 
+describe('matches', () => {
+  it('ローマ字・ひらがな・カタカナの入力を、読み仮名を付けた漢字の名前と照らす', () => {
+    for (const typed of ['suwari', 'すわり', 'スワリ', 'SUWARI']) expect(matches(typed, '座り', 'すわり')).toBe(true)
+    expect(matches('suwari', '座り')).toBe(false)
+    expect(matches('tachi', '座り', 'すわり')).toBe(false)
+  })
+
+  it('読み仮名のない、ひらがなとカタカナの名前もローマ字で照らす', () => {
+    expect(matches('suwari', 'すわり')).toBe(true)
+    expect(matches('suwari', 'スワリ')).toBe(true)
+    expect(matches('すわり', 'スワリ')).toBe(true)
+    expect(matches('po-zu', 'ポーズ（座り）')).toBe(true)
+  })
+
+  it('打ち途中のローマ字（かなにならない末尾）でも照らす', () => {
+    expect(matches('suwar', '座り', 'すわり')).toBe(true)
+    expect(matches('s', 'スワリ')).toBe(false)
+  })
+
+  it('ローマ字の名前は今のとおり入力した文字のまま照らす', () => {
+    expect(matches('pos', 'Pose')).toBe(true)
+    expect(matches('ose', 'Pose')).toBe(true)
+  })
+})
+
 describe('candidates', () => {
+  it('読み仮名でも照らす（FR-418）', () => {
+    const tags = [...TAGS, { id: 4, name: '座り', reading: 'すわり' }]
+    expect(candidates(tags, 'suwari', new Set()).map((t) => t.id)).toEqual([4])
+  })
+
   it('入力した文字を含むタグを、大文字・小文字と正規化の違いを無視して返す', () => {
-    expect(candidates(TAGS, 'pO', new Set()).map((t) => t.id)).toEqual([1])
+    expect(candidates(TAGS, 'oSe', new Set()).map((t) => t.id)).toEqual([1])
     expect(candidates(TAGS, 'ポーズ', new Set()).map((t) => t.id)).toEqual([2])
     expect(candidates(TAGS, ' 返り ', new Set()).map((t) => t.id)).toEqual([3])
   })
@@ -45,7 +76,7 @@ describe('tagsByName', () => {
   it('入力した文字を名前に含むタグだけを、大文字・小文字と正規化の違いを無視して元の順で返す', () => {
     // 'ポ' を濁点の結合文字（NFD）で書いても、NFC の名前に当たる
     expect(tagsByName(TAGS, 'ホ\u309Aーズ'.normalize('NFD'), new Set()).map((t) => t.id)).toEqual([2])
-    expect(tagsByName(TAGS, ' pO ', new Set()).map((t) => t.id)).toEqual([1])
+    expect(tagsByName(TAGS, ' oSe ', new Set()).map((t) => t.id)).toEqual([1])
     expect(tagsByName(TAGS, 'り', new Set()).map((t) => t.id)).toEqual([2, 3])
   })
 
@@ -56,6 +87,11 @@ describe('tagsByName', () => {
 
   it('空の入力では全部を返す', () => {
     expect(tagsByName(TAGS, ' ', new Set())).toEqual(TAGS)
+  })
+
+  it('読み仮名とローマ字でも照らす（FR-418）', () => {
+    const tags = [...TAGS, { id: 4, name: '座り', reading: 'すわり' }]
+    expect(tagsByName(tags, 'suwari', new Set()).map((t) => t.id)).toEqual([4])
   })
 
   it('keep のタグ（選んでいるタグと除いているタグ）は、名前に含まなくても返す', () => {
@@ -92,6 +128,17 @@ describe('recentLimit', () => {
   })
 })
 
+describe('categoryCandidates の読み仮名', () => {
+  it('道筋の読み仮名でも照らすので、読み仮名で子も出る（FR-418）', () => {
+    const categories = [
+      { id: 1, name: '姿勢', parent_id: null, collapsed: false, reading: 'しせい' },
+      { id: 2, name: '座り', parent_id: 1, collapsed: false, reading: 'すわり' },
+    ]
+    expect(categoryCandidates(categories, 'suwari').map((c) => c.id)).toEqual([2])
+    expect(categoryCandidates(categories, 'shisei').map((c) => c.id)).toEqual([1, 2])
+  })
+})
+
 describe('categoryCandidates', () => {
   const categories = [
     { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
@@ -113,7 +160,7 @@ describe('categoryCandidates', () => {
   })
 
   it('入力した文字を道筋に含むものを返すので、親の名前で子も出る', () => {
-    expect(categoryCandidates(categories, 'ぽーず').map((c) => c.id)).toEqual([])
+    expect(categoryCandidates(categories, 'ぽーず').map((c) => c.id)).toEqual([1, 2])
     expect(categoryCandidates(categories, 'ポーズ').map((c) => c.id)).toEqual([1, 2])
     expect(categoryCandidates(categories, '未分').map((c) => c.id)).toEqual([null])
   })
@@ -155,6 +202,20 @@ describe('filterCandidates', () => {
     // 親の名前で探すと子も出す
     expect(filterCandidates(categories, tags, 'ポーズ', NO_FILTER).map((c) => c.id)).toEqual([1, 2])
     expect(filterCandidates(categories, tags, '  ', NO_FILTER)).toEqual([])
+  })
+
+  test('カテゴリとタグの読み仮名をローマ字・かなで照らす（FR-418）', () => {
+    const c = [{ id: 2, name: '座り', parent_id: null, collapsed: false, reading: 'すわり' }]
+    const t = [
+      { id: 10, name: '座り', reading: 'すわり' },
+      { id: 11, name: 'スワリ' },
+    ]
+    for (const typed of ['suwari', 'すわり', 'スワリ'])
+      expect(filterCandidates(c, t, typed, NO_FILTER)).toEqual([
+        { kind: 'category', id: 2, label: '座り' },
+        { kind: 'tag', id: 10, label: '座り' },
+        { kind: 'tag', id: 11, label: 'スワリ' },
+      ])
   })
 
   test('いま絞り込みに使っているカテゴリとタグは出さない', () => {

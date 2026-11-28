@@ -7,6 +7,7 @@ import './TagManager.css'
 // 1つのタグに対する操作。一度に1つの行だけで行う
 type Action =
   | { id: number; kind: 'rename'; name: string }
+  | { id: number; kind: 'reading'; reading: string }
   | { id: number; kind: 'merge'; into: number | null }
   | { id: number; kind: 'delete' }
 
@@ -15,6 +16,7 @@ export default function TagManager({
   tags,
   counts,
   onRename,
+  onReading,
   onMerge,
   onDelete,
 }: {
@@ -23,6 +25,8 @@ export default function TagManager({
   counts: Map<number, number>
   // 失敗したら理由の文字列で reject する
   onRename: (id: number, name: string) => Promise<void>
+  // 読み仮名（FR-418）
+  onReading: (id: number, reading: string) => Promise<void>
   onMerge: (from: number, into: number) => Promise<void>
   onDelete: (id: number) => Promise<void>
 }) {
@@ -53,27 +57,29 @@ export default function TagManager({
   )
 
   const panel = (a: Action) => {
-    if (a.kind === 'rename')
+    if (a.kind === 'rename' || a.kind === 'reading')
       return (
         <div className="tags__panel">
           <input
             autoCorrect="off"
             autoCapitalize="off"
             className={error ? 'tags__input tags__input--error' : 'tags__input'}
-            aria-label={`「${nameOf(a.id)}」の新しい名前`}
+            aria-label={`「${nameOf(a.id)}」の${a.kind === 'rename' ? '新しい名前' : '読み仮名'}`}
+            placeholder={a.kind === 'reading' ? 'ひらがなかカタカナ' : undefined}
             aria-invalid={!!error}
             aria-describedby={error ? 'tag-manager-error' : undefined}
-            value={a.name}
+            value={a.kind === 'rename' ? a.name : a.reading}
             autoFocus
             onFocus={(e) => e.target.select()}
             onChange={(e) => {
-              setAction({ ...a, name: e.target.value })
+              const value = e.target.value
+              setAction(a.kind === 'rename' ? { ...a, name: value } : { ...a, reading: value })
               setError(null)
             }}
             onKeyDown={(e) => {
               // かな漢字変換を確定する Enter では変えない（Safari は確定の keydown の keyCode が 229 になる）
               if (e.nativeEvent.isComposing || e.keyCode === 229) return
-              if (e.key === 'Enter') run(onRename(a.id, a.name))
+              if (e.key === 'Enter') run(a.kind === 'rename' ? onRename(a.id, a.name) : onReading(a.id, a.reading))
               if (e.key === 'Escape') {
                 // 設定ごと閉じず（Gallery が window で受ける）、名前の入力だけをやめる
                 e.stopPropagation()
@@ -184,6 +190,14 @@ export default function TagManager({
                   onClick={() => start({ id: t.id, kind: 'rename', name: t.name })}
                 >
                   名前を変える
+                </button>
+                <button
+                  type="button"
+                  className="button tags__action"
+                  aria-label={`「${t.name}」の読み仮名を変える`}
+                  onClick={() => start({ id: t.id, kind: 'reading', reading: t.reading ?? '' })}
+                >
+                  読み仮名を変える
                 </button>
                 <button
                   type="button"

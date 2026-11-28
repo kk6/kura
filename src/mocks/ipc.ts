@@ -76,7 +76,7 @@ const GALLERY: Gallery = {
       }))
     : [
         { id: 1, name: 'ポーズ', parent_id: null, collapsed: false },
-        { id: 2, name: '座り', parent_id: 1, collapsed: false },
+        { id: 2, name: '座り', parent_id: 1, collapsed: false, reading: 'すわり' },
         { id: 3, name: '振り返り', parent_id: 1, collapsed: false },
         { id: 4, name: '服飾', parent_id: null, collapsed: false },
         { id: 5, name: '制服', parent_id: 4, collapsed: false },
@@ -84,7 +84,7 @@ const GALLERY: Gallery = {
       ],
   tags: [
     { id: 1, name: 'あおり' },
-    { id: 2, name: '座り' },
+    { id: 2, name: '座り', reading: 'すわり' },
     { id: 3, name: '振り返り' },
   ],
 }
@@ -221,6 +221,15 @@ const renameCategory: Handler = (args) => {
   c.name = name
 }
 
+// src-tauri/src/tag.rs の reading と同じく、前後の空白を除き、NFKC とひらがなに直す（FR-418）
+const reading = (raw: unknown) =>
+  String(raw)
+    .trim()
+    .normalize('NFKC')
+    .replace(/[ァ-ヶヽヾ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+
+const setCategoryReading: Handler = (args) => (categoryOf(args?.id).reading = reading(args?.reading))
+
 const moveCategory: Handler = (args) => {
   const c = categoryOf(args?.id)
   const parent = (args?.parent as number | null) ?? null
@@ -310,7 +319,7 @@ const addTag: Handler = (args) => {
   if (!name) throw 'タグ名を入力してください'
   let tag = GALLERY.tags.find((t) => key(t.name) === key(name))
   if (!tag) {
-    tag = { id: Math.max(...GALLERY.tags.map((t) => t.id)) + 1, name }
+    tag = { id: Math.max(...GALLERY.tags.map((t) => t.id)) + 1, name, reading: '' }
     GALLERY.tags.push(tag)
     GALLERY.tags.sort((a, b) => (a.name < b.name ? -1 : 1))
   }
@@ -339,6 +348,8 @@ const renameTag: Handler = (args) => {
   GALLERY.tags.sort((a, b) => (a.name < b.name ? -1 : 1))
   return { ...tag }
 }
+
+const setTagReading: Handler = (args) => (tagOf(args?.id).reading = reading(args?.reading))
 
 const mergeTag: Handler = (args) => {
   const from = tagOf(args?.from).id
@@ -997,6 +1008,8 @@ const handlers: Record<string, Handler> = {
   add_tag: addTag,
   remove_tag: removeTag,
   rename_tag: renameTag,
+  set_tag_reading: setTagReading,
+  set_category_reading: setCategoryReading,
   merge_tag: mergeTag,
   delete_tag: deleteTag,
   load_trash: () => structuredClone(TRASH),

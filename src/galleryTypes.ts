@@ -15,9 +15,10 @@ export type Image = {
 }
 
 // collapsed：サイドバーで閉じている（ライブラリの DB に残る）
-export type Category = { id: number; name: string; parent_id: number | null; collapsed: boolean }
+// reading：読み仮名（FR-418）。ひらがなで、空なら付けていない。Rust はいつも返すが、画面で作ったばかりのものには付けないので省ける
+export type Category = { id: number; name: string; parent_id: number | null; collapsed: boolean; reading?: string }
 
-export type Tag = { id: number; name: string }
+export type Tag = { id: number; name: string; reading?: string }
 
 export type Gallery = { images: Image[]; categories: Category[]; tags: Tag[] }
 

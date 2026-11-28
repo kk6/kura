@@ -38,6 +38,7 @@ pub fn add(lib: &mut Library, ids: &[i64], name: &str) -> Result<Tag, String> {
             Tag {
                 id: tx.last_insert_rowid(),
                 name,
+                reading: String::new(),
             }
         }
     };
@@ -55,12 +56,13 @@ fn find(conn: &Connection, name: &str) -> Result<Option<Tag>, String> {
     let key = fileops::key(name.as_ref());
     // shortcut: タグを全件読んで比べる。SQLite の lower() は ASCII しか変えないため。数千件を超えて遅くなったら、比べるための鍵の列と一意の索引を足す
     let tags: Vec<Tag> = conn
-        .prepare("SELECT id, name FROM tags")
+        .prepare("SELECT id, name, reading FROM tags")
         .map_err(err)?
         .query_map([], |r| {
             Ok(Tag {
                 id: r.get(0)?,
                 name: r.get(1)?,
+                reading: r.get(2)?,
             })
         })
         .map_err(err)?
@@ -127,10 +129,53 @@ pub fn rename(lib: &Library, id: i64, name: &str) -> Result<Tag, String> {
             "同じ名前のタグがあります（{name}）。1つにまとめるときは統合してください"
         ));
     }
-    lib.conn
-        .execute("UPDATE tags SET name = ?1 WHERE id = ?2", params![name, id])
+    let reading = lib
+        .conn
+        .query_row(
+            "UPDATE tags SET name = ?1 WHERE id = ?2 RETURNING reading",
+            params![name, id],
+            |r| r.get(0),
+        )
         .map_err(err)?;
-    Ok(Tag { id, name })
+    Ok(Tag { id, name, reading })
+}
+
+/// 読み仮名（FR-418）を、前後の空白を除き、NFKC（半角カナを全角に）とひらがなに直したもの。空は付けていないこと
+pub(crate) fn reading(s: &str) -> String {
+    s.trim()
+        .nfkc()
+        .map(|c| match c {
+            // カタカナ（ァ〜ヶ、ヽヾ）はひらがなと同じ並びで 0x60 後ろにある
+            'ァ'..='ヶ' | 'ヽ' | 'ヾ' => char::from_u32(c as u32 - 0x60).unwrap(),
+            c => c,
+        })
+        .collect()
+}
+
+/// table（tags か categories）の id の行に読み仮名を保存し、保存した値を返す。what は見つからないときのエラーに出す名前
+pub(crate) fn save_reading(
+    conn: &Connection,
+    table: &str,
+    what: &str,
+    id: i64,
+    raw: &str,
+) -> Result<String, String> {
+    let reading = reading(raw);
+    let n = conn
+        .execute(
+            &format!("UPDATE {table} SET reading = ?1 WHERE id = ?2"),
+            params![reading, id],
+        )
+        .map_err(err)?;
+    match n {
+        0 => Err(format!("{what}が見つかりません（{id}）")),
+        _ => Ok(reading),
+    }
+}
+
+/// タグの読み仮名を変える（FR-418）
+pub fn set_reading(lib: &Library, id: i64, reading: &str) -> Result<String, String> {
+    save_reading(&lib.conn, "tags", "タグ", id, reading)
 }
 
 /// from のタグを into のタグにまとめる（FR-408）。両方が付いていた画像にも into が1つだけ付く
@@ -394,7 +439,8 @@ mod tests {
             renamed,
             Tag {
                 id: sit.id,
-                name: "ポーズ".into()
+                name: "ポーズ".into(),
+                reading: String::new(),
             }
         );
         assert_eq!(names(&lib, a), ["ポーズ"]);
@@ -413,5 +459,39 @@ mod tests {
         assert!(rename(&lib, pose.id, " ").is_err());
         assert!(rename(&lib, 999, "立ち").is_err());
         assert_eq!(names(&lib, a), ["Pose", "座り"]);
+    }
+
+    #[test]
+    fn 読み仮名はひらがなに直して保存し一覧に含める() {
+        let (_d, mut lib) = setup();
+        let a = image(&lib, "a");
+        let sit = add(&mut lib, &[a], "座り").unwrap();
+        assert_eq!(sit.reading, "");
+
+        assert_eq!(set_reading(&lib, sit.id, " スワリ ").unwrap(), "すわり");
+        assert_eq!(set_reading(&lib, sit.id, "ｽﾜﾘ").unwrap(), "すわり");
+        let g = crate::gallery::load(&lib).unwrap();
+        assert_eq!(
+            g.tags,
+            [Tag {
+                id: sit.id,
+                name: "座り".into(),
+                reading: "すわり".into()
+            }]
+        );
+        // 空にすると付けていないものに戻る
+        assert_eq!(set_reading(&lib, sit.id, "  ").unwrap(), "");
+        assert!(set_reading(&lib, 999, "すわり").is_err());
+    }
+
+    #[test]
+    fn 名前を変えても読み仮名は残る() {
+        let (_d, mut lib) = setup();
+        let a = image(&lib, "a");
+        let sit = add(&mut lib, &[a], "座り").unwrap();
+        set_reading(&lib, sit.id, "すわり").unwrap();
+
+        assert_eq!(rename(&lib, sit.id, "座る").unwrap().reading, "すわり");
+        assert_eq!(add(&mut lib, &[a], "座る").unwrap().reading, "すわり");
     }
 }

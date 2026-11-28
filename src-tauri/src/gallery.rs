@@ -30,12 +30,16 @@ pub struct Category {
     pub name: String,
     pub parent_id: Option<i64>,
     pub collapsed: bool,
+    /// 読み仮名（FR-418）。ひらがなで、空なら付けていない
+    pub reading: String,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct Tag {
     pub id: i64,
     pub name: String,
+    /// 読み仮名（FR-418）。ひらがなで、空なら付けていない
+    pub reading: String,
 }
 
 /// ギャラリー画面の一覧とサイドバーに出すもの（FR-501、FR-503）
@@ -52,7 +56,7 @@ pub fn load(lib: &Library) -> Result<Gallery, String> {
     let images = images(lib, "deleted_at IS NULL AND missing_at IS NULL ORDER BY id")?;
     let categories = conn
         .prepare(
-            "SELECT id, name, parent_id, collapsed FROM categories ORDER BY sort_order, name, id",
+            "SELECT id, name, parent_id, collapsed, reading FROM categories ORDER BY sort_order, name, id",
         )
         .map_err(err)?
         .query_map([], |r| {
@@ -61,18 +65,20 @@ pub fn load(lib: &Library) -> Result<Gallery, String> {
                 name: r.get(1)?,
                 parent_id: r.get(2)?,
                 collapsed: r.get(3)?,
+                reading: r.get(4)?,
             })
         })
         .map_err(err)?
         .collect::<Result<_, _>>()
         .map_err(err)?;
     let tags = conn
-        .prepare("SELECT id, name FROM tags ORDER BY name, id")
+        .prepare("SELECT id, name, reading FROM tags ORDER BY name, id")
         .map_err(err)?
         .query_map([], |r| {
             Ok(Tag {
                 id: r.get(0)?,
                 name: r.get(1)?,
+                reading: r.get(2)?,
             })
         })
         .map_err(err)?
@@ -291,12 +297,14 @@ mod tests {
                     name: "ポーズ".into(),
                     parent_id: None,
                     collapsed: false,
+                    reading: String::new(),
                 },
                 Category {
                     id: sit,
                     name: "座り".into(),
                     parent_id: Some(pose),
                     collapsed: false,
+                    reading: String::new(),
                 },
             ]
         );

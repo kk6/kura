@@ -26,8 +26,9 @@ type Props = {
   counts: ReturnType<typeof countImages>
   onFilter: (filter: Filter) => void
   onManageTags: () => void
-  // 失敗したら理由の文字列で reject する
-  onRename: (id: number, name: string) => Promise<void>
+  // 失敗したら理由の文字列で reject する。reading は読み仮名（FR-418）
+  onRename: (id: number, name: string, reading?: string) => Promise<void>
+  onTagReading: (id: number, reading: string) => Promise<void>
   onCreate: (parent: number | null, name: string) => Promise<void>
   onMove: (id: number, parent: number | null) => void
   onDelete: (id: number) => void
@@ -122,10 +123,18 @@ export default function Sidebar(props: Props) {
   const collapsed = new Set(gallery.categories.filter((c) => c.collapsed).map((c) => c.id))
   const toggle = (id: number) => onCollapse([id], !collapsed.has(id))
 
-  // 名前を入力中のカテゴリ。rename は既存の名前の変更、create は parent の下（null はルート直下）への作成
+  // 名前を入力中のカテゴリ。rename は既存の名前の変更、create は parent の下（null はルート直下）への作成。
+  // reading があれば読み仮名の欄も出す（右クリックの「名前と読み仮名を変更…」。ダブルクリックは名前だけ）
   const [editing, setEditing] = useState<
-    ({ kind: 'rename'; id: number } | { kind: 'create'; parent: number | null }) & { name: string; error?: string }
+    ({ kind: 'rename'; id: number; reading?: string } | { kind: 'create'; parent: number | null }) & {
+      name: string
+      error?: string
+    }
   >()
+  const rename = (c: Category, withReading: boolean) =>
+    setEditing({ kind: 'rename', id: c.id, name: c.name, reading: withReading ? (c.reading ?? '') : undefined })
+  // 読み仮名を入力中のタグ（FR-418）
+  const [readingTag, setReadingTag] = useState<{ id: number; reading: string; error?: string } | null>(null)
   // 押した位置。少し動かしたらドラッグとみなす（ダブルクリックと区別するため）
   const [press, setPress] = useState<{ id: number; x: number; y: number } | null>(null)
   // ドラッグ中のポインターの位置と、その下にあるもの
@@ -137,15 +146,31 @@ export default function Sidebar(props: Props) {
   const [deleting, setDeleting] = useState<number | null>(null)
   // 統合先を選んでいるカテゴリ（FR-417）
   const [merging, setMerging] = useState<number | null>(null)
-  // 右クリックしたカテゴリと、そのメニューの位置
-  const [menuFor, setMenuFor] = useState<number | null>(null)
+  // 右クリックしたカテゴリかタグと、そのメニューの位置
+  const [menuFor, setMenuFor] = useState<{ kind: 'category' | 'tag'; id: number } | null>(null)
   const { at: menuAt, setAt: setMenuAt, ref: menuRef } = useContextMenu()
-  const menuItems: [string, (id: number) => void][] = [
-    // 読み仮名の欄は FR-418 で足す。今は名前だけをダブルクリックと同じ欄で変える
-    ['名前と読み仮名を変更…', (id) => setEditing({ kind: 'rename', id, name: nameOf(id) ?? '' })],
-    ['統合…', setMerging],
-    ['削除…', setDeleting],
-  ]
+  const menuItems: Record<'category' | 'tag', [string, (id: number) => void][]> = {
+    category: [
+      [
+        '名前と読み仮名を変更…',
+        (id) =>
+          rename(
+            gallery.categories.find((c) => c.id === id)!,
+            true,
+          ),
+      ],
+      ['統合…', setMerging],
+      ['削除…', setDeleting],
+    ],
+    tag: [
+      ['読み仮名を変更…', (id) => setReadingTag({ id, reading: gallery.tags.find((t) => t.id === id)?.reading ?? '' })],
+    ],
+  }
+  const openMenu = (e: MouseEvent, kind: 'category' | 'tag', id: number) => {
+    e.preventDefault()
+    setMenuFor({ kind, id })
+    setMenuAt({ x: e.clientX, y: e.clientY })
+  }
 
   // HTML5 のドラッグ＆ドロップは使わない。Tauri がファイルのドロップ（取り込み）を受けるために
   // ウェブビューのドラッグを横取りし、drop がページに届かないため。ポインターの動きで自前に行う
@@ -217,7 +242,7 @@ export default function Sidebar(props: Props) {
   async function commit() {
     if (!editing) return
     try {
-      if (editing.kind === 'rename') await onRename(editing.id, editing.name)
+      if (editing.kind === 'rename') await onRename(editing.id, editing.name, editing.reading)
       else await onCreate(editing.parent, editing.name)
       setEditing(undefined)
     } catch (e) {
@@ -225,9 +250,19 @@ export default function Sidebar(props: Props) {
     }
   }
 
+  // かな漢字変換を確定する Enter では変えない
+  const onEditKey = (e: ReactKeyboardEvent) => {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) commit()
+    if (e.key === 'Escape') setEditing(undefined)
+  }
   const field = (depth: number) =>
     editing && (
-      <div className="sidebar__edit" style={{ '--depth': depth } as CSSProperties}>
+      <div
+        className="sidebar__edit"
+        style={{ '--depth': depth } as CSSProperties}
+        // 名前と読み仮名の欄の間でフォーカスを移しても取り消さない
+        onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setEditing(undefined)}
+      >
         <input
           autoCorrect="off"
           autoCapitalize="off"
@@ -239,13 +274,20 @@ export default function Sidebar(props: Props) {
           autoFocus
           onFocus={(e) => e.target.select()}
           onChange={(e) => setEditing({ ...editing, name: e.target.value, error: undefined })}
-          onKeyDown={(e) => {
-            // かな漢字変換を確定する Enter では変えない
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) commit()
-            if (e.key === 'Escape') setEditing(undefined)
-          }}
-          onBlur={() => setEditing(undefined)}
+          onKeyDown={onEditKey}
         />
+        {editing.kind === 'rename' && editing.reading !== undefined && (
+          <input
+            autoCorrect="off"
+            autoCapitalize="off"
+            className="sidebar__input"
+            aria-label="読み仮名"
+            placeholder="読み仮名（ひらがなかカタカナ）"
+            value={editing.reading}
+            onChange={(e) => setEditing({ ...editing, reading: e.target.value, error: undefined })}
+            onKeyDown={onEditKey}
+          />
+        )}
         {editing.error && (
           <span id="sidebar-name-error">
             <Status kind="error">{editing.error}</Status>
@@ -268,12 +310,8 @@ export default function Sidebar(props: Props) {
               style={{ '--depth': depth } as CSSProperties}
               data-drop={c.id}
               title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
-              onDoubleClick={() => setEditing({ kind: 'rename', id: c.id, name: c.name })}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                setMenuFor(c.id)
-                setMenuAt({ x: e.clientX, y: e.clientY })
-              }}
+              onDoubleClick={() => rename(c, false)}
+              onContextMenu={(e) => openMenu(e, 'category', c.id)}
               onPointerDown={(e) => e.button === 0 && setPress({ id: c.id, x: e.clientX, y: e.clientY })}
               // ドラッグ中にカーソルの通った文字が選ばれないよう、押したときに文字の選択を始めない。
               // 既定の動きを止めるとフォーカスも移らず、入力中のカテゴリ名が blur で取り消されないので、自分で外す
@@ -541,17 +579,46 @@ export default function Sidebar(props: Props) {
           )
           .map((t) => (
             <li key={t.id}>
-              <button
-                type="button"
-                className={`sidebar__tag${filter.tags.includes(t.id) ? ' sidebar__tag--selected' : ''}${excludedTags.has(t.id) ? ' sidebar__tag--excluded' : ''}`}
-                aria-pressed={filter.tags.includes(t.id)}
-                aria-label={excludedTags.has(t.id) ? `${t.name} ${counts.tags.get(t.id) ?? 0}（除く）` : undefined}
-                title={excludedTags.has(t.id) ? '除いています。⌥ を押しながら押すと戻します' : undefined}
-                onClick={(e) => pickTag(e, t.id)}
-              >
-                <span className="sidebar__name">{t.name}</span>
-                <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
-              </button>
+              {readingTag?.id === t.id ? (
+                <div className="sidebar__edit sidebar__edit--tag">
+                  <input
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    className={readingTag.error ? 'sidebar__input sidebar__input--error' : 'sidebar__input'}
+                    aria-label={`「${t.name}」の読み仮名`}
+                    placeholder="ひらがなかカタカナ"
+                    aria-invalid={!!readingTag.error}
+                    value={readingTag.reading}
+                    autoFocus
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => setReadingTag({ id: t.id, reading: e.target.value })}
+                    onKeyDown={(e) => {
+                      e.stopPropagation()
+                      if (e.key === 'Escape') setReadingTag(null)
+                      if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+                      props
+                        .onTagReading(t.id, readingTag.reading)
+                        .then(() => setReadingTag(null))
+                        .catch((err) => setReadingTag({ ...readingTag, error: String(err) }))
+                    }}
+                    onBlur={() => setReadingTag(null)}
+                  />
+                  {readingTag.error && <Status kind="error">{readingTag.error}</Status>}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={`sidebar__tag${filter.tags.includes(t.id) ? ' sidebar__tag--selected' : ''}${excludedTags.has(t.id) ? ' sidebar__tag--excluded' : ''}`}
+                  aria-pressed={filter.tags.includes(t.id)}
+                  aria-label={excludedTags.has(t.id) ? `${t.name} ${counts.tags.get(t.id) ?? 0}（除く）` : undefined}
+                  title={excludedTags.has(t.id) ? '除いています。⌥ を押しながら押すと戻します' : undefined}
+                  onClick={(e) => pickTag(e, t.id)}
+                  onContextMenu={(e) => openMenu(e, 'tag', t.id)}
+                >
+                  <span className="sidebar__name">{t.name}</span>
+                  <span className="sidebar__count">{counts.tags.get(t.id) ?? 0}</span>
+                </button>
+              )}
             </li>
           ))}
       </ul>
@@ -569,7 +636,7 @@ export default function Sidebar(props: Props) {
       )}
       {menuAt && menuFor !== null && (
         <div ref={menuRef} className="menu" role="menu" popover="manual" style={{ top: menuAt.y, left: menuAt.x }}>
-          {menuItems.map(([label, run]) => (
+          {menuItems[menuFor.kind].map(([label, run]) => (
             <button
               key={label}
               type="button"
@@ -577,7 +644,7 @@ export default function Sidebar(props: Props) {
               className="menu__item"
               onClick={() => {
                 setMenuAt(null)
-                run(menuFor)
+                run(menuFor.id)
               }}
             >
               {label}

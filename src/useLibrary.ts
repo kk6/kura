@@ -80,10 +80,14 @@ export function useLibrary(report: (result: Result) => void) {
     setData((d) => editImages(d, [id], (i) => ({ ...i, rating })))
   }
 
-  async function renameCategory(id: number, name: string) {
+  // reading を渡すと読み仮名（FR-418）も変える。名前を先に変え、失敗したら読み仮名は変えない
+  async function renameCategory(id: number, name: string, reading?: string) {
     await invoke('rename_category', { id, name })
     const nfc = name.normalize('NFC')
     setData((d) => editCategories(d, [id], (c) => ({ ...c, name: nfc })))
+    if (reading === undefined) return
+    const saved = await invoke<string>('set_category_reading', { id, reading })
+    setData((d) => editCategories(d, [id], (c) => ({ ...c, reading: saved })))
   }
 
   async function createCategory(parent: number | null, name: string) {
@@ -153,6 +157,11 @@ export function useLibrary(report: (result: Result) => void) {
     setData((d) => replaceTag(d, tag))
   }
 
+  async function setTagReading(id: number, reading: string) {
+    const saved = await invoke<string>('set_tag_reading', { id, reading })
+    setData((d) => ({ ...d, tags: d.tags.map((t) => (t.id === id ? { ...t, reading: saved } : t)) }))
+  }
+
   return {
     data,
     trash,
@@ -173,5 +182,6 @@ export function useLibrary(report: (result: Result) => void) {
     deleteCategory,
     mergeCategory,
     renameTag,
+    setTagReading,
   }
 }
