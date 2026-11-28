@@ -64,6 +64,8 @@ type Props = {
   // 失敗したら理由の文字列で reject する
   onRenameSmart: (id: number, name: string) => Promise<void>
   onDeleteSmart: (id: number) => void
+  // 一覧から運んでいる画像の下にある落とし先（FR-514）。行の data-classify の値。運んでいないときは null
+  classifyOver: string | null
 }
 
 // 長いパスは途中を … で省き、先頭のフォルダと最後の2つを残す（全体は title で出す）
@@ -323,9 +325,10 @@ export default function Sidebar(props: Props) {
             field(depth)
           ) : (
             <span
-              className={`sidebar__item sidebar__item--category${current === c.id ? ' sidebar__item--selected' : ''}${over === c.id ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
+              className={`sidebar__item sidebar__item--category${current === c.id ? ' sidebar__item--selected' : ''}${over === c.id || props.classifyOver === `category:${c.id}` ? ' sidebar__item--drop' : ''}${drag && press?.id === c.id ? ' sidebar__item--dragging' : ''}`}
               style={{ '--depth': depth } as CSSProperties}
               data-drop={c.id}
+              data-classify={`category:${c.id}`}
               title="押すと絞り込む。ダブルクリックで名前を変える。ドラッグで移す"
               onDoubleClick={() => rename(c, false)}
               onContextMenu={(e) => openMenu(e, 'category', c.id)}
@@ -434,8 +437,9 @@ export default function Sidebar(props: Props) {
         <li>
           <button
             type="button"
-            className={`sidebar__item sidebar__button${current === 'uncategorized' ? ' sidebar__item--selected' : ''}`}
+            className={`sidebar__item sidebar__button${current === 'uncategorized' ? ' sidebar__item--selected' : ''}${props.classifyOver === 'uncategorized' ? ' sidebar__item--drop' : ''}`}
             aria-current={current === 'uncategorized'}
+            data-classify="uncategorized"
             onClick={() => scope('uncategorized')}
           >
             <Icon d={ICONS.inbox} />
@@ -676,7 +680,8 @@ export default function Sidebar(props: Props) {
               ) : (
                 <button
                   type="button"
-                  className={`sidebar__tag${filter.tags.includes(t.id) ? ' sidebar__tag--selected' : ''}${excludedTags.has(t.id) ? ' sidebar__tag--excluded' : ''}`}
+                  className={`sidebar__tag${filter.tags.includes(t.id) ? ' sidebar__tag--selected' : ''}${excludedTags.has(t.id) ? ' sidebar__tag--excluded' : ''}${props.classifyOver === `tag:${t.id}` ? ' sidebar__item--drop' : ''}`}
+                  data-classify={`tag:${t.id}`}
                   aria-pressed={filter.tags.includes(t.id)}
                   aria-label={excludedTags.has(t.id) ? `${t.name} ${counts.tags.get(t.id) ?? 0}（除く）` : undefined}
                   title={excludedTags.has(t.id) ? '除いています。⌥ を押しながら押すと戻します' : undefined}

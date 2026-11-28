@@ -23,6 +23,13 @@ export function select(
   return { ids: new Set([id]), anchor: id }
 }
 
+// 範囲選択（FR-512）。base は押したときの選択、hit は囲んだ画像の id（並び順）。
+// additive（⌘ か Shift）なら base に足す。起点は囲んだ画像の先頭にし、続く Shift＋クリックの範囲をそこから決める
+export function enclose(base: Selection, hit: readonly number[], additive: boolean): Selection {
+  if (!additive && !hit.length) return EMPTY_SELECTION
+  return { ids: new Set([...(additive ? base.ids : []), ...hit]), anchor: hit[0] ?? base.anchor }
+}
+
 // alive にない画像を選択から外す。変わらなければ s をそのまま返す
 export function keepOnly(s: Selection, alive: ReadonlySet<number>): Selection {
   const ids = new Set([...s.ids].filter((id) => alive.has(id)))

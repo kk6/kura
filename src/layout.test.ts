@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { layout, neighbor, visible } from './layout'
+import { layout, neighbor, visible, within } from './layout'
 
 const size = (width: number, height: number) => ({ width, height })
 
@@ -100,5 +100,23 @@ describe('neighbor', () => {
     expect(neighbor(l, 4, 'ArrowUp')).toBe(2)
     expect(neighbor(l, 3, 'ArrowDown')).toBeUndefined()
     expect(neighbor(l, 0, 'ArrowUp')).toBeUndefined()
+  })
+})
+
+describe('within', () => {
+  // 幅 100 の列が3つ。0: (0,0)-(100,300)、1: (110,0)-(210,100)、2: (220,0)-(320,100)、3: (110,110)-(210,210)、4: (220,110)-(320,160)
+  const l = layout([size(100, 300), size(100, 100), size(100, 100), size(100, 100), size(100, 50)], 320, 100, 10)
+
+  test('範囲に一部でもかかる画像を、並び順で返す', () => {
+    expect(within(l, { left: 150, top: 50, right: 250, bottom: 120 })).toEqual([1, 2, 3, 4])
+  })
+
+  test('範囲にかからない列と、範囲より上や下の画像は返さない', () => {
+    expect(within(l, { left: 0, top: 220, right: 105, bottom: 260 })).toEqual([0])
+    expect(within(l, { left: 105, top: 102, right: 108, bottom: 108 })).toEqual([])
+  })
+
+  test('間隔の中だけを囲んでも、どの画像も返さない', () => {
+    expect(within(l, { left: 211, top: 0, right: 219, bottom: 300 })).toEqual([])
   })
 })
