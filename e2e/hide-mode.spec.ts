@@ -73,3 +73,44 @@ test('隠すモードの間、ボードの印の付いた画像は同じ位置�
   await expect(first.locator('img')).toHaveCount(1)
   expect((await stored(page)).items.map((i) => i.geometry)).toEqual(before.items.map((i) => i.geometry))
 })
+
+test('隠すモードの間、印の付いた画像は似た画像を探した結果と元が同じ画像の組に出ない', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('mock.settings')) return
+    sessionStorage.setItem(
+      'mock.settings',
+      JSON.stringify({
+        confirm_category_move: true,
+        thumb_width: 200,
+        tags_collapsed: false,
+        board_enabled: true,
+        similarity_enabled: true,
+        similarity_weights: {},
+        board_window: { always_on_top: false, opacity: 100, frame: null },
+        hide_mode: false,
+      }),
+    )
+  })
+  await page.goto('/?images=20')
+  await page.getByRole('button', { name: /Kura ライブラリ/ }).click()
+  await expect(page.getByRole('contentinfo')).toContainText('差分を反映')
+  const detail = page.getByRole('complementary', { name: '詳細' })
+
+  // 2 に印を付けてから 1 で似た画像を探す。モックの組は 1〜2、3〜5、6〜7
+  await thumb(page, 2).click()
+  await detail.getByRole('button', { name: '隠す印を付ける' }).click()
+  await thumb(page, 1).click()
+  await detail.getByRole('button', { name: '似た画像を探す' }).click()
+  await expect(page.locator('.gallery__toolbar')).toContainText('閉じる')
+  await expect(thumb(page, 2)).toHaveCount(1)
+  await emit(page, 'hide-mode', true)
+  await expect(thumb(page, 2)).toHaveCount(0)
+  await expect(thumb(page, 3)).toHaveCount(1)
+  await page.locator('.gallery__toolbar').getByRole('button', { name: '閉じる', exact: true }).click()
+
+  // 1 と 2 の組は1枚になるので出さない
+  await emit(page, 'find-origin-groups')
+  await expect(page.locator('.list__section')).toHaveCount(2)
+  await expect(thumb(page, 1)).toHaveCount(0)
+  await expect(thumb(page, 2)).toHaveCount(0)
+})
