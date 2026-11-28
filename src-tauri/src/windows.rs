@@ -152,7 +152,7 @@ pub(crate) async fn show_board_window(app: AppHandle) -> Result<(), String> {
         let w = WebviewWindowBuilder::new(&app, BOARD, WebviewUrl::App("index.html".into()))
             .title("アイデアボード")
             // 上部の操作が1段に収まる幅
-            .inner_size(1040.0, 640.0)
+            .inner_size(1100.0, 640.0)
             .min_inner_size(480.0, 320.0)
             .always_on_top(pinned(&app, display.always_on_top))
             .visible(false)

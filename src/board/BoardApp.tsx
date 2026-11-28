@@ -8,6 +8,7 @@ import Status from '../Status'
 import Canvas from './Canvas'
 import NameDialog from './NameDialog'
 import { defaultName } from './names'
+import { arrange } from './arrange'
 import { replacedGeometry, type Point } from './geometry'
 import { saveQueue, type SaveState } from './saveQueue'
 import { restack, type Restack } from './stack'
@@ -421,6 +422,14 @@ export default function BoardApp() {
     apply((items) => items.map((i) => (changed.has(i.id) ? { ...i, geometry: changed.get(i.id)! } : i)))
   }
 
+  // 選んだ配置（選んでいなければすべての配置）を整列する（FR-709）。移動と同じ道で、取り消しの1操作にする
+  function align() {
+    if (view.kind !== 'board') return
+    const all = view.board.board.items
+    const picked = all.filter((i) => selected.has(i.id))
+    reshape(arrange(new Map((picked.length ? picked : all).map((i) => [i.id, i.geometry]))))
+  }
+
   // 選んだ配置をボードから外す。スナップショットから外すだけで、元画像と同じ画像の別の配置は変わらない（FR-702）
   function discard() {
     if (locked()) return
@@ -578,6 +587,10 @@ export default function BoardApp() {
                   <Icon d={ICONS.scan} />
                   選択画像を表示
                 </button>
+                <button type="button" className="button" disabled={!current.items.length} onClick={align}>
+                  <Icon d={ICONS.layoutGrid} />
+                  整列
+                </button>
               </>
             )}
             <button
@@ -647,6 +660,7 @@ export default function BoardApp() {
               onUndo={() => travel('past')}
               onRedo={() => travel('future')}
               onRestack={reorder}
+              onArrange={align}
               onReveal={(id) => invoke('show_in_gallery', { id }).catch((e) => setError(String(e)))}
               onDropImages={dropImages}
             />

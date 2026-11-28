@@ -96,6 +96,7 @@ export default function Canvas({
   onUndo,
   onRedo,
   onRestack,
+  onArrange,
   onReveal,
   onDropImages,
 }: {
@@ -121,6 +122,8 @@ export default function Canvas({
   onRedo: () => void
   // 選んだ配置の重なり順を変える
   onRestack: (to: Restack) => void
+  // 選んだ配置を整列する（FR-709）
+  onArrange: () => void
   // 元画像をギャラリーで選んで見せる。渡すのは画像 ID
   onReveal: (imageId: number) => void
   // 一覧から運んだ画像を、落とした点（ボード上の座標）に置く（FR-713）
@@ -519,6 +522,18 @@ export default function Canvas({
               {label}
             </button>
           ))}
+          <hr className="menu__rule" />
+          <button
+            type="button"
+            role="menuitem"
+            className="menu__item"
+            onClick={() => {
+              menu.setAt(null)
+              onArrange()
+            }}
+          >
+            整列
+          </button>
           <hr className="menu__rule" />
           {/* 1枚を選んだときだけ押せる。複数の画像への一括の加工はしない */}
           {EDITS.map(({ label, checked, enabled, to }) => {
