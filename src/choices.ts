@@ -1,22 +1,34 @@
+import { toHiragana } from 'wanakana'
 import type { Filter } from './filter'
 import type { Category, Tag } from './galleryTypes'
 
 // src-tauri/src/fileops.rs の key と同じく、正規化（NFC）と大文字・小文字の違いを無視して比べる
 export const tagKey = (name: string) => name.trim().normalize('NFC').toLowerCase()
 
+// カタカナをひらがなにする（src-tauri/src/tag.rs の reading と同じ）。ローマ字と漢字はそのまま
+const hira = (s: string) => s.replace(/[ァ-ヶヽヾ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+
+// 入力した文字を、名前か読み仮名に含むか（FR-418）。カタカナとひらがなは同じものとして比べる。
+// ローマ字は wanakana でひらがなに直しても照らす。かなにならない末尾（打ち途中の「suwar」の「r」）は除く
+export function matches(typed: string, name: string, reading = ''): boolean {
+  const key = hira(tagKey(typed))
+  if (!key) return false
+  const romaji = toHiragana(key).replace(/[a-z]+$/, '')
+  const targets = [hira(tagKey(name)), hira(tagKey(reading))]
+  return targets.some((t) => t.includes(key) || (romaji !== '' && romaji !== key && t.includes(romaji)))
+}
+
 // 入力中の文字を名前に含む既存のタグ。選んだ画像のすべてに付いているタグは出さない。
 // 何も入れていなければ一覧から選べるよう、件数を絞らずに全部を返す（並びは読み込んだ順＝名前の順）
 export function candidates(tags: Tag[], typed: string, onAll: Set<number>, limit = 8): Tag[] {
-  const key = tagKey(typed)
   const rest = tags.filter((t) => !onAll.has(t.id))
-  return key ? rest.filter((t) => tagKey(t.name).includes(key)).slice(0, limit) : rest
+  return tagKey(typed) ? rest.filter((t) => matches(typed, t.name, t.reading)).slice(0, limit) : rest
 }
 
 // サイドバーのタグ一覧の絞り込み（FR-518）。入力した文字を名前に含むタグを、元の順のまま返す。
 // keep（選んでいるタグと除いているタグ）は名前に含まなくても返す。何で絞り込んでいるかが見えなくならないように
 export function tagsByName(tags: Tag[], typed: string, keep: Set<number>): Tag[] {
-  const key = tagKey(typed)
-  return key ? tags.filter((t) => keep.has(t.id) || tagKey(t.name).includes(key)) : tags
+  return tagKey(typed) ? tags.filter((t) => keep.has(t.id) || matches(typed, t.name, t.reading)) : tags
 }
 
 // 最近使ったタグ（詳細パネル）。id を使った新しい順に持ち、使ったタグを先頭へ移す
@@ -37,14 +49,24 @@ export function recentCandidates(tags: Tag[], recent: number[], onAll: Set<numbe
 
 // カテゴリの選択肢。ツリーの順に、親からの道筋（例：ポーズ / 座り）を名前にする
 export function categoryOptions(categories: Category[]): { id: number; label: string }[] {
+  return categoryPaths(categories).map(({ id, label }) => ({ id, label }))
+}
+
+// categoryOptions に、道筋の読み（読み仮名がなければ名前）を添えたもの。読み仮名で照らすため（FR-418）
+function categoryPaths(categories: Category[]): { id: number; label: string; reading: string }[] {
   const children = new Map<number | null, Category[]>()
   for (const c of categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
-  const walk = (parent: number | null, prefix: string): { id: number; label: string }[] =>
+  const walk = (
+    parent: number | null,
+    prefix: string,
+    rprefix: string,
+  ): { id: number; label: string; reading: string }[] =>
     (children.get(parent) ?? []).flatMap((c) => {
       const label = prefix + c.name
-      return [{ id: c.id, label }, ...walk(c.id, `${label} / `)]
+      const reading = rprefix + (c.reading || c.name)
+      return [{ id: c.id, label, reading }, ...walk(c.id, `${label} / `, `${reading} / `)]
     })
-  return walk(null, '')
+  return walk(null, '', '')
 }
 
 // 詳細パネルのカテゴリの候補。未分類（id が null）とツリーの順のカテゴリのうち、入力した文字を道筋に含むもの。
@@ -55,9 +77,9 @@ export function categoryCandidates(
   typed: string,
   uncategorized = true,
 ): { id: number | null; label: string }[] {
-  const key = tagKey(typed)
-  const all = [...(uncategorized ? [{ id: null, label: '未分類' }] : []), ...categoryOptions(categories)]
-  return key ? all.filter((c) => tagKey(c.label).includes(key)) : all
+  const all = [...(uncategorized ? [{ id: null, label: '未分類', reading: '' }] : []), ...categoryPaths(categories)]
+  const shown = tagKey(typed) ? all.filter((c) => matches(typed, c.label, c.reading)) : all
+  return shown.map(({ id, label }) => ({ id, label }))
 }
 
 // 検索バーの候補（FR-504）。入力した文字を名前に含むカテゴリとタグで、選ぶとそれで絞り込む。
@@ -71,16 +93,19 @@ export function filterCandidates(
   filter: Filter,
   limit = 5,
 ): FilterCandidate[] {
-  const key = tagKey(typed)
-  if (!key) return []
-  const match = (label: string) => tagKey(label).includes(key)
+  if (!tagKey(typed)) return []
   return [
-    ...categoryOptions(categories)
-      .filter((c) => c.id !== filter.category && !filter.excludeCategories.includes(c.id) && match(c.label))
+    ...categoryPaths(categories)
+      .filter(
+        (c) =>
+          c.id !== filter.category && !filter.excludeCategories.includes(c.id) && matches(typed, c.label, c.reading),
+      )
       .slice(0, limit)
-      .map((c) => ({ kind: 'category' as const, ...c })),
+      .map((c) => ({ kind: 'category' as const, id: c.id, label: c.label })),
     ...tags
-      .filter((t) => !filter.tags.includes(t.id) && !filter.excludeTags.includes(t.id) && match(t.name))
+      .filter(
+        (t) => !filter.tags.includes(t.id) && !filter.excludeTags.includes(t.id) && matches(typed, t.name, t.reading),
+      )
       .slice(0, limit)
       .map((t) => ({ kind: 'tag' as const, id: t.id, label: t.name })),
   ]

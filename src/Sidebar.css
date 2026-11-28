@@ -87,8 +87,21 @@ body.is-dragging * {
 }
 
 .sidebar__edit {
+  /* 名前と読み仮名の欄を縦に並べる */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   /* 入力欄を名前の位置（開閉ボタンの右）にそろえる */
   padding: 0 0 var(--space-1) calc(var(--space-3) + var(--space-4) * var(--depth) + var(--space-5) + var(--space-1));
+}
+
+/* タグの読み仮名の欄は、タグの並びの1行を使う */
+.sidebar__tags > li:has(.sidebar__edit--tag) {
+  flex-basis: 100%;
+}
+
+.sidebar__edit--tag {
+  padding: 0;
 }
 
 .sidebar__name {

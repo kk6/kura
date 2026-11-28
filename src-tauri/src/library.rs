@@ -179,6 +179,9 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     ALTER TABLE image_sources_new RENAME TO image_sources",
     // 右クリックの「<ボード名>に追加」の追加先（FR-712）。最後に使ったボードは開くだけでも変わるので、別に持つ
     "ALTER TABLE board_state ADD COLUMN last_added_board_id INTEGER REFERENCES boards(id) ON DELETE SET NULL",
+    // 読み仮名（FR-418）。ひらがなで持ち、空の文字列は付けていないこと
+    "ALTER TABLE tags ADD COLUMN reading TEXT NOT NULL DEFAULT '';
+    ALTER TABLE categories ADD COLUMN reading TEXT NOT NULL DEFAULT ''",
 ];
 
 pub struct Library {
@@ -713,7 +716,13 @@ mod tests {
         let category = crate::category::create(&mut lib, None, "服飾").unwrap();
         crate::category::set_collapsed(&lib, &[category], true).unwrap();
         let image = crate::category::tests::put(&lib, Some(category), "参考.png", "画像の内容");
-        crate::tag::add(&mut lib, &[image], "資料").unwrap();
+        // tag::add は今の列（読み仮名）を読むので、フェーズ1の表には SQL で直に入れる
+        lib.conn
+            .execute_batch(&format!(
+                "INSERT INTO tags(name) VALUES ('資料');
+                 INSERT INTO image_tags(image_id, tag_id) VALUES ({image}, last_insert_rowid())"
+            ))
+            .unwrap();
         lib.conn
             .execute(
                 "UPDATE images SET memo = '覚え書き', rating = 4 WHERE id = ?1",

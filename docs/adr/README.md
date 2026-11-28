@@ -40,3 +40,4 @@ ADR は、後から知らないと危ない判断にだけ書く。データの�
 | [0031](0031-backup-export-only.md) | DB のバックアップは書き出しだけを作り、戻す操作は作らない（0032 で上書き） |
 | [0032](0032-restore-backup-in-app.md) | 書き出した管理情報を、アプリの中で戻せるようにする |
 | [0033](0033-merge-same-origin-images.md) | 元が同じ画像を1枚にまとめるとき、ボードの配置を置き換え、タグと元URLを引き継ぐ |
+| [0034](0034-reading-column-for-tags-and-categories.md) | タグとカテゴリの読み仮名を DB の列に持ち、照らすのは画面の wanakana で行う |

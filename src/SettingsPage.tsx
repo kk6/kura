@@ -50,6 +50,7 @@ export default function SettingsPage({
   tags,
   tagCounts,
   onRenameTag,
+  onTagReading,
   onMergeTag,
   onDeleteTag,
   root,
@@ -73,6 +74,7 @@ export default function SettingsPage({
   tags: Tag[]
   tagCounts: Map<number, number>
   onRenameTag: (id: number, name: string) => Promise<void>
+  onTagReading: (id: number, reading: string) => Promise<void>
   onMergeTag: (from: number, into: number) => Promise<void>
   onDeleteTag: (id: number) => Promise<void>
   root: string
@@ -258,6 +260,7 @@ export default function SettingsPage({
                   tags={tags}
                   counts={tagCounts}
                   onRename={onRenameTag}
+                  onReading={onTagReading}
                   onMerge={onMergeTag}
                   onDelete={onDeleteTag}
                 />

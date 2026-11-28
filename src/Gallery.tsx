@@ -965,6 +965,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           onFilter={changeFilter}
           onManageTags={() => setSettingsKind('tags')}
           onRename={lib.renameCategory}
+          onTagReading={lib.setTagReading}
           onCreate={async (parent, name) => void (await lib.createCategory(parent, name))}
           onMove={lib.moveCategory}
           onDelete={lib.deleteCategory}
@@ -1247,6 +1248,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           tags={data.tags}
           tagCounts={counts.tags}
           onRenameTag={lib.renameTag}
+          onTagReading={lib.setTagReading}
           onMergeTag={mergeTag}
           onDeleteTag={deleteTag}
           root={root}

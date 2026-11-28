@@ -244,6 +244,11 @@ pub fn set_collapsed(lib: &Library, ids: &[i64], collapsed: bool) -> Result<(), 
     Ok(())
 }
 
+/// カテゴリの読み仮名を変える（FR-418）。DB だけを変え、フォルダは動かさない
+pub fn set_reading(lib: &Library, id: i64, reading: &str) -> Result<String, String> {
+    crate::tag::save_reading(&lib.conn, "categories", "カテゴリ", id, reading)
+}
+
 /// カテゴリ名を変え、フォルダ名も変える（FR-403）。同じ場所に同名があればエラーにする
 pub fn rename(lib: &mut Library, id: i64, name: &str) -> Result<(), String> {
     let name: String = name.nfc().collect();
@@ -602,6 +607,24 @@ pub(crate) mod tests {
         assert!(collapsed(pose));
         assert!(!collapsed(dress));
         assert!(!collapsed(bg));
+    }
+
+    #[test]
+    fn 読み仮名はひらがなで保存し名前を変えても開き直しても残る() {
+        let (d, mut lib) = setup();
+        let sit = create(&mut lib, None, "座り").unwrap();
+
+        assert_eq!(set_reading(&lib, sit, "スワリ").unwrap(), "すわり");
+        rename(&mut lib, sit, "座る").unwrap();
+        drop(lib);
+        let lib = library::open(d.path()).unwrap();
+
+        let c = crate::gallery::load(&lib).unwrap().categories;
+        assert_eq!(
+            (c[0].name.as_str(), c[0].reading.as_str()),
+            ("座る", "すわり")
+        );
+        assert!(set_reading(&lib, 999, "すわり").is_err());
     }
 
     #[test]
