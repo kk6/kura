@@ -452,7 +452,7 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let image = put(&lib, None, "a.png", "a");
         set_memo(&lib, image, "今");
-        // 確かめには通るが、最後の移行（images に hidden の列を足す）で、列がもうあるため失敗する管理情報
+        // 確かめには通るが、images に hidden の列を足す移行（FR-513）で、列がもうあるため失敗する管理情報
         let bad = out.path().join("移行できない.db");
         let conn = Connection::open(&bad).unwrap();
         for sql in &MIGRATIONS[..2] {
@@ -463,7 +463,11 @@ mod tests {
                                  deleted_at INTEGER, missing_at INTEGER, hidden INTEGER)",
         )
         .unwrap();
-        conn.pragma_update(None, "user_version", MIGRATIONS.len() as i64 - 1)
+        let hidden = MIGRATIONS
+            .iter()
+            .position(|m| m.contains("ADD COLUMN hidden"))
+            .unwrap();
+        conn.pragma_update(None, "user_version", hidden as i64)
             .unwrap();
         drop(conn);
         let root = lib.root.clone();
