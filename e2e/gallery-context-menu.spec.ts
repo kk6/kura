@@ -12,7 +12,14 @@ test('一覧と拡大表示の右クリックで同じメニューが出て、�
   await page.getByRole('combobox', { name: '並べ替え' }).selectOption({ label: 'ファイル名' })
 
   await thumb(page, 2).click({ button: 'right' })
-  const expected = ['ボードに追加…', 'カテゴリを変える…', '1つ上のカテゴリへ移す', 'Finderで表示', 'ゴミ箱へ移す']
+  const expected = [
+    'ボードに追加…',
+    'カテゴリを変える…',
+    '1つ上のカテゴリへ移す',
+    'Finderで表示',
+    '隠す印を付ける',
+    'ゴミ箱へ移す',
+  ]
   await expect(menuItems(page)).toHaveText(expected)
   await page.screenshot({ path: 'test-results/context-menu.png' })
   await page.getByRole('menuitem', { name: 'Finderで表示' }).click()
@@ -49,6 +56,7 @@ test('複数を選んで右クリックすると、選んだ画像すべてに�
     'ボードに追加…',
     'カテゴリを変える…',
     '1つ上のカテゴリへ移す',
+    '隠す印を付ける',
     'ゴミ箱へ移す',
   ])
   await page.getByRole('menuitem', { name: 'ゴミ箱へ移す' }).click()

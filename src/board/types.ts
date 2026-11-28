@@ -35,6 +35,8 @@ export type Source = {
   width: number
   height: number
   status: 'available' | 'trashed' | 'missing' | 'deleted'
+  // 元画像の隠す印（FR-513）。隠すモードの間は無地の箱で描く
+  hidden: boolean
 }
 
 export type Item = { id: number; source: Source; geometry: Geometry }

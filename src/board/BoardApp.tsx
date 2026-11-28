@@ -121,6 +121,8 @@ export default function BoardApp() {
   // ウィンドウの表示（FR-705、FR-707）。Rust が保存してウィンドウに当て終えた値を applied に持ち、
   // 失敗したら画面をそこへ戻す。スライダーを動かす間は続けて届くので、配置と同じく1つずつ送る
   const [display, setDisplay] = useState<BoardDisplay>({ always_on_top: false, opacity: OPACITY_MAX })
+  // 隠すモード（FR-513）。開いたときに設定から読み、その後は hide-mode で受け取る
+  const [hideMode, setHideMode] = useState(false)
   const applied = useRef(display)
   const displayQueue = useRef(
     saveQueue<BoardDisplay>(
@@ -268,9 +270,10 @@ export default function BoardApp() {
         setView({ kind: 'choose' })
       })
     // ウィンドウには Rust が開くときに当てている。ここでは操作部品に同じ値を出す
-    invoke<Settings>('load_settings').then(({ board_window: { always_on_top, opacity } }) => {
+    invoke<Settings>('load_settings').then(({ board_window: { always_on_top, opacity }, hide_mode }) => {
       applied.current = { always_on_top, opacity }
       setDisplay(applied.current)
+      setHideMode(hide_mode)
     })
     // 開いている間の追加。ボードが増えたかもしれないので一覧も読み直す
     const unlisten = [
@@ -280,6 +283,8 @@ export default function BoardApp() {
       // ギャラリーで画像を削除・復元・移動した、または差分検出が終わった
       getCurrentWindow().listen('images-changed', () => refreshRef.current().catch((e) => setError(String(e)))),
       getCurrentWindow().listen<{ from: number; to: Source }[]>('board-replaced', (e) => replaceRef.current(e.payload)),
+      // メニューバーの「隠すモード」（FR-513）。描き方だけを変え、配置と保存する中身は変えない
+      getCurrentWindow().listen<boolean>('hide-mode', (e) => setHideMode(e.payload)),
     ]
     return () => unlisten.forEach((p) => p.then((f) => f()))
     // 開いたときに1度だけ読む
@@ -663,6 +668,7 @@ export default function BoardApp() {
               onArrange={align}
               onReveal={(id) => invoke('show_in_gallery', { id }).catch((e) => setError(String(e)))}
               onDropImages={dropImages}
+              hideMode={hideMode}
             />
           ) : (
             <main className="board__choose" aria-label="ボードを選ぶ">

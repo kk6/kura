@@ -13,7 +13,7 @@ import { flushAll } from './flush'
 import { Icon, ICONS } from './icons'
 import GalleryHeader, { SEARCH_BY_IMAGE } from './GalleryHeader'
 import GalleryToolbar, { THUMB_MAX, THUMB_MIN, ThumbSlider, WeightSliders } from './GalleryToolbar'
-import { addTag, dropTag, editImages, named, removeImages, swapTag } from './galleryData'
+import { addTag, dropTag, editImages, hideMarked, named, removeImages, swapTag } from './galleryData'
 import Detail, { NOT_COMPUTED } from './Detail'
 import { countImages, type Filter, filterImages, NO_FILTER } from './filter'
 import MoveFailDialog from './MoveFailDialog'
@@ -76,7 +76,16 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [result, setResult] = useState<Result | null>(null)
   const lib = useLibrary(setResult)
-  const { data, trash, missing, loadError, reload, reloadTrash, reloadMissing } = lib
+  const { loadError, reload, reloadTrash, reloadMissing } = lib
+  // 隠すモード（FR-513）の間は、隠す印の付いた画像が手元の一覧にないものとして扱う。
+  // 一覧から選べないので、詳細パネルと拡大表示にも出ない
+  const hiding = settings.hide_mode
+  const data = useMemo(() => ({ ...lib.data, images: hideMarked(lib.data.images, hiding) }), [lib.data, hiding])
+  const trash = useMemo(() => hideMarked(lib.trash, hiding), [lib.trash, hiding])
+  const missing = useMemo(() => hideMarked(lib.missing, hiding), [lib.missing, hiding])
+  // 件数に含めない代わりに、ステータスバーに出す。一覧、ゴミ箱、見つからない画像の合計
+  const hiddenCount =
+    lib.data.images.length - data.images.length + lib.trash.length - trash.length + lib.missing.length - missing.length
   const [showSkipped, setShowSkipped] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   // スキップの一覧の重複の行の「整理…」（FR-109）で開いた行
@@ -619,6 +628,9 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
   // OFF にしたら結果のモードを閉じる
   if (similar && !settings.similarity_enabled) setSimilar(null)
   if (groups && !settings.similarity_enabled) setGroups(null)
+  // 帯に出す基準画像のサムネイルも隠すモードでは出さない（FR-513）。結果を閉じる
+  if (hiding && similar && similar.base !== null && lib.data.images.some((i) => i.id === similar.base && i.hidden))
+    setSimilar(null)
 
   // ボードの「ギャラリーで表示」（FR-701）。絞り込みを外して画像を選び、見える所までスクロールする。
   // ゴミ箱と見つからない画像は、その一覧を開いて選ぶ
@@ -792,7 +804,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       return
     }
     setSelection(EMPTY_SELECTION)
-    setResult({ kind: 'emptied', count: r.done.length, failed: named(r.failed, trash) })
+    setResult({ kind: 'emptied', count: r.done.length, failed: named(r.failed, lib.trash) })
     reloadTrash()
   }
 
@@ -815,6 +827,17 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     forgetTag(id, null)
   }
 
+  // 隠す印を付け外しする（FR-513）。隠すモードの間に付けた画像は一覧から消え、選択も外れる
+  async function mark(targets: number[], hidden: boolean) {
+    try {
+      await invoke('set_hidden', { ids: targets, hidden })
+    } catch (e) {
+      setResult({ kind: 'error', message: `隠す印を${hidden ? '付けられ' : '外せ'}ません（${e}）` })
+      return
+    }
+    lib.update((d) => editImages(d, targets, (i) => ({ ...i, hidden })))
+  }
+
   const reveal = (id?: number) =>
     invoke('show_in_finder', { id }).catch((e) => setResult({ kind: 'error', message: `Finder で開けません（${e}）` }))
 
@@ -827,6 +850,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     lastBoard: !!lastBoard,
     similarity: settings.similarity_enabled,
     merge: canMerge,
+    unmarked: selected.some((i) => !i.hidden),
+    marked: selected.some((i) => i.hidden),
   })
   // 右クリックからのカテゴリの変更（FR-416）。1つ上がない画像を含むと null
   // 開いたときの画像を持つ。移した画像が絞り込みから外れて選択が空になっても、閉じるまでダイアログを描けるように
@@ -848,6 +873,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
     else if (action === 'board') addToBoard()
     else if (action === 'lastBoard') addToLastBoard()
     else if (action === 'reveal') reveal(ids[0])
+    else if (action === 'hide') mark(ids, true)
+    else if (action === 'unhide') mark(ids, false)
     else if (action === 'merge') setMerging(selected)
     else if (action === 'trash') trashImages(ids)
     else if (action === 'restore') restoreImages()
@@ -1130,6 +1157,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
               }
               onMemo={(id, memo) => lib.update((d) => editImages(d, [id], (i) => ({ ...i, memo })))}
               onTrash={trashImages}
+              onMark={mark}
               onReveal={reveal}
               // ゴミ箱と見つからない画像を開いている間は、この詳細パネルを出さない
               onOpen={() => setZoom(true)}
@@ -1152,6 +1180,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
                 ? `${images.length} / ${whole.length}枚`
                 : `${whole.length}枚`}
           {ids.length > 0 && ` ・ ${ids.length}枚を選択`}
+          {hiding && hiddenCount > 0 && ` ・ 隠している画像 ${hiddenCount}枚`}
         </span>
         {loadError && <Status kind="error">一覧を読めません（{loadError}）</Status>}
         <StatusbarResult
@@ -1212,7 +1241,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         >
           {asking === 'forget'
             ? `${askedName}のタグ、メモ、評価を削除します。元に戻せません。`
-            : `${asking === 'purge' ? askedName : `ゴミ箱の画像 ${trash.length}枚`}を完全に削除します。元に戻せません。`}
+            : `${asking === 'purge' ? askedName : `ゴミ箱の画像 ${lib.trash.length}枚`}を完全に削除します。元に戻せません。`}
         </ConfirmDialog>
       )}
       {changingCategory && (

@@ -14,6 +14,7 @@ const image = (id: number, fields: Partial<Image> = {}): Image => ({
   imported_at: 0,
   memo: '',
   tags: [],
+  hidden: false,
   ...fields,
 })
 
