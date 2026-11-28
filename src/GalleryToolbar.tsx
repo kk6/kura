@@ -21,6 +21,8 @@ type Props = {
   // 並べ替え。ゴミ箱と見つからない画像では渡さず、メニューを出さない
   sort?: SortKey
   onSort: (sort: SortKey) => void
+  // 「スマートフォルダとして保存…」（FR-510）。渡したときだけ出す
+  onSaveSmart?: () => void
   detailShown: boolean
   onToggleDetail: () => void
   // 大きさを変える操作（ThumbSlider か、拡大表示の間は ZoomSlider）
@@ -36,6 +38,7 @@ export default function GalleryToolbar({
   note,
   sort,
   onSort,
+  onSaveSmart,
   detailShown,
   onToggleDetail,
   children,
@@ -50,6 +53,11 @@ export default function GalleryToolbar({
       </span>
       {note && <span className="toolbar__count">{note}</span>}
       <span className="toolbar__spacer" />
+      {onSaveSmart && (
+        <button type="button" className="button" onClick={onSaveSmart}>
+          スマートフォルダとして保存…
+        </button>
+      )}
       {sort && (
         <select
           className="gallery__sort"
