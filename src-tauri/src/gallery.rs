@@ -22,6 +22,8 @@ pub struct Image {
     /// 絞り込み（FR-504）を画面側で行うため、メモとタグの id も一覧に含める
     pub memo: String,
     pub tags: Vec<i64>,
+    /// 隠す印（FR-513）。隠すモードの間に出さないのは画面側
+    pub hidden: bool,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -119,7 +121,7 @@ fn images(lib: &Library, filter: &str) -> Result<Vec<Image>, String> {
     }
     let images = conn
         .prepare(&format!(
-            "SELECT id, file_name, hash, width, height, color, category_id, rating, imported_at, memo
+            "SELECT id, file_name, hash, width, height, color, category_id, rating, imported_at, memo, hidden
              FROM images WHERE {filter}"
         ))
         .map_err(err)?
@@ -136,6 +138,7 @@ fn images(lib: &Library, filter: &str) -> Result<Vec<Image>, String> {
                 imported_at: r.get(8)?,
                 memo: r.get(9)?,
                 tags: tags_of.remove(&r.get(0)?).unwrap_or_default(),
+                hidden: r.get(10)?,
             })
         })
         .map_err(err)?
@@ -231,6 +234,15 @@ pub fn set_rating(lib: &Library, id: i64, rating: i64) -> Result<(), String> {
     update(lib, id, "rating", &rating)
 }
 
+/// 隠す印を付け外しする（FR-513）。1枚でも見つからなければ、どの画像も変えない
+pub fn set_hidden(lib: &Library, ids: &[i64], hidden: bool) -> Result<(), String> {
+    let tx = lib.conn.unchecked_transaction().map_err(err)?;
+    for &id in ids {
+        update(lib, id, "hidden", &hidden)?;
+    }
+    tx.commit().map_err(err)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +298,7 @@ mod tests {
                 imported_at: 1000,
                 memo: "腕の角度".into(),
                 tags: vec![1, 2],
+                hidden: false,
             }
         );
         assert_eq!(g.images[1].tags, Vec::<i64>::new());
@@ -449,5 +462,41 @@ mod tests {
         let g = load(&lib).unwrap();
 
         assert!(g.images.is_empty() && g.categories.is_empty() && g.tags.is_empty());
+    }
+
+    #[test]
+    fn 隠す印を付け外しし一覧とゴミ箱に印を返す() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let a = insert_image(&lib, "a.jpg", None, false);
+        let b = insert_image(&lib, "b.jpg", None, false);
+        insert_image(&lib, "c.jpg", None, false);
+
+        set_hidden(&lib, &[a, b], true).unwrap();
+        set_hidden(&lib, &[b], false).unwrap();
+
+        let hidden: Vec<bool> = load(&lib)
+            .unwrap()
+            .images
+            .iter()
+            .map(|i| i.hidden)
+            .collect();
+        assert_eq!(hidden, [true, false, false], "印は a だけに残る");
+        lib.conn
+            .execute("UPDATE images SET deleted_at = 1 WHERE id = ?1", [a])
+            .unwrap();
+        assert!(trash(&lib).unwrap()[0].hidden, "ゴミ箱でも印を返す");
+    }
+
+    #[test]
+    fn 見つからない画像を含むと隠す印をどれにも付けない() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library::create(dir.path()).unwrap();
+        let a = insert_image(&lib, "a.jpg", None, false);
+
+        let e = set_hidden(&lib, &[a, 999], true).unwrap_err();
+
+        assert!(e.contains("画像が見つかりません"), "{e}");
+        assert!(!load(&lib).unwrap().images[0].hidden);
     }
 }

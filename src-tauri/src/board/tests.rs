@@ -303,6 +303,12 @@ fn 開いたままのボードは外した配置の分も含めて元画像の�
         .execute("UPDATE images SET deleted_at = NULL WHERE id = ?1", [kept])
         .unwrap();
     assert_eq!(status(&lib)[0].2, SourceStatus::Available);
+    assert!(!refresh(&lib, s, &ids).unwrap()[0].hidden);
+    crate::gallery::set_hidden(&lib, &[kept], true).unwrap();
+    assert!(
+        refresh(&lib, s, &ids).unwrap()[0].hidden,
+        "隠す印を付けたら引き直した参照に出る"
+    );
     lib.board_session = Session::new();
     assert!(refresh(&lib, s, &ids).is_err());
 }

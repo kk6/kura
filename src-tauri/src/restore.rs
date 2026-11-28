@@ -452,7 +452,7 @@ mod tests {
         let out = tempfile::tempdir().unwrap();
         let image = put(&lib, None, "a.png", "a");
         set_memo(&lib, image, "今");
-        // 確かめには通るが、最後の移行（board_state に列を足す）で失敗する管理情報
+        // 確かめには通るが、最後の移行（images に hidden の列を足す）で、列がもうあるため失敗する管理情報
         let bad = out.path().join("移行できない.db");
         let conn = Connection::open(&bad).unwrap();
         for sql in &MIGRATIONS[..2] {
@@ -460,7 +460,7 @@ mod tests {
         }
         conn.execute_batch(
             "CREATE TABLE images(id INTEGER PRIMARY KEY, file_name TEXT, category_id INTEGER,
-                                 deleted_at INTEGER, missing_at INTEGER)",
+                                 deleted_at INTEGER, missing_at INTEGER, hidden INTEGER)",
         )
         .unwrap();
         conn.pragma_update(None, "user_version", MIGRATIONS.len() as i64 - 1)

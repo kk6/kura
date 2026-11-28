@@ -117,6 +117,8 @@ pub struct Source {
     pub width: i64,
     pub height: i64,
     pub status: SourceStatus,
+    /// 元画像の隠す印（FR-513）。隠すモードの間に無地の箱で描くのは画面側。完全に削除した画像は false
+    pub hidden: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -330,7 +332,8 @@ fn geometry(r: &rusqlite::Row) -> rusqlite::Result<Geometry> {
 
 fn source(conn: &Connection, id: SourceId) -> Result<Source, String> {
     conn.query_row(
-        "SELECT s.image_id, s.file_name, s.width, s.height, i.deleted_at, i.missing_at
+        "SELECT s.image_id, s.file_name, s.width, s.height, i.deleted_at, i.missing_at,
+                coalesce(i.hidden, 0)
          FROM board_sources s LEFT JOIN images i ON i.id = s.image_id WHERE s.id = ?1",
         [id.0],
         |r| {
@@ -351,6 +354,7 @@ fn source(conn: &Connection, id: SourceId) -> Result<Source, String> {
                 width: r.get(2)?,
                 height: r.get(3)?,
                 status,
+                hidden: r.get(6)?,
             })
         },
     )

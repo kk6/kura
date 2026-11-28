@@ -1,13 +1,13 @@
 //! メニューバー。構成は Tauri の初期のメニューと同じにし、文字だけを日本語にする。
 //! 終了は保存を待つ項目に置き換えた。
 //! 足したのは「ファイル」の「ライブラリを切り替える…」「ボードに追加…」「似た画像を探す」
-//! 「元が同じ画像の組を探す…」と「ウインドウ」の「アイデアボードを開く」だけ。
+//! 「元が同じ画像の組を探す…」と「表示」の「隠すモード」、「ウインドウ」の「アイデアボードを開く」だけ。
 //! 「編集」の取り消す・やり直す・すべてを選択は、ボードとギャラリーに届くよう自前の項目に置き換えた
 //! （Tauri の初期のメニューは文字が英語に固定されているため、作り直す）
 
 use tauri::menu::{
-    AboutMetadata, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID,
-    WINDOW_SUBMENU_ID,
+    AboutMetadata, CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu,
+    HELP_SUBMENU_ID, WINDOW_SUBMENU_ID,
 };
 use tauri::{AppHandle, Runtime};
 
@@ -26,6 +26,9 @@ pub const FIND_SIMILAR: &str = "find-similar";
 /// 元が同じ画像の組を探す項目（FR-611）。選ぶと main.rs がギャラリーへ find-origin-groups イベントを送る
 pub const FIND_ORIGIN_GROUPS: &str = "find-origin-groups";
 
+/// 隠すモードの切り替え（FR-513）。選ぶと main.rs が設定を書き換え、どのウィンドウにも hide-mode イベントで知らせる
+pub const HIDE_MODE: &str = "hide-mode";
+
 /// 「編集」の取り消す・やり直す・すべてを選択（FR-702、NFR-12）。選ぶと main.rs が手前のウィンドウへ
 /// edit-menu イベントで id を送る。標準の項目は入力欄の文字にしか効かず、ボードの配置やギャラリーの画像に
 /// 届かないので置き換えた。入力欄の文字の編集は画面が受け持つ（src/editMenu.ts）
@@ -39,11 +42,13 @@ pub const EDITS: [&str; 3] = [UNDO, REDO, SELECT_ALL];
 pub const QUIT: &str = "quit";
 
 /// board が false（アイデアボードが OFF。FR-711）なら、ボードの項目とショートカットを入れない。
-/// similarity が false（類似画像検索が OFF）なら、類似画像検索の項目と ⇧⌘F を入れない（6章）
+/// similarity が false（類似画像検索が OFF）なら、類似画像検索の項目と ⇧⌘F を入れない（6章）。
+/// hide は隠すモードの間か（FR-513）。「隠すモード」に印を付ける
 pub fn build<R: Runtime>(
     app: &AppHandle<R>,
     board: bool,
     similarity: bool,
+    hide: bool,
 ) -> tauri::Result<Menu<R>> {
     let name = app.package_info().name.clone();
     let about = AboutMetadata {
@@ -95,6 +100,15 @@ pub fn build<R: Runtime>(
         "元が同じ画像の組を探す…",
         true,
         None::<&str>,
+    )?;
+    // ギャラリーが手前の間だけ、enable で有効にする（6章）
+    let hide_mode = CheckMenuItem::with_id(
+        app,
+        HIDE_MODE,
+        "隠すモード",
+        true,
+        hide,
+        Some("CmdOrCtrl+Shift+H"),
     )?;
     let undo = MenuItem::with_id(app, UNDO, "取り消す", true, Some("CmdOrCtrl+Z"))?;
     let redo = MenuItem::with_id(app, REDO, "やり直す", true, Some("CmdOrCtrl+Shift+Z"))?;
@@ -163,10 +177,11 @@ pub fn build<R: Runtime>(
                 app,
                 "表示",
                 true,
-                &[&PredefinedMenuItem::fullscreen(
-                    app,
-                    Some("フルスクリーンにする"),
-                )?],
+                &[
+                    &hide_mode,
+                    &sep()?,
+                    &PredefinedMenuItem::fullscreen(app, Some("フルスクリーンにする"))?,
+                ],
             )?,
             // この id のメニューを macOS がウインドウのメニューとみなし、整列などの項目を足す
             &Submenu::with_id_and_items(app, WINDOW_SUBMENU_ID, "ウインドウ", true, &window)?,
@@ -184,6 +199,23 @@ pub fn enable<R: Runtime>(app: &AppHandle<R>, id: &str, enabled: bool) -> tauri:
         let item = submenu.as_submenu().and_then(|s| s.get(id));
         if let Some(item) = item.as_ref().and_then(|i| i.as_menuitem()) {
             item.set_enabled(enabled)?;
+        }
+        if let Some(item) = item.as_ref().and_then(|i| i.as_check_menuitem()) {
+            item.set_enabled(enabled)?;
+        }
+    }
+    Ok(())
+}
+
+/// 印の付く項目 id の印を checked にそろえる。macOS は選んだときに印を自分で切り替えるので、保存した値に合わせ直す
+pub fn check<R: Runtime>(app: &AppHandle<R>, id: &str, checked: bool) -> tauri::Result<()> {
+    let Some(menu) = app.menu() else {
+        return Ok(());
+    };
+    for submenu in menu.items()? {
+        let item = submenu.as_submenu().and_then(|s| s.get(id));
+        if let Some(item) = item.as_ref().and_then(|i| i.as_check_menuitem()) {
+            item.set_checked(checked)?;
         }
     }
     Ok(())
