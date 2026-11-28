@@ -751,6 +751,11 @@ async fn delete_category(app: AppHandle, id: i64) -> Result<category::Deleted, S
 }
 
 #[tauri::command]
+async fn merge_category(app: AppHandle, id: i64, into: i64) -> Result<category::Merged, String> {
+    with_library(app, move |lib| category::merge(lib, id, into)).await
+}
+
+#[tauri::command]
 fn set_categories_collapsed(
     current: State<Current>,
     ids: Vec<i64>,
@@ -1185,6 +1190,7 @@ fn main() {
             rename_category,
             move_category,
             delete_category,
+            merge_category,
             set_categories_collapsed,
             image_tags,
             add_tag,

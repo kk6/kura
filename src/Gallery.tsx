@@ -968,6 +968,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           onCreate={async (parent, name) => void (await lib.createCategory(parent, name))}
           onMove={lib.moveCategory}
           onDelete={lib.deleteCategory}
+          onMerge={lib.mergeCategory}
           onCollapse={lib.collapseCategories}
           confirmMove={settings.confirm_category_move}
           onSkipConfirm={() => changeSettings({ confirm_category_move: false })}
@@ -1272,7 +1273,11 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         />
       )}
       {showSkipped &&
-        (result && result.kind !== 'report' && result.kind !== 'scan' && result.kind !== 'deleted' ? (
+        (result &&
+        result.kind !== 'report' &&
+        result.kind !== 'scan' &&
+        result.kind !== 'deleted' &&
+        result.kind !== 'categoryMerged' ? (
           <MoveFailDialog
             title={
               result.kind === 'emptied'

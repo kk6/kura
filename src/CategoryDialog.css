@@ -22,3 +22,8 @@
   padding-top: var(--space-4);
   border-top: var(--border);
 }
+
+/* カテゴリの統合（FR-417）で、統合先の欄の下に出す確かめの文 */
+.category-dialog__note {
+  margin-top: var(--space-3);
+}
