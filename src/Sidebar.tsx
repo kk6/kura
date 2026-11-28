@@ -15,6 +15,7 @@ import MoveCategoryDialog from './MoveCategoryDialog'
 import Status from './Status'
 import { type countImages, type Filter, selectCategory, selectTags, toggleExclude } from './filter'
 import type { Category, Gallery } from './galleryTypes'
+import type { SmartFolder } from './smartFolder'
 import { Icon, ICONS } from './icons'
 import { select } from './selection'
 import './Sidebar.css'
@@ -56,6 +57,13 @@ type Props = {
   categoryChildren: boolean
   onCategoryChildren: (children: boolean) => void
   onTagsCollapse: (collapsed: boolean) => void
+  // スマートフォルダ（FR-510）。openedSmart は今の絞り込みと同じ条件で開いているもの
+  smartFolders: SmartFolder[]
+  openedSmart: number | null
+  onOpenSmart: (folder: SmartFolder) => void
+  // 失敗したら理由の文字列で reject する
+  onRenameSmart: (id: number, name: string) => Promise<void>
+  onDeleteSmart: (id: number) => void
 }
 
 // 長いパスは途中を … で省き、先頭のフォルダと最後の2つを残す（全体は title で出す）
@@ -74,7 +82,8 @@ type Hit = 'none' | 'self' | 'same' | { target: number | null }
 
 export default function Sidebar(props: Props) {
   const { gallery, filter, counts, onFilter, onManageTags, onRename, onCreate, onMove, onDelete, onCollapse } = props
-  const current = props.aside ? null : filter.category
+  // スマートフォルダを開いている間は、カテゴリの行を選んだ見た目にしない。選んだ行を1つにするため
+  const current = props.aside || props.openedSmart !== null ? null : filter.category
   const children = new Map<number | null, Category[]>()
   for (const c of gallery.categories) children.set(c.parent_id, [...(children.get(c.parent_id) ?? []), c])
   const parentOf = new Map(gallery.categories.map((c) => [c.id, c.parent_id]))
@@ -147,9 +156,13 @@ export default function Sidebar(props: Props) {
   // 統合先を選んでいるカテゴリ（FR-417）
   const [merging, setMerging] = useState<number | null>(null)
   // 右クリックしたカテゴリかタグと、そのメニューの位置
-  const [menuFor, setMenuFor] = useState<{ kind: 'category' | 'tag'; id: number } | null>(null)
+  const [menuFor, setMenuFor] = useState<{ kind: 'category' | 'tag' | 'smart'; id: number } | null>(null)
+  // 名前を入力中のスマートフォルダと、確認ダイアログで答えを待っている削除
+  const [renamingSmart, setRenamingSmart] = useState<{ id: number; name: string; error?: string } | null>(null)
+  const [deletingSmart, setDeletingSmart] = useState<SmartFolder | null>(null)
+  const smartOf = (id: number) => props.smartFolders.find((f) => f.id === id)
   const { at: menuAt, setAt: setMenuAt, ref: menuRef } = useContextMenu()
-  const menuItems: Record<'category' | 'tag', [string, (id: number) => void][]> = {
+  const menuItems: Record<'category' | 'tag' | 'smart', [string, (id: number) => void][]> = {
     category: [
       [
         '名前と読み仮名を変更…',
@@ -165,8 +178,12 @@ export default function Sidebar(props: Props) {
     tag: [
       ['読み仮名を変更…', (id) => setReadingTag({ id, reading: gallery.tags.find((t) => t.id === id)?.reading ?? '' })],
     ],
+    smart: [
+      ['名前を変更…', (id) => setRenamingSmart({ id, name: smartOf(id)?.name ?? '' })],
+      ['削除…', (id) => setDeletingSmart(smartOf(id) ?? null)],
+    ],
   }
-  const openMenu = (e: MouseEvent, kind: 'category' | 'tag', id: number) => {
+  const openMenu = (e: MouseEvent, kind: 'category' | 'tag' | 'smart', id: number) => {
     e.preventDefault()
     setMenuFor({ kind, id })
     setMenuAt({ x: e.clientX, y: e.clientY })
@@ -454,6 +471,57 @@ export default function Sidebar(props: Props) {
           </li>
         )}
       </ul>
+      {/* 1つも保存していない間は見出しも出さない */}
+      {props.smartFolders.length > 0 && (
+        <>
+          <h2 className="sidebar__heading" id="sidebar-smart">
+            スマートフォルダ
+          </h2>
+          <ul className="sidebar__list" aria-labelledby="sidebar-smart">
+            {props.smartFolders.map((f) => (
+              <li key={f.id}>
+                {renamingSmart?.id === f.id ? (
+                  <div className="sidebar__edit" style={{ '--depth': 0 } as CSSProperties}>
+                    <input
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      className={renamingSmart.error ? 'sidebar__input sidebar__input--error' : 'sidebar__input'}
+                      aria-label="スマートフォルダの名前"
+                      aria-invalid={!!renamingSmart.error}
+                      value={renamingSmart.name}
+                      autoFocus
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setRenamingSmart({ id: f.id, name: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setRenamingSmart(null)
+                        // かな漢字変換を確定する Enter では変えない
+                        if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+                        props
+                          .onRenameSmart(f.id, renamingSmart.name)
+                          .then(() => setRenamingSmart(null))
+                          .catch((err) => setRenamingSmart({ ...renamingSmart, error: String(err) }))
+                      }}
+                      onBlur={() => setRenamingSmart(null)}
+                    />
+                    {renamingSmart.error && <Status kind="error">{renamingSmart.error}</Status>}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`sidebar__item sidebar__button${props.openedSmart === f.id ? ' sidebar__item--selected' : ''}`}
+                    aria-current={props.openedSmart === f.id}
+                    onClick={() => props.onOpenSmart(f)}
+                    onContextMenu={(e) => openMenu(e, 'smart', f.id)}
+                  >
+                    <Icon d={ICONS.folderSearch} />
+                    <span className="sidebar__name">{f.name}</span>
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <h2
         className={`sidebar__heading${over === ROOT ? ' sidebar__heading--drop' : ''}`}
         id="sidebar-categories"
@@ -683,6 +751,19 @@ export default function Sidebar(props: Props) {
             </ConfirmDialog>
           )
         })()}
+      {deletingSmart && (
+        <ConfirmDialog
+          title="スマートフォルダを削除する"
+          confirm="削除する"
+          onConfirm={() => {
+            props.onDeleteSmart(deletingSmart.id)
+            setDeletingSmart(null)
+          }}
+          onClose={() => setDeletingSmart(null)}
+        >
+          「{deletingSmart.name}」を削除します。画像は変わりません。
+        </ConfirmDialog>
+      )}
       {pending && (
         <MoveCategoryDialog
           name={nameOf(pending.id) ?? ''}

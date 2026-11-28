@@ -1,0 +1,21 @@
+/* 名前を付けるダイアログの入力欄。ボード（FR-701）とスマートフォルダ（FR-510）で使う */
+.board-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--color-text-sub);
+}
+
+.board-name__input {
+  height: var(--size-control);
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-input);
+}
+
+.board-name__input--error {
+  border: var(--focus-ring);
+  border-color: var(--color-error);
+}

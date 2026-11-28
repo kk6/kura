@@ -371,6 +371,42 @@ const deleteTag: Handler = (args) => {
   GALLERY.tags = GALLERY.tags.filter((t) => t.id !== id)
 }
 
+// スマートフォルダ（FR-510）。本物は DB に残す。開き直し（page.goto）でも残るよう sessionStorage に置く
+type SmartFolder = { id: number; name: string; filter: string }
+const smartFolders = () => JSON.parse(sessionStorage.getItem('mock.smartFolders') ?? '[]') as SmartFolder[]
+const saveSmartFolders = (list: SmartFolder[]) =>
+  sessionStorage.setItem(
+    'mock.smartFolders',
+    JSON.stringify(list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id))),
+  )
+const smartName = (args: Record<string, unknown> | undefined, except?: number) => {
+  const name = String(args?.name).trim().normalize('NFC')
+  if (!name || name.length > 100) throw 'スマートフォルダの名前は前後の空白を除いて1〜100文字で入力してください'
+  if (smartFolders().some((f) => f.id !== except && key(f.name) === key(name)))
+    throw '同じ名前のスマートフォルダがあります'
+  return name
+}
+const smartOf = (id: unknown) => {
+  const folder = smartFolders().find((f) => f.id === id)
+  if (!folder) throw `スマートフォルダが見つかりません（${id}）`
+  return folder
+}
+const createSmartFolder: Handler = (args) => {
+  const list = smartFolders()
+  const folder = { id: Math.max(0, ...list.map((f) => f.id)) + 1, name: smartName(args), filter: String(args?.filter) }
+  saveSmartFolders([...list, folder])
+  return folder
+}
+const renameSmartFolder: Handler = (args) => {
+  const folder = { ...smartOf(args?.id), name: smartName(args, args?.id as number) }
+  saveSmartFolders(smartFolders().map((f) => (f.id === folder.id ? folder : f)))
+  return folder
+}
+const deleteSmartFolder: Handler = (args) => {
+  const id = smartOf(args?.id).id
+  saveSmartFolders(smartFolders().filter((f) => f.id !== id))
+}
+
 // ゴミ箱（FR-511）。最初から2枚入れておく。1枚目は元のカテゴリ（id 99）が削除済みで、戻すと未分類になる
 const TRASH: Image[] = [COUNT + 1, COUNT + 2].map((id, i) => ({
   ...IMAGES[i],
@@ -1021,6 +1057,10 @@ const handlers: Record<string, Handler> = {
   set_category_reading: setCategoryReading,
   merge_tag: mergeTag,
   delete_tag: deleteTag,
+  list_smart_folders: smartFolders,
+  create_smart_folder: createSmartFolder,
+  rename_smart_folder: renameSmartFolder,
+  delete_smart_folder: deleteSmartFolder,
   load_trash: () => structuredClone(TRASH),
   trash_images: trashImages,
   merge_images: mergeImages,

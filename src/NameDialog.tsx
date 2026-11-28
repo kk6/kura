@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import Status from '../Status'
-import '../SkipDialog.css'
-import './Board.css'
+import Status from './Status'
+import './SkipDialog.css'
+import './NameDialog.css'
 
-// ボードの新規作成と名前の変更（FR-701）。名前は Rust が検査し、エラーは入力欄の下に出す
+// ボードの新規作成と名前の変更（FR-701）、スマートフォルダの保存（FR-510）。名前は Rust が検査し、エラーは入力欄の下に出す
 export default function NameDialog({
   title,
+  label = 'ボード名',
   action,
   initial,
   onSubmit,
   onClose,
 }: {
   title: string
+  // 入力欄の名前。スマートフォルダの保存（FR-510）でも使う
+  label?: string
   // 実行するボタンの文言
   action: string
   initial: string
@@ -48,7 +51,7 @@ export default function NameDialog({
       </h2>
       <form onSubmit={submit}>
         <label className="board-name">
-          ボード名
+          {label}
           <input
             ref={input}
             className={error ? 'board-name__input board-name__input--error' : 'board-name__input'}

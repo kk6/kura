@@ -20,6 +20,8 @@ import MoveFailDialog from './MoveFailDialog'
 import Masonry from './Masonry'
 import SettingsPage, { type SettingsKind } from './SettingsPage'
 import Sidebar from './Sidebar'
+import NameDialog from './NameDialog'
+import { readSmartFolder, type SmartFolder, writeSmartFolder } from './smartFolder'
 import SkipDialog from './SkipDialog'
 import TidyDialog from './TidyDialog'
 import Status from './Status'
@@ -209,6 +211,35 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
       setSelection(EMPTY_SELECTION)
     }
   }
+
+  // スマートフォルダ（FR-510）。opened は開いたときの条件で、今の絞り込みと並べ替えが同じ間だけ選んだ見た目にする
+  const [smartFolders, setSmartFolders] = useState<SmartFolder[]>([])
+  const [opened, setOpened] = useState<{ id: number; saved: string } | null>(null)
+  const [savingSmart, setSavingSmart] = useState(false)
+  const currentSmart = writeSmartFolder({ filter, sort, children: settings.category_children })
+  const openedSmart = (opened?.saved === currentSmart && smartFolders.find((f) => f.id === opened.id)) || null
+  useEffect(() => {
+    invoke<SmartFolder[]>('list_smart_folders')
+      .then(setSmartFolders)
+      .catch((e) => setResult({ kind: 'error', message: `スマートフォルダを読めません（${e}）` }))
+  }, [])
+  const reloadSmart = async () => setSmartFolders(await invoke<SmartFolder[]>('list_smart_folders'))
+  function openSmart(folder: SmartFolder) {
+    const { saved, dropped } = readSmartFolder(folder.filter, data.categories, data.tags)
+    changeFilter(saved.filter)
+    setSort(saved.sort)
+    if (saved.children !== settings.category_children) changeSettings({ category_children: saved.children })
+    setOpened({ id: folder.id, saved: writeSmartFolder(saved) })
+    // 保存した条件は書き換えない。開くたびに外して知らせる
+    if (dropped)
+      setResult({
+        kind: 'info',
+        message: `「${folder.name}」の条件から、なくなったタグとカテゴリ ${dropped}件を外しました`,
+      })
+  }
+  // 絞り込みも並べ替えも初期のままなら保存するものがない
+  const canSaveSmart =
+    currentSmart !== writeSmartFolder({ filter: NO_FILTER, sort: 'imported', children: settings.category_children })
 
   // ゴミ箱と見つからない画像は新しい順に出し、並べ替えと絞り込みはしない
   const listed = inTrash ? trash : inMissing ? missing : images
@@ -889,11 +920,13 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         ? 'ゴミ箱'
         : inMissing
           ? '見つからない'
-          : filter.category === 'all'
-            ? 'すべての画像'
-            : filter.category === 'uncategorized'
-              ? '未分類'
-              : (data.categories.find((c) => c.id === filter.category)?.name ?? '')
+          : openedSmart
+            ? openedSmart.name
+            : filter.category === 'all'
+              ? 'すべての画像'
+              : filter.category === 'uncategorized'
+                ? '未分類'
+                : (data.categories.find((c) => c.id === filter.category)?.name ?? '')
 
   const skipped = result?.kind === 'report' || result?.kind === 'scan' ? result.report.skipped : []
 
@@ -1012,6 +1045,18 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           onTagsCollapse={(tags_collapsed) => changeSettings({ tags_collapsed })}
           categoryChildren={settings.category_children}
           onCategoryChildren={(category_children) => changeSettings({ category_children })}
+          smartFolders={smartFolders}
+          openedSmart={openedSmart?.id ?? null}
+          onOpenSmart={openSmart}
+          onRenameSmart={async (id, name) => {
+            await invoke('rename_smart_folder', { id, name })
+            await reloadSmart()
+          }}
+          onDeleteSmart={(id) =>
+            invoke('delete_smart_folder', { id })
+              .then(reloadSmart)
+              .catch((e) => setResult({ kind: 'error', message: `スマートフォルダを削除できません（${e}）` }))
+          }
         />
         <GalleryToolbar
           title={title}
@@ -1019,6 +1064,7 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
           unit={shownGroups ? '組' : '枚'}
           sort={aside || similar || groups ? undefined : sort}
           onSort={setSort}
+          onSaveSmart={!aside && !similar && !groups && canSaveSmart ? () => setSavingSmart(true) : undefined}
           lead={
             similar && (
               <img
@@ -1170,6 +1216,22 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         </div>
       </div>
 
+      {savingSmart && (
+        <NameDialog
+          title="スマートフォルダとして保存"
+          label="名前"
+          action="保存"
+          initial=""
+          onSubmit={async (name) => {
+            const folder = await invoke<SmartFolder>('create_smart_folder', { name, filter: currentSmart })
+            await reloadSmart()
+            setOpened({ id: folder.id, saved: currentSmart })
+            setSavingSmart(false)
+          }}
+          onClose={() => setSavingSmart(false)}
+        />
+      )}
+
       <footer className="gallery__statusbar">
         <span>
           {inTrash
@@ -1308,7 +1370,8 @@ export default function Gallery({ root, recent, settings, onSettings, onSwitch, 
         result.kind !== 'report' &&
         result.kind !== 'scan' &&
         result.kind !== 'deleted' &&
-        result.kind !== 'categoryMerged' ? (
+        result.kind !== 'categoryMerged' &&
+        result.kind !== 'info' ? (
           <MoveFailDialog
             title={
               result.kind === 'emptied'

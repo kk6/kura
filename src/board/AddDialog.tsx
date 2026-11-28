@@ -4,6 +4,7 @@ import Status from '../Status'
 import { defaultName } from './names'
 import type { Boards, Target } from './types'
 import '../SkipDialog.css'
+import '../NameDialog.css'
 import './Board.css'
 
 const NEW = 'new'

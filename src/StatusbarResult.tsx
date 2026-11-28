@@ -17,6 +17,8 @@ export type Result =
   // 差分検出（FR-104）
   | { kind: 'scan'; report: ScanReport }
   | { kind: 'error'; message: string; failed?: Failed }
+  // 知らせるだけのもの（スマートフォルダの条件から外したタグとカテゴリ、FR-510）
+  | { kind: 'info'; message: string }
   | { kind: 'deleted'; name: string; moved: number }
   // カテゴリの統合（FR-417）
   | { kind: 'categoryMerged'; name: string; into: string; moved: number }
@@ -91,6 +93,8 @@ function Content({ backfill, scanning, progress, result, onShowFailed, onShowMis
           {failedLink('移せない', result.failed)}
         </>
       )
+    case 'info':
+      return <Status kind="info">{result.message}</Status>
     case 'deleted':
       return (
         <Status kind="success">
