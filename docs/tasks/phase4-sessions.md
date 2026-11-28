@@ -2,6 +2,548 @@
 
 進行役のセッションが、まとまりごとに作業セッションを始めるときに渡すブリーフです。新しい範囲を上に足します。
 
+## 4c
+
+2026-11-28 作成。タスク20（未決事項と完了条件を決める）は、このまとまりを書く前に利用者と決め、要件定義書と GLOSSARY.md に書き戻しました。直接追加（FR-710）は入れないので、タスク27は外しました。
+
+### まとまり
+
+[phase4.md](phase4.md) のタスク21〜28を、1回のセッションで頼める大きさに分けています。タスク29は利用者の確認です。
+
+| まとまり | タスク | 内容 | 前提 | 並行 | ブランチ |
+| --- | --- | --- | --- | --- | --- |
+| A | 27b | カテゴリの統合（FR-417） | タスク20 | F と並行できる | `feat/fr-417-merge-category` |
+| B | 27d | 読み仮名とローマ字での検索（FR-418） | A | F と並行できる | `feat/fr-418-reading` |
+| C | 24 | 画像を隠すモード（FR-513） | B | F と並行できる | `feat/fr-513-hide-mode` |
+| D | 21 | スマートフォルダ（FR-510） | C | しない | `feat/fr-510-smart-folder` |
+| E | 22、23 | ギャラリーの範囲選択とドラッグ分類（FR-512、FR-514） | D | しない | `feat/fr-512-514-drag` |
+| F | 25 | ボードの整列（FR-709） | タスク20 | A〜C と並行できる | `feat/fr-709-arrange` |
+| G | 26、27e、27f | メニューバーの再構成、Google 画像検索、ヘルプ（6章、FR-612、NFR-14） | E、F | しない | `feat/4c-menu-help` |
+| H | 28 | 検証手順、文書、リリース準備 | G | しない | `chore/4c-release-prep` |
+
+分け方の理由：
+
+- A〜E と G はどれも Tauri のコマンドかマイグレーションを足すので、`main.rs`、`library.rs` の `MIGRATIONS`、`src/mocks/ipc.ts` に触れる。そのため互いに並行にしない
+- F はボードの画面（`src/board/`）の中だけで済み、Tauri のコマンドもマイグレーションも足さない。A〜C と並行できる。`src/board/saveQueue.ts` には触れない
+- C は「表示」の「隠すモード」（⇧⌘H）を `menu.rs` に足す。G はその項目を含めてメニュー全体を作り直すので、C の後に置く
+- E のドラッグ分類は、D でサイドバーに足すスマートフォルダの見出しを落とし先にしないよう、D の後に置く
+- G の「Google 画像検索で探す」と「Kura ヘルプ」はメニューの項目なので、メニューの作り直しと一緒に作る
+- H は作った機能を通して確かめる作業と文書の作業で、新しい機能を足さない
+
+各まとまりは main から切り、終わったら main へマージします。
+
+### ブリーフ
+
+#### A
+
+カテゴリの統合（FR-417）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり A、タスク27b（FR-417）を担当する。サイドバーのカテゴリの右クリックメニュー（「名前と読み仮名を変更…」「統合…」「削除…」）を作って「統合…」を足し、カテゴリの画像と子カテゴリを統合先へ移して元のカテゴリを削除する。細部は 2026-11-28 に利用者と決め、要件定義書5.4 の「カテゴリの統合」に書いてある。
+
+まとまり F（ボードの整列。`src/board/` だけに触れる）が別のセッションで同時に進む。
+
+## 先に読むもの
+
+- `CLAUDE.md`
+- `docs/requirements.md` の5.4 の「カテゴリの統合（FR-417。フェーズ4c）の細部」、FR-404（カテゴリの削除）、FR-412（カテゴリの移動）、4章の「移動の途中で止まった場合」、7章の名前の衝突とカテゴリの削除の項
+- `GLOSSARY.md` の「カテゴリの統合」
+- `docs/tasks/phase4.md` のタスク27b、`docs/tasks/phase4-check.md` の C の該当項目
+- `src-tauri/src/category.rs`（`assign`、`move_to`、`delete`、`apply_trash_category`）、`src-tauri/src/fileops.rs`、`src-tauri/src/library.rs` の `apply_op`、`src-tauri/src/tag.rs` の `merge`（タグの統合の形）
+- `src/Sidebar.tsx`（カテゴリの行、ダブルクリックでの名前の変更、ゴミ箱のボタン）、`src/contextMenu.ts`（右クリックメニューの作り方）、`src/CategoryDialog.tsx`、`src/Classify.tsx` の `CategorySelect` の使い方（`src/MoveCategoryDialog.tsx`）
+- `.claude/skills/verify-crash-safe-move/SKILL.md`
+- `docs/design.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## 注意すること
+
+- 画像の移動は既存の手順（`pending_ops` の3段階、`OnConflict::Number`）を使う。新しいファイルの動かし方を作らない
+- 統合先に同じ名前の子カテゴリがあれば、その2つも統合する。下の階層も同じ。統合先に同じ名前がなければ、子カテゴリはフォルダごと統合先の下へ移す（FR-412 の移動と同じ）
+- どこで落ちても画像を失わないこと。移せない画像があれば、その画像のあるカテゴリを削除せずに残す。失敗のケースは Rust のテストを先に書く
+- 空になった元のカテゴリは、カテゴリの削除（FR-404）と同じ `trash_category` の手順で消す。管理外のファイルはフォルダごと `.kura/trash/` に残る
+
+## タスク
+
+- Rust：統合元と統合先の id を受け取り、統合するコマンドを足す。結果（移した枚数、移せなかった画像と理由）を返す。テストを先に書く。統合先に元のカテゴリ自身とその子孫は選べない
+- 画面：サイドバーのカテゴリに右クリックメニューを足す。項目は「名前と読み仮名を変更…」「統合…」「削除…」。このまとまりでは「名前と読み仮名を変更…」は名前の変更（ダブルクリックと同じ）だけを行い、読み仮名の欄はまとまり B が足す。「削除…」は行のゴミ箱のボタンと同じ確認を出す。「統合…」は統合先を `CategorySelect` で選び、移す枚数と子カテゴリの数を見せて確かめる。結果をステータスバーに出し、移せなかった画像は今の移動と同じダイアログで出す
+- `src/mocks/ipc.ts` にモックの応答を足し、e2e でメニュー、ダイアログ、統合後のサイドバーを撮る
+- `docs/user-guide.md` に統合を書く
+
+## 完了の条件
+
+- 統合後に、画像と子カテゴリが統合先にあり、同じ名前の子カテゴリがまとまっている。Finder でもそうなっている。元のカテゴリは消えている
+- 統合先に同じ名前のファイルがあれば、番号を付けて入っている
+- Rust のテストに、途中の失敗（移す途中、DB の書き込みの失敗）で画像を失わないケースがある
+- `.claude/skills/verify-crash-safe-move/check.sh` が通る（`fileops.rs` か `apply_op` に触れなくても、カテゴリの手順を足すので流す）
+- verify-kura の手順で実アプリを隔離して起動し、子カテゴリと同じ名前のファイルを含むカテゴリを統合し、Finder と DB で結果を確かめている
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 未決事項（`docs/requirements.md` の10章）に当たる判断や、要件定義書に書いていない操作・表示の判断が要るときは、自分で決めずに報告して止まる。worker.md の「質問せず、自分で選んで進める」より優先する
+- PR のタイトルは `feat: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く。worker.md の PR の形より優先する
+- マージと main への push はしない。worker.md より優先する
+- ブランチは `feat/fr-417-merge-category`。main の最新から切る
+- コミットメッセージに FR の ID を書く。コードのコメントは日本語で書く
+- 本物の資料フォルダには触れない。読み取りもしない。試すには `scripts/` のダミーを使う
+- 画像ファイルを削除しない。消す操作はゴミ箱へ移すだけにする
+- 色・文字サイズ・余白は `src/styles/tokens.css` の変数だけを使う
+- 画面の動きや文言を変えたら `docs/user-guide.md` も直す
+- Tauri のコマンドを足すときは、`main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` をそろえる（`npm run lint` が見る）
+- DB の列や表を足すときは、`library.rs` の `MIGRATIONS` の末尾に1つ足す。既存のマイグレーションは変えない
+
+## 報告
+
+やったこと、確かめた方法（流したコマンドと結果、スクリーンショットの場所）、残った課題を報告して止まる。次のまとまりには進まない。
+```
+
+#### B
+
+読み仮名とローマ字での検索（FR-418）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり B、タスク27d（FR-418）を担当する。タグとカテゴリに読み仮名を付け、検索バーとタグ・カテゴリの候補で、名前と読み仮名をローマ字・ひらがな・カタカナの入力とも照らす（「suwari」で「座り」が出る）。方式は 2026-11-28 に利用者が案 A に決め、要件定義書5.4 の「読み仮名とローマ字での検索」に書いてある。
+
+まとまり F（ボードの整列）が別のセッションで同時に進むことがある。
+
+## 先に読むもの
+
+- `CLAUDE.md`
+- `docs/requirements.md` の5.4 の「読み仮名とローマ字での検索（FR-418。フェーズ4c）の細部」、FR-408 のタグ管理の細部、7章の tags と categories の行、NFR-02
+- `GLOSSARY.md` の「読み仮名」
+- `docs/tasks/phase4.md` のタスク27d、`docs/tasks/phase4-check.md` の C の該当項目
+- `docs/adr/README.md`（ADR の書き方）
+- `src-tauri/src/library.rs` の `MIGRATIONS`、`src-tauri/src/tag.rs`、`src-tauri/src/category.rs`、`src-tauri/src/gallery.rs`
+- `src/choices.ts`（候補の絞り込み）、`src/SearchBox.tsx`、`src/Classify.tsx`、`src/TagManager.tsx`、`src/Sidebar.tsx`（タグ一覧の絞り込みと、まとまり A で足したカテゴリの右クリックメニュー）、`src/contextMenu.ts`
+- `docs/design.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## 注意すること
+
+- ローマ字をかなに直すのは wana_kana（Rust）か wanakana（画面）のどちらか片方にする。照らす場所（今の候補の絞り込みが画面にあるなら画面）に合わせて選び、理由を ADR に書く
+- 読み仮名はひらがなで持つ。カタカナで入れてもひらがなに直す。空なら付けていないものとする
+- ファイル名とメモは今のとおりで、ローマ字で照らさない
+- 2万枚のライブラリで、絞り込みが0.5秒以内（NFR-02）のままであること
+
+## タスク
+
+- `intent` スキルで ADR を書く：読み仮名を tags と categories の列に持つこと、比べた案（rustmigemo の辞書、読み仮名なし）と却下の理由。requirements.md の FR-418 の細部からリンクする
+- マイグレーション：tags と categories に読み仮名の列を足す
+- Rust：読み仮名を付ける・変えるコマンドを足す。一覧を返すコマンドに読み仮名を含める。テストを先に書く
+- 画面：照らす関数（入力をひらがなに直し、名前と読み仮名に含むかを見る）に単体テストを先に書く（「suwari」→「座り」、「スワリ」→「すわり」、読み仮名なしのひらがな・カタカナの名前、ローマ字の途中の「suwar」）。検索バーの候補、詳細パネルのタグとカテゴリの候補、サイドバーのタグ一覧の絞り込み、設定の「タグ」の検索欄で使う
+- カテゴリの右クリックの「名前と読み仮名を変更…」に、名前と並べて読み仮名の入力欄を置く。タグは、設定の「タグ」のタグの行と、サイドバーのタグの右クリックの「読み仮名を変更…」に置く
+- `src/mocks/ipc.ts` にモックの応答を足し、e2e で読み仮名の入力欄と、ローマ字で出た候補を撮る
+- `docs/user-guide.md` に読み仮名を書く
+
+## 完了の条件
+
+- 読み仮名を付けた「座り」が、「suwari」「すわり」「スワリ」で検索バーと詳細パネルの候補に出る
+- 読み仮名のない「すわり」「スワリ」という名前のタグが「suwari」で出る
+- 2万枚のダミーで絞り込みが0.5秒以内。測った値を報告に書く
+- verify-kura の手順で実アプリを隔離して起動し、マイグレーションの前の写しが `.kura/backups/` にでき、読み仮名が開き直しても残ることを確かめている
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 未決事項（`docs/requirements.md` の10章）に当たる判断や、要件定義書に書いていない操作・表示の判断が要るときは、自分で決めずに報告して止まる。worker.md の「質問せず、自分で選んで進める」より優先する
+- PR のタイトルは `feat: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く。worker.md の PR の形より優先する
+- マージと main への push はしない。worker.md より優先する
+- ブランチは `feat/fr-418-reading`。main の最新から切る
+- コミットメッセージに FR の ID を書く。コードのコメントは日本語で書く
+- 本物の資料フォルダには触れない。読み取りもしない。試すには `scripts/` のダミーを使う
+- 画像ファイルを削除しない。消す操作はゴミ箱へ移すだけにする
+- 色・文字サイズ・余白は `src/styles/tokens.css` の変数だけを使う
+- 画面の動きや文言を変えたら `docs/user-guide.md` も直す
+- Tauri のコマンドを足すときは、`main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` をそろえる（`npm run lint` が見る）
+- DB の列や表を足すときは、`library.rs` の `MIGRATIONS` の末尾に1つ足す。既存のマイグレーションは変えない
+
+## 報告
+
+やったこと、確かめた方法（流したコマンドと結果、スクリーンショットの場所）、残った課題を報告して止まる。次のまとまりには進まない。
+```
+
+#### C
+
+画像を隠すモード（FR-513）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり C、タスク24（FR-513）を担当する。人に見られたくない画像に隠す印を付け、隠すモードの間は印の付いた画像を一覧・詳細・拡大表示・類似画像検索の結果に出さない。開いているボードでは無地の箱に置き換える。細部は ADR-0014 と、2026-11-28 に利用者と決めた要件定義書5.5 の「人に見られたくない画像を隠すモード」に書いてある。
+
+まとまり F（ボードの整列。`src/board/` の整列の部分）が別のセッションで同時に進むことがある。ボードの描画に触れるので、F の変更と食い違ったら報告する。
+
+## 先に読むもの
+
+- `CLAUDE.md`
+- `docs/requirements.md` の5.5 の「人に見られたくない画像を隠すモード（FR-513）」、6章のショートカットの表（⇧⌘H）と「フェーズ4c のメニューバー全体の構成」の「表示」、7章の設定と images の行
+- `docs/adr/0014-hide-mark-as-image-column.md`
+- `GLOSSARY.md` の「隠すモード」「隠す印」
+- `docs/tasks/phase4.md` のタスク24、`docs/tasks/phase4-check.md` の C の該当項目
+- `src-tauri/src/library.rs` の `MIGRATIONS`、`src-tauri/src/settings.rs`、`src-tauri/src/gallery.rs`、`src-tauri/src/similar.rs`、`src-tauri/src/origin.rs`、`src-tauri/src/menu.rs`、`src-tauri/src/board.rs`
+- `src/App.tsx`、`src/galleryData.ts`、`src/filter.ts`、`src/Sidebar.tsx`（件数）、`src/Status.tsx`、`src/contextMenu.ts`、`src/Detail.tsx`、`src/board/Canvas.tsx`
+- `docs/design.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## 注意すること
+
+- 印は images の列に持つ（ADR-0014）。タグで代用しない
+- モードの ON/OFF はアプリ全体の設定（`settings.json`）に置き、ライブラリをまたいで効かせる。開いているボードのウィンドウにも、今の設定の知らせ方で伝える
+- 件数（サイドバー、「出ている枚数 / 全体の枚数」）に隠した画像を含めず、隠している枚数を別に出す。出す場所が要件定義書に書いていなければ報告して止まる
+- ボードでは、配置を同じ位置と大きさの無地の箱にするだけにする。保存する中身（配置）を変えない。`src/board/saveQueue.ts` には触れない
+- メニューバーには「表示」に「隠すモード」（⇧⌘H）だけを足す。メニュー全体の作り直しはまとまり G が行う
+
+## タスク
+
+- マイグレーション：images に隠す印の列を足す
+- Rust：印を付け外しするコマンド、モードの設定の読み書きを足す。一覧・件数・類似画像検索・元が同じ画像の組の結果からモードの間は印の付いた画像を除く（除く場所が画面なら画面で）。テストを先に書く
+- 画面：右クリックメニューと詳細パネルに「隠す印を付ける」「隠す印を外す」を足す（単体テストを先に書く）。モードの間、一覧・詳細・拡大表示に出さない。件数と隠している枚数を出す
+- メニューバー：「表示」に「隠すモード」（⇧⌘H）を足し、モードの間は印を付ける
+- ボード：モードの間、印の付いた画像の配置を無地の箱で描く
+- `src/mocks/ipc.ts` にモックの応答を足し、e2e でモードの前と後の一覧、ボードを撮る
+- `docs/user-guide.md` に隠すモードを書く
+
+## 完了の条件
+
+- モードの間、印の付いた画像が一覧・詳細・拡大表示・類似画像検索の結果・元が同じ画像の組に出ず、件数にも入らない。隠している枚数が出る
+- 開いているボードで、印の付いた画像が同じ位置と大きさの無地の箱になり、モードを切ると戻る。保存された配置は変わらない
+- アプリを閉じて開き直しても、ほかのライブラリに切り替えても、モードが続く
+- verify-kura の手順で実アプリを隔離して起動し、印を付けた画像でモードを切り替え、ボードと一覧で結果を確かめている
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 未決事項（`docs/requirements.md` の10章）に当たる判断や、要件定義書に書いていない操作・表示の判断が要るときは、自分で決めずに報告して止まる。worker.md の「質問せず、自分で選んで進める」より優先する
+- PR のタイトルは `feat: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く。worker.md の PR の形より優先する
+- マージと main への push はしない。worker.md より優先する
+- ブランチは `feat/fr-513-hide-mode`。main の最新から切る
+- コミットメッセージに FR の ID を書く。コードのコメントは日本語で書く
+- 本物の資料フォルダには触れない。読み取りもしない。試すには `scripts/` のダミーを使う
+- 画像ファイルを削除しない。消す操作はゴミ箱へ移すだけにする
+- 色・文字サイズ・余白は `src/styles/tokens.css` の変数だけを使う
+- 画面の動きや文言を変えたら `docs/user-guide.md` も直す
+- Tauri のコマンドを足すときは、`main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` をそろえる（`npm run lint` が見る）
+- DB の列や表を足すときは、`library.rs` の `MIGRATIONS` の末尾に1つ足す。既存のマイグレーションは変えない
+
+## 報告
+
+やったこと、確かめた方法（流したコマンドと結果、スクリーンショットの場所）、残った課題を報告して止まる。次のまとまりには進まない。
+```
+
+#### D
+
+スマートフォルダ（FR-510）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり D、タスク21（FR-510）を担当する。今の絞り込みに名前を付けてスマートフォルダとして保存し、サイドバーから押すと同じ絞り込みにする。細部は 2026-11-28 に利用者と決め、要件定義書5.5 の「スマートフォルダ」に書いてある。
+
+## 先に読むもの
+
+- `CLAUDE.md`
+- `docs/requirements.md` の5.5 の「スマートフォルダ（FR-510。フェーズ4c）の細部」と「絞り込みの細部」、FR-504〜FR-506、FR-516、FR-517、7章の smart_folders の行
+- `GLOSSARY.md` の「スマートフォルダ」
+- `docs/tasks/phase4.md` のタスク21、`docs/tasks/phase4-check.md` の C の該当項目
+- `src-tauri/src/library.rs` の `MIGRATIONS`、`src-tauri/src/tag.rs`（同じ形の一覧と名前の変更の例）
+- `src/filter.ts`（絞り込みの状態）、`src/App.tsx`、`src/Sidebar.tsx`、`src/GalleryToolbar.tsx`
+- `docs/design.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## 注意すること
+
+- 保存するのは絞り込みの状態のすべて（検索語、タグと AND/OR、カテゴリ、除く条件、子カテゴリを含めるか、縦横比・評価・追加した日・タグの有無、並べ替え）。類似画像検索の結果は保存しない
+- 条件は JSON で smart_folders の行に持つ。タグとカテゴリは id で持つ。開いたときに消えていた id は外し、そのことをステータスバーに出す
+- 絞り込みの状態の形を変えたときに古い JSON を読めるよう、足りない項目は初期値で埋めて読む
+
+## タスク
+
+- マイグレーション：smart_folders の表を足す
+- Rust：一覧、保存、名前の変更、削除のコマンドを足す。テストを先に書く
+- 画面：絞り込みの状態と JSON の行き来（足りない項目、消えた id）に単体テストを先に書く。絞り込みの帯に「スマートフォルダとして保存…」、サイドバーに「スマートフォルダ」の見出しと名前の順の一覧、右クリックメニューに名前の変更と削除を置く。押すと保存した絞り込みにする
+- `src/mocks/ipc.ts` にモックの応答を足し、e2e で保存のダイアログ、サイドバー、開いた後の一覧を撮る
+- `docs/user-guide.md` にスマートフォルダを書く
+
+## 完了の条件
+
+- 保存した絞り込みを押すと、同じ絞り込みと並べ替えになる。ライブラリを開き直しても残る
+- 条件のタグを削除してから開くと、そのタグを外した絞り込みになり、ステータスバーに知らせが出る
+- verify-kura の手順で実アプリを隔離して起動し、保存、開き直し、名前の変更、削除を確かめている
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 未決事項（`docs/requirements.md` の10章）に当たる判断や、要件定義書に書いていない操作・表示の判断が要るときは、自分で決めずに報告して止まる。worker.md の「質問せず、自分で選んで進める」より優先する
+- PR のタイトルは `feat: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く。worker.md の PR の形より優先する
+- マージと main への push はしない。worker.md より優先する
+- ブランチは `feat/fr-510-smart-folder`。main の最新から切る
+- コミットメッセージに FR の ID を書く。コードのコメントは日本語で書く
+- 本物の資料フォルダには触れない。読み取りもしない。試すには `scripts/` のダミーを使う
+- 画像ファイルを削除しない。消す操作はゴミ箱へ移すだけにする
+- 色・文字サイズ・余白は `src/styles/tokens.css` の変数だけを使う
+- 画面の動きや文言を変えたら `docs/user-guide.md` も直す
+- Tauri のコマンドを足すときは、`main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` をそろえる（`npm run lint` が見る）
+- DB の列や表を足すときは、`library.rs` の `MIGRATIONS` の末尾に1つ足す。既存のマイグレーションは変えない
+
+## 報告
+
+やったこと、確かめた方法（流したコマンドと結果、スクリーンショットの場所）、残った課題を報告して止まる。次のまとまりには進まない。
+```
+
+#### E
+
+ギャラリーの範囲選択とドラッグ分類（FR-512、FR-514）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり E、タスク22と23（FR-512、FR-514）を担当する。一覧の画像のない所からドラッグして囲んだ画像を選び、選んだ画像をサイドバーのカテゴリかタグへ落として分類する。細部は要件定義書5.5 の「ギャラリーの範囲選択とドラッグ分類」に書いてある。
+
+## 先に読むもの
+
+- `CLAUDE.md`
+- `docs/requirements.md` の5.5 の「ギャラリーの範囲選択とドラッグ分類（FR-512、FR-514。フェーズ4c）の細部」、FR-509、FR-713、5.4 のカテゴリの設定とタグの付け外しの細部、NFR-01
+- `GLOSSARY.md` の「範囲選択」
+- `docs/tasks/phase4.md` のタスク22、23、`docs/tasks/phase4-check.md` の C の該当項目
+- `src/Masonry.tsx`、`src/layout.ts`、`src/selection.ts`、`src/imageDrag.ts`（画像を運ぶドラッグ。FR-713、FR-608）、`src/Gallery.tsx`、`src/Sidebar.tsx`、`src/Classify.tsx`
+- `spikes/masonry-scroll/`（2万枚の描画の測り方）
+- `docs/design.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## 注意すること
+
+- 画像の上からのドラッグ（画像を運ぶ）と、画像のない所からのドラッグ（範囲選択）を区別する。今の画像を運ぶドラッグ（ボードへの追加）を壊さない
+- 範囲に入る画像は、描いている画像だけでなく、`layout.ts` の位置から求める。2万枚でもドラッグが引っかからないこと（NFR-01）
+- 落としたときのカテゴリの変更とタグの付け方は、詳細パネルと同じ処理（同じ Tauri のコマンド、移動の確認の設定、移せなかった画像のダイアログ）を使う。新しい Rust のコマンドは要らないはず。要るなら報告する
+- スマートフォルダとゴミ箱には落とせない
+
+## タスク
+
+- 範囲に入る画像を求める関数と、⌘ と Shift で足す選択に、単体テストを先に書く
+- 一覧で画像のない所からのドラッグで囲む枠を描き、囲んだ画像を選ぶ
+- 選んだ画像をサイドバーのカテゴリ、「未分類」、タグへ落とせるようにし、運んでいる間は落とせる所を枠で示す
+- e2e で範囲選択の途中と後、サイドバーへ運んでいる途中を撮る
+- 2万枚のダミーで、ドラッグの1フレームの時間を測る
+- `docs/user-guide.md` に範囲選択とドラッグ分類を書く
+
+## 完了の条件
+
+- 囲んだ画像が選ばれる。⌘ か Shift で今の選択に足せる
+- 2万枚のダミーでドラッグが引っかからない。測った値を報告に書く
+- カテゴリへ落とすと実ファイルも移り、タグへ落とすとタグが付く。ボードへのドラッグも今までどおり動く
+- verify-kura の手順で実アプリを隔離して起動し、範囲選択からカテゴリとタグへの分類を確かめ、Finder でファイルの場所を見ている
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 未決事項（`docs/requirements.md` の10章）に当たる判断や、要件定義書に書いていない操作・表示の判断が要るときは、自分で決めずに報告して止まる。worker.md の「質問せず、自分で選んで進める」より優先する
+- PR のタイトルは `feat: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く。worker.md の PR の形より優先する
+- マージと main への push はしない。worker.md より優先する
+- ブランチは `feat/fr-512-514-drag`。main の最新から切る
+- コミットメッセージに FR の ID を書く。コードのコメントは日本語で書く
+- 本物の資料フォルダには触れない。読み取りもしない。試すには `scripts/` のダミーを使う
+- 画像ファイルを削除しない。消す操作はゴミ箱へ移すだけにする
+- 色・文字サイズ・余白は `src/styles/tokens.css` の変数だけを使う
+- 画面の動きや文言を変えたら `docs/user-guide.md` も直す
+- Tauri のコマンドを足すときは、`main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` をそろえる（`npm run lint` が見る）
+- DB の列や表を足すときは、`library.rs` の `MIGRATIONS` の末尾に1つ足す。既存のマイグレーションは変えない
+
+## 報告
+
+やったこと、確かめた方法（流したコマンドと結果、スクリーンショットの場所）、残った課題を報告して止まる。次のまとまりには進まない。
+```
+
+#### F
+
+ボードの整列（FR-709）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり F、タスク25（FR-709）を担当する。ボードの選んだ配置（選んでいなければすべて）を、高さをそろえて左から右へ行に詰めて並べ直す。細部は 2026-11-28 に利用者と決め、要件定義書5.7 の「選択・配置・表示の加工」に書いてある。
+
+まとまり A〜C（Rust、マイグレーション、ギャラリー）が別のセッションで同時に進む。`src/board/` の整列の部分だけに触れる。
+
+## 先に読むもの
+
+- `CLAUDE.md`
+- `docs/requirements.md` の5.7 の「選択・配置・表示の加工」（整列と取り消し）、「保存とウィンドウの終了」
+- `GLOSSARY.md` の「整列」
+- `docs/tasks/phase4.md` のタスク25、`docs/tasks/phase4-check.md` の C の該当項目
+- `src/board/BoardApp.tsx`、`src/board/Canvas.tsx`、`src/board/geometry.ts`、`src/board/stack.ts`（取り消し）、`src/board/types.ts`
+- `.claude/skills/verify-board-save/SKILL.md`
+- `docs/design.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## 注意すること
+
+- 整列は配置の位置と倍率だけを変える。回転・反転・トリミングは変えない。回転した配置の大きさは、今の選択枠の求め方に合わせる
+- 整列は取り消しの1操作にし、今の編集と同じ経路で自動保存に乗せる。`src/board/saveQueue.ts` は変えない
+- Tauri のコマンドもマイグレーションも足さない。`main.rs`、`library.rs`、`src/mocks/ipc.ts` には触れない（ほかのまとまりが触る）
+- 行の高さの決め方（たとえば配置の高さの中央値）は要件定義書にない。決めるときは報告して止まる
+
+## タスク
+
+- 並べ直す関数（配置の並び → 新しい位置と倍率）に単体テストを先に書く：並べる順（上から下、同じ高さなら左から右）、起点が元の範囲の左上、行の幅が元の範囲の幅、1枚だけ、回転した配置
+- 右クリックメニューと上部に「整列」を置く。選んでいなければすべての配置を並べる
+- 整列を取り消しの1操作にする
+- e2e で整列の前と後を撮る
+- `docs/user-guide.md` に整列を書く
+
+## 完了の条件
+
+- 選んだ配置が高さをそろえて行に並び、⌘Z で1回で戻る。⇧⌘Z でやり直せる
+- 閉じて開き直しても、整列した配置が残る
+- `src/board/` の保存のキューの使い方を変えたら `.claude/skills/verify-board-save/check.sh` が通る
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 未決事項（`docs/requirements.md` の10章）に当たる判断や、要件定義書に書いていない操作・表示の判断が要るときは、自分で決めずに報告して止まる。worker.md の「質問せず、自分で選んで進める」より優先する
+- PR のタイトルは `feat: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く。worker.md の PR の形より優先する
+- マージと main への push はしない。worker.md より優先する
+- ブランチは `feat/fr-709-arrange`。main の最新から切る
+- コミットメッセージに FR の ID を書く。コードのコメントは日本語で書く
+- 本物の資料フォルダには触れない。読み取りもしない。試すには `scripts/` のダミーを使う
+- 画像ファイルを削除しない。消す操作はゴミ箱へ移すだけにする
+- 色・文字サイズ・余白は `src/styles/tokens.css` の変数だけを使う
+- 画面の動きや文言を変えたら `docs/user-guide.md` も直す
+- Tauri のコマンドを足すときは、`main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` をそろえる（`npm run lint` が見る）
+- DB の列や表を足すときは、`library.rs` の `MIGRATIONS` の末尾に1つ足す。既存のマイグレーションは変えない
+
+## 報告
+
+やったこと、確かめた方法（流したコマンドと結果、スクリーンショットの場所）、残った課題を報告して止まる。次のまとまりには進まない。
+```
+
+#### G
+
+メニューバーの再構成、Google 画像検索、ヘルプ（6章、FR-612、NFR-14）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり G、タスク26、27e、27f を担当する。メニューバーを要件定義書6章の「フェーズ4c のメニューバー全体の構成」に作り直し、「Google 画像検索で探す」（FR-612）と「Kura ヘルプ」（NFR-14）を足す。細部は 2026-11-28 に利用者と決めた。
+
+## 先に読むもの
+
+- `CLAUDE.md`
+- `docs/requirements.md` の6章のショートカットの表、フェーズ2とフェーズ4b のメニューの決まり、「フェーズ4c のメニューバー全体の構成」、5.6 の「Google 画像検索で出典を探す」、NFR-08、NFR-09、NFR-14
+- `GLOSSARY.md` の「Kura ヘルプ」
+- `docs/tasks/phase4.md` のタスク26、27e、27f、`docs/tasks/phase4-check.md` の C の該当項目
+- `src-tauri/src/menu.rs`、`src-tauri/src/windows.rs`、`src-tauri/tauri.conf.json`（同梱するファイル）、`src-tauri/src/source.rs`（元URL）
+- `src/App.tsx`（メニューの知らせの受け方）、`src/editMenu.ts`、`src/contextMenu.ts`
+- `docs/user-guide.md`（ヘルプの中身）、`scripts/check-docs.mjs`
+- `docs/design.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## 注意すること
+
+- メニューの項目は、キーを押したときと同じ操作にする。押せる条件は詳細パネルや右クリックメニューの同じ操作にそろえる。アイデアボードと類似画像検索が OFF の間は、その項目を隠す
+- Google 画像検索では、アプリ自身は通信しない。元URL（画像URL）があれば `https://lens.google.com/uploadbyurl?url=<URL を符号化したもの>` を、なければ元の画像をクリップボードに写して `https://lens.google.com/` を既定のブラウザで開く。クリップボードへ画像を写す手段が Tauri のプラグインに要るなら、足す前に報告する
+- ヘルプは `docs/user-guide.md` と `docs/images/` の画像をビルドのたびにアプリに入れ、アプリの別ウインドウで出す。ネットワークにつながっていなくても読めること。Markdown を HTML にするための依存を足すなら、すでに入っているもので済まないかを先に確かめる
+- user-guide の中のリンク（別の文書や外のページ）の扱いが要件定義書にない。決めるときは報告して止まる
+
+## タスク
+
+- `menu.rs` を6章の構成に作り直す。項目と押せる条件に単体テストを先に書く
+- 右クリックメニューとメニューバーの「ファイル」に「Google 画像検索で探す」を足す。開く URL を作る関数に単体テストを先に書く（元URLあり・なし、符号化）
+- ヘルプのウインドウと、user-guide をアプリに入れる仕組みを作る。中身が `docs/user-guide.md` と同じことを確かめる検査を足す（ビルドか `scripts/check-docs.mjs`）
+- 要件定義書6章のショートカットの表とメニューの構成が実装と一致することを確かめる
+- e2e で右クリックメニューとヘルプのウインドウを撮る
+- `docs/user-guide.md` にメニューバー、Google 画像検索、ヘルプを書く
+
+## 完了の条件
+
+- メニューバーが6章の構成のとおりで、どの項目もキーを押したときと同じ操作になる
+- 元URLのある画像で Google レンズの URL での検索が、元URLのない画像では画像がクリップボードに入って Google レンズがブラウザで開く。押さない限り通信しない
+- ネットワークを切った状態で「Kura ヘルプ」が開き、中身が `docs/user-guide.md` と同じ
+- verify-kura の手順で実アプリを隔離して起動し、メニューバーのすべての項目、Google 画像検索、ヘルプを確かめている
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 未決事項（`docs/requirements.md` の10章）に当たる判断や、要件定義書に書いていない操作・表示の判断が要るときは、自分で決めずに報告して止まる。worker.md の「質問せず、自分で選んで進める」より優先する
+- PR のタイトルは `feat: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く。worker.md の PR の形より優先する
+- マージと main への push はしない。worker.md より優先する
+- ブランチは `feat/4c-menu-help`。main の最新から切る
+- コミットメッセージに FR の ID を書く。コードのコメントは日本語で書く
+- 本物の資料フォルダには触れない。読み取りもしない。試すには `scripts/` のダミーを使う
+- 画像ファイルを削除しない。消す操作はゴミ箱へ移すだけにする
+- 色・文字サイズ・余白は `src/styles/tokens.css` の変数だけを使う
+- 画面の動きや文言を変えたら `docs/user-guide.md` も直す
+- Tauri のコマンドを足すときは、`main.rs` の `generate_handler!`、`src/mocks/ipc.ts`、画面の `invoke` をそろえる（`npm run lint` が見る）
+- DB の列や表を足すときは、`library.rs` の `MIGRATIONS` の末尾に1つ足す。既存のマイグレーションは変えない
+
+## 報告
+
+やったこと、確かめた方法（流したコマンドと結果、スクリーンショットの場所）、残った課題を報告して止まる。次のまとまりには進まない。
+```
+
+#### H
+
+検証手順、文書、リリース準備（タスク28）。
+
+```text
+Read /Users/kk6/.claude/plugins/marketplaces/cursor-plugins/pstack/skills/poteto-mode/worker.md before anything else.
+
+## 背景
+
+Kura のフェーズ4c（`docs/tasks/phase4.md` のタスク20〜29）のまとまり H、タスク28を担当する。4c の対象（FR-417、FR-418、FR-510、FR-512、FR-513、FR-514、FR-612、FR-709、NFR-14、メニューバーの再構成）を通して確かめ、文書を直し、リリースの準備をする。新しい機能は足さない。
+
+## 先に読むもの
+
+- `CLAUDE.md`（リリースの手順、決まりとそれを守る仕組み）
+- `docs/tasks/phase4.md` のタスク9（リリース準備の中身）と、`docs/tasks/phase4-check.md` の C
+- `docs/tasks/phase4-sessions.md` の 4b の G のブリーフ（前回のリリース準備）
+- `README.md`、`CHANGELOG.md`、`homepage/`、`docs/user-guide.md`
+- `.claude/skills/verify-kura/SKILL.md`
+
+## タスク
+
+- verify-kura の手順でリリース用ビルドを隔離して起動し、`phase4-check.md` の C を上から通して確かめる。利用者だけが確かめる項目（本物のライブラリなど）は残す
+- 4c で書いた ADR、要件定義書、GLOSSARY.md、user-guide が実装と合っているかを照らす
+- README の「できること」と紹介ページを、CHANGELOG の項と照らす
+- フェーズ4がすべて終わるので、要件定義書9章のフェーズ4の見出しに「（完了：<版>）」を付けるかを利用者に確かめる。付けるなら `scripts/check-docs.mjs` が見る古い記述を直す
+- `npm run version:set -- <版>` で版をそろえ、`CHANGELOG.md` に項を書く。版は利用者に確かめる
+
+## 完了の条件
+
+- `phase4-check.md` の C の、利用者だけが確かめる項目を除くすべてに印が付いている
+- `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`npm run lint`、`npm test`、`npm run test:e2e` が通る
+
+## 守ること
+
+- 版と、フェーズ4を閉じるかは自分で決めずに利用者に確かめる
+- PR のタイトルは `chore: <日本語の要約>（FR-xxx）` の形にし、説明は日本語の `## 変更`、`## 理由` の見出しで書く
+- マージ、main への push、タグの push はしない
+- ブランチは `chore/4c-release-prep`。main の最新から切る
+- 本物の資料フォルダには触れない
+
+## 報告
+
+確かめた項目と結果、直した文書、利用者に確かめてほしいこと（版、フェーズを閉じるか、利用者だけが確かめる項目）を報告して止まる。
+```
+
+
 ## 4b
 
 2026-11-23 作成。タスク11（未決事項を決める）は #66 で済ませました。FR-606 の置き場所、FR-608 の落とし先、FR-109 で登録しなかったファイルの移し先は、このまとまりを書くときに利用者と決め、要件定義書に書き戻しました。
