@@ -380,7 +380,7 @@ test('右クリックの「「<ボード名>」に追加」は最後に追加し
     'カテゴリを変える…',
     '1つ上のカテゴリへ移す',
     'Finderで表示',
-    '隠す印を付ける',
+    'NSFWとしてマークする',
     'ゴミ箱へ移す',
   ])
   await page.screenshot({ path: 'test-results/context-menu-last-board.png' })

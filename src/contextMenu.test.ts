@@ -83,7 +83,7 @@ describe('imageMenu', () => {
     expect(imageMenu('gallery', { ...ALL_ON, count: 2 })).not.toContain('merge')
   })
 
-  it('印のない画像を含めば「隠す印を付ける」、印のある画像を含めば「隠す印を外す」を Finder で表示の後に出す', () => {
+  it('印のない画像を含めば「NSFWとしてマークする」、印のある画像を含めば「隠す印を外す」を Finder で表示の後に出す', () => {
     expect(imageMenu('gallery', { ...ALL_ON, unmarked: true })).toEqual([
       'similar',
       'board',

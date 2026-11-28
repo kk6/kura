@@ -56,7 +56,7 @@ export const ACTION_LABELS: Record<Exclude<ImageAction, 'lastBoard'>, string> = 
   category: 'カテゴリを変える…',
   parent: '1つ上のカテゴリへ移す',
   reveal: 'Finderで表示',
-  hide: '隠す印を付ける',
+  hide: 'NSFWとしてマークする',
   unhide: '隠す印を外す',
   merge: '1枚にまとめる…',
   trash: 'ゴミ箱へ移す',

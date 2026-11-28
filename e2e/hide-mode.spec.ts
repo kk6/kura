@@ -16,7 +16,7 @@ test('隠す印を付けた画像は、隠すモードの間は一覧と件数�
 
   // 右クリックで1枚、詳細パネルでもう1枚に印を付ける
   await thumb(page, 2).click({ button: 'right' })
-  await page.getByRole('menuitem', { name: '隠す印を付ける' }).click()
+  await page.getByRole('menuitem', { name: 'NSFWとしてマークする' }).click()
   await thumb(page, 3).click()
   const detail = page.getByRole('complementary', { name: '詳細' })
   await detail.getByRole('button', { name: '隠す印を付ける' }).click()
